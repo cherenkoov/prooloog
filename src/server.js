@@ -92,6 +92,7 @@ function build() {
   const session = async (user, role) => ({
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
     caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name() }, ownerOnly: [...cfg.ownerOnly],
+    projects: role === 'owner' ? null : await auth.scopeOf(user.id),
   });
   api.post('/auth/telegram', authLimit, json, async (req, res) => {
     const user = auth.checkInitData(req.body && req.body.initData);
@@ -110,35 +111,52 @@ function build() {
     res.json(await session({ id }, role));
   });
   api.get('/me', auth.guard(), async (req, res) => {
-    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name() }, ownerOnly: [...cfg.ownerOnly] });
+    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
     bot.maybeBackup();
   });
 
   api.get('/db/:coll', auth.guard(), async (req, res) => {
     const coll = collOf(req, res, false); if (!coll) return;
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ docs: await db.listDocs(coll) });
+    const docs = await db.listDocs(coll), sc = req.user.projects;
+    res.json({ docs: sc ? docs.filter((d) => auth.sees(sc, coll, d.id, d.data)) : docs });
   });
+  // A member with a project list writes only inside those projects and cannot add or remove projects.
+  // cur is the record now (or null), next is what it becomes (null for a deletion).
+  const mayWrite = (req, res, coll, id, cur, next) => {
+    const sc = req.user.projects;
+    if (!sc) return true;
+    const bad = coll === 'settings' || (coll === 'projects' ? !cur || !sc.includes(id) || next === null
+      : (cur && !auth.sees(sc, coll, id, cur.data)) || (next !== null && !auth.sees(sc, coll, id, next)));
+    if (bad) res.status(403).json({ error: 'forbidden' });
+    return !bad;
+  };
   api.put('/db/:coll/:id', auth.guard('write'), json, async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
+    const cur = await db.getDoc(coll, req.params.id);
+    if (!mayWrite(req, res, coll, req.params.id, cur, req.body.data)) return;
     const d = await db.setDoc(coll, req.params.id, req.body.data);
-    hub.publish(coll, d.id, d.data, d.version, srcOf(req));
+    hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     res.json({ ok: true, version: d.version });
   });
   api.patch('/db/:coll/:id', auth.guard('write'), json, async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
+    const cur = await db.getDoc(coll, req.params.id);
+    if (!mayWrite(req, res, coll, req.params.id, cur, Object.assign({}, cur ? cur.data : {}, req.body.data))) return;
     const d = await db.updateDoc(coll, req.params.id, req.body.data);
     if (!d) return res.status(404).json({ error: 'not_found' });
-    hub.publish(coll, d.id, d.data, d.version, srcOf(req));
+    hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     res.json({ ok: true, version: d.version });
   });
   api.delete('/db/:coll/:id', auth.guard('write'), async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    const cur = await db.getDoc(coll, req.params.id);
+    if (!mayWrite(req, res, coll, req.params.id, cur, null)) return;
     const was = await db.deleteDoc(coll, req.params.id);
-    hub.publish(coll, req.params.id, null, 0, srcOf(req));
+    hub.publish(coll, req.params.id, null, 0, srcOf(req), cur && cur.data);
     // A deletion leaves a mark: when two copies of the data are merged, the record does not come back.
     if (was && coll !== 'gone' && coll !== 'activity') {
       const at = new Date().toISOString();
@@ -149,6 +167,48 @@ function build() {
   });
 
   api.get('/stream', auth.guard(), (req, res) => hub.attach(req, res, req.user));
+
+  /* ---------- sharing: who has access, invite links ---------- */
+  const cleanAccess = async (b) => {
+    const role = b && b.role === 'editor' ? 'editor' : 'viewer';
+    if (!b || b.projects === null || b.projects === undefined || b.projects === '*') return { role, projects: null };
+    if (!Array.isArray(b.projects)) return null;
+    const known = new Set((await db.listDocs('projects')).map((p) => p.id));
+    const list = [...new Set(b.projects.filter((x) => typeof x === 'string' && known.has(x)))];
+    return list.length ? { role, projects: list } : null;
+  };
+  api.get('/share', auth.guard('owner'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      bot: bot.name(),
+      members: (await db.listMembers()).map((m) => ({ id: m.id, name: m.name, username: m.username, role: m.role === 'editor' ? 'editor' : 'viewer', projects: Array.isArray(m.projects) ? m.projects : null })),
+      links: (await db.listInviteLinks()).map((l) => ({ token: l.token, role: l.role, projects: Array.isArray(l.projects) ? l.projects : null, expires: l.expires_at, url: bot.name() ? 'https://t.me/' + bot.name() + '?start=inv_' + l.token : '' })),
+      // invited through the bot by name (/invite @name), have not come in yet: all projects
+      names: (await db.listInvites()).map((x) => ({ username: x.username, role: x.role === 'editor' ? 'editor' : 'viewer' })),
+    });
+  });
+  api.post('/share/links', auth.guard('owner'), authLimit, json, async (req, res) => {
+    const a = await cleanAccess(req.body);
+    if (!a) return res.status(400).json({ error: 'bad_request' });
+    if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
+    const token = await db.createInviteLink(a.role, a.projects, 7);
+    res.json({ token, url: 'https://t.me/' + bot.name() + '?start=inv_' + token, role: a.role, projects: a.projects });
+  });
+  api.delete('/share/links/:token', auth.guard('owner'), async (req, res) => { res.json({ ok: await db.dropInviteLink(String(req.params.token)) }); });
+  api.delete('/share/names/:username', auth.guard('owner'), async (req, res) => { res.json({ ok: (await db.removeInvite(String(req.params.username).toLowerCase())) > 0 }); });
+  api.patch('/share/members/:id', auth.guard('owner'), json, async (req, res) => {
+    const a = await cleanAccess(req.body);
+    if (!a || !/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    const ok = await db.setMemberAccess(req.params.id, a.role, a.projects);
+    if (ok) hub.setAccess(req.params.id, a.role, a.projects);
+    res.status(ok ? 200 : 404).json({ ok });
+  });
+  api.delete('/share/members/:id', auth.guard('owner'), async (req, res) => {
+    if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    const ok = await db.removeMember(req.params.id);
+    if (ok) hub.dropUser(req.params.id);
+    res.json({ ok });
+  });
 
   // Pictures for service cards. Stored in the database: the server's own disk is wiped on every deploy.
   api.post('/files', auth.guard('write'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {

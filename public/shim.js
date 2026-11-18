@@ -169,7 +169,19 @@
       }
       emit(m.coll);
     });
-    es.addEventListener('reload', function () { Object.keys(loaded).forEach(refetch); });
+    // Everything changed, or this person's access did: check the access first, then load again.
+    es.addEventListener('reload', function () {
+      api('GET', '/me').then(function (j) {
+        // another level, or all projects instead of some: the page is built differently, so it starts again
+        var turned = !me || j.role !== me.role || Array.isArray(j.projects) !== Array.isArray(me.projects);
+        me = j;
+        if (turned) { try { es.close(); } catch (x) { /* already closed */ } location.reload(); return; }
+        Object.keys(loaded).forEach(refetch);
+      }, function (e) {
+        if (e.status === 401 || e.status === 403) { try { es.close(); } catch (x) { /* already closed */ } gate('no_access'); }
+        else Object.keys(loaded).forEach(refetch);
+      });
+    });
   }
 
   /* ---------- Claude answers, when the server has a key ---------- */
@@ -239,7 +251,18 @@
   };
   var userNs = {
     can: function () { return Promise.resolve(!!me && me.role !== 'viewer'); },
-    isOwner: function () { return Promise.resolve(!!me && me.role === 'owner'); }
+    isOwner: function () { return Promise.resolve(!!me && me.role === 'owner'); },
+    // true for a member who sees only some of the projects
+    scoped: function () { return Promise.resolve(!!me && Array.isArray(me.projects)); }
+  };
+  // Who has access and invite links; for the owner only.
+  var shareNs = {
+    list: function () { return api('GET', '/share'); },
+    create: function (role, projects) { return api('POST', '/share/links', { role: role, projects: projects }); },
+    dropLink: function (token) { return api('DELETE', '/share/links/' + encodeURIComponent(token)); },
+    dropName: function (username) { return api('DELETE', '/share/names/' + encodeURIComponent(username)); },
+    setMember: function (id, role, projects) { return api('PATCH', '/share/members/' + encodeURIComponent(id), { role: role, projects: projects }); },
+    dropMember: function (id) { return api('DELETE', '/share/members/' + encodeURIComponent(id)); }
   };
 
   /* ---------- start ---------- */
@@ -261,6 +284,7 @@
         if (name === 'user') return userNs;
         if (name === 'files') return filesNs;
         if (name === 'downloads') return downloadsNs;
+        if (name === 'share') return me && me.role === 'owner' ? shareNs : null;
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;
         return null;
       }, function () { return never; });

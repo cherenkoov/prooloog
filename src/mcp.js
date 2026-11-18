@@ -73,16 +73,17 @@ async function call(name, a) {
     const done = [], at = new Date().toISOString();
     for (const o of a.ops) {
       if (o.op === 'delete') {
+        const old = await db.getDoc(o.collection, o.id);
         const was = await db.deleteDoc(o.collection, o.id);
-        hub.publish(o.collection, o.id, null, 0);
+        hub.publish(o.collection, o.id, null, 0, '', old && old.data);
         if (was && o.collection !== 'gone' && o.collection !== 'activity') { const g = await db.setDoc('gone', sync.goneId(o.collection, o.id), { c: o.collection, i: o.id, at, u: at }); hub.publish('gone', g.id, g.data, g.version); }
         done.push({ op: 'delete', collection: o.collection, id: o.id, existed: was });
         continue;
       }
-      const data = Object.assign({}, o.data, { u: at });
+      const data = Object.assign({}, o.data, { u: at }), old = await db.getDoc(o.collection, o.id);
       const d = o.op === 'set' ? await db.setDoc(o.collection, o.id, data) : await db.updateDoc(o.collection, o.id, data);
       if (!d) throw fail('Nothing to merge into: ' + o.collection + '/' + o.id + ' does not exist. Changes before it were saved.');
-      hub.publish(o.collection, d.id, d.data, d.version);
+      hub.publish(o.collection, d.id, d.data, d.version, '', old && old.data);
       done.push({ op: o.op, collection: o.collection, id: o.id, version: d.version });
     }
     return { done };

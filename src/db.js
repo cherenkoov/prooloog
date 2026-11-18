@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS bot_state (
   state jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE members ADD COLUMN IF NOT EXISTS projects jsonb;
+CREATE TABLE IF NOT EXISTS invite_links (
+  token text PRIMARY KEY,
+  role text NOT NULL DEFAULT 'viewer',
+  projects jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  used_by bigint,
+  used_at timestamptz
+);
 CREATE TABLE IF NOT EXISTS sent_reminders (
   key text PRIMARY KEY,
   at timestamptz NOT NULL DEFAULT now()
@@ -206,7 +216,7 @@ async function kvClaim(k, v) {
   await q('INSERT INTO kv (k, v) VALUES ($1, $2::jsonb) ON CONFLICT (k) DO NOTHING', [k, JSON.stringify(v)]);
   return kvGet(k);
 }
-async function getMember(tgId) { const r = await q('SELECT tg_id::text AS id, username, name, role FROM members WHERE tg_id = $1', [tgId]); return r.rows[0] || null; }
+async function getMember(tgId) { const r = await q('SELECT tg_id::text AS id, username, name, role, projects FROM members WHERE tg_id = $1', [tgId]); return r.rows[0] || null; }
 async function upsertMember(tgId, username, name, role) {
   await q(`INSERT INTO members (tg_id, username, name, role, last_seen) VALUES ($1, $2, $3, $4, now())
            ON CONFLICT (tg_id) DO UPDATE SET username = EXCLUDED.username, name = EXCLUDED.name, role = EXCLUDED.role, last_seen = now()`,
@@ -215,8 +225,30 @@ async function upsertMember(tgId, username, name, role) {
 async function touchMember(tgId, username, name) {
   await q('UPDATE members SET username = $2, name = $3, last_seen = now() WHERE tg_id = $1', [tgId, username || '', name || '']);
 }
-async function listMembers() { const r = await q('SELECT tg_id::text AS id, username, name, role FROM members ORDER BY created_at'); return r.rows; }
-async function removeMemberByUsername(username) { const r = await q('DELETE FROM members WHERE lower(username) = $1', [username]); return r.rowCount; }
+async function listMembers() { const r = await q('SELECT tg_id::text AS id, username, name, role, projects FROM members ORDER BY created_at'); return r.rows; }
+// projects: null for every project, or a list of project ids.
+async function setMemberAccess(tgId, role, projects) {
+  const r = await q('UPDATE members SET role = $2, projects = $3::jsonb WHERE tg_id = $1', [tgId, role, projects === null ? null : JSON.stringify(projects)]);
+  return r.rowCount > 0;
+}
+async function removeMember(tgId) { const r = await q('DELETE FROM members WHERE tg_id = $1', [tgId]); return r.rowCount > 0; }
+/* invite links: one person, one use, a limited life */
+async function createInviteLink(role, projects, days = 7) {
+  const token = crypto.randomBytes(15).toString('base64url');
+  await q("DELETE FROM invite_links WHERE (used_at IS NOT NULL AND used_at < now() - interval '30 days') OR expires_at < now() - interval '30 days'");
+  await q("INSERT INTO invite_links (token, role, projects, expires_at) VALUES ($1, $2, $3::jsonb, now() + ($4 || ' days')::interval)", [token, role, projects === null ? null : JSON.stringify(projects), String(days)]);
+  return token;
+}
+async function listInviteLinks() {
+  const r = await q('SELECT token, role, projects, expires_at FROM invite_links WHERE used_at IS NULL AND expires_at > now() ORDER BY created_at DESC');
+  return r.rows;
+}
+async function useInviteLink(token, tgId) {
+  const r = await q('UPDATE invite_links SET used_by = $2, used_at = now() WHERE token = $1 AND used_at IS NULL AND expires_at > now() RETURNING role, projects', [token, tgId]);
+  return r.rows[0] || null;
+}
+async function dropInviteLink(token) { const r = await q('DELETE FROM invite_links WHERE token = $1 AND used_at IS NULL', [token]); return r.rowCount > 0; }
+async function removeMemberByUsername(username) { const r = await q('DELETE FROM members WHERE lower(username) = $1 RETURNING tg_id::text AS id', [username]); return r.rows.map((x) => x.id); }
 async function setInvite(username, role) {
   await q('INSERT INTO invites (username, role) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET role = EXCLUDED.role, created_at = now()', [username, role]);
 }
@@ -254,6 +286,7 @@ module.exports = {
   init, close, q, sanitize, merge,
   listDocs, getDoc, setDoc, updateDoc, mutateDoc, deleteDoc, countDocs, exportAll, importAll,
   kvGet, kvSet, kvClaim, getMember, upsertMember, touchMember, listMembers, removeMemberByUsername,
+  setMemberAccess, removeMember, createInviteLink, listInviteLinks, useInviteLink, dropInviteLink,
   setInvite, takeInvite, listInvites, removeInvite,
   createLoginCode, useLoginCode, getState, setState, putFile, getFile,
 };

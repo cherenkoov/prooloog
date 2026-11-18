@@ -68,7 +68,7 @@ test.before(async () => {
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
-  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders');
+  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders, invite_links');
   await db.close();
   srv = await require('../src/server').start();
   await new Promise((r) => setTimeout(r, 300));   // bot.setup() talks to the Telegram stand-in
@@ -564,6 +564,110 @@ test('reminders: rules of the event, the call link, a participant with rules of 
   assert.deepEqual(remind.rules([5, '15', 5, 0, 99999, 60]), [60, 15, 5]);
   await call('PUT', '/api/db/settings/main', { token: ownerToken, json: { data: { capacity: 40 } } });
   clock.forget();
+});
+
+test('invite link: access to chosen projects at a chosen level', async () => {
+  const CAROL = { id: 777006, first_name: 'Carol', username: 'carol_guest' }, DAN = { id: 777007, first_name: 'Dan', username: 'dan_guest' };
+  const put = (path, data, token = ownerToken) => call('PUT', '/api/db/' + path, { token, json: { data } });
+  await put('projects/p-a2', { name: 'Открытый проект', status: 'active', order: 50 });
+  await put('projects/p-b2', { name: 'Закрытый проект', status: 'active', order: 51 });
+  await put('tasks/ta-1', { title: 'В открытом', project: 'p-a2' });
+  await put('tasks/tb-1', { title: 'В закрытом', project: 'p-b2' });
+  await put('inbox/in-free', { text: 'Мысль без проекта' });
+  // only the owner makes links; a link needs real projects
+  assert.equal((await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'viewer', projects: ['nope'] } })).status, 400);
+  const link = await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'viewer', projects: ['p-a2', 'nope'] } });
+  assert.equal(link.status, 200); assert.deepEqual(link.json.projects, ['p-a2']);
+  assert.match(link.json.url, /^https:\/\/t\.me\/prooloog_test_bot\?start=inv_[A-Za-z0-9_-]{16,}$/);
+  const share0 = (await call('GET', '/api/share', { token: ownerToken })).json;
+  assert.ok(share0.links.some((l) => l.token === link.json.token && l.url === link.json.url));
+  // the owner opening his own link changes nothing; a guest gets in
+  await update(msg(OWNER, { text: '/start inv_' + link.json.token }));
+  assert.match(lastSay().params.text, /собственная ссылка/);
+  let n = tgCalls.length;
+  await update(msg(CAROL, { text: '/start inv_' + link.json.token }));
+  const said = sinceMark(n, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text]);
+  assert.match(said.find((x) => x[0] === String(CAROL.id))[1], /открыт доступ[\s\S]*Открытый проект[\s\S]*можно смотреть/);
+  assert.match(said.find((x) => x[0] === String(OWNER.id))[1], /Carol[\s\S]*открыл приглашение[\s\S]*зритель/);
+  await update(msg(DAN, { text: '/start inv_' + link.json.token }));
+  assert.match(lastSay().params.text, /уже использована/);
+  assert.equal((await call('POST', '/api/auth/telegram', { json: { initData: initData(DAN) } })).status, 403);
+  // Carol sees one project and what belongs to it
+  const c = await call('POST', '/api/auth/telegram', { json: { initData: initData(CAROL) } });
+  assert.equal(c.json.role, 'viewer'); assert.deepEqual(c.json.projects, ['p-a2']);
+  const ct = c.json.token, ids = async (coll) => (await call('GET', '/api/db/' + coll, { token: ct })).json.docs.map((d) => d.id);
+  assert.deepEqual(await ids('projects'), ['p-a2']);
+  assert.deepEqual(await ids('tasks'), ['ta-1']);
+  assert.deepEqual(await ids('inbox'), []);
+  assert.equal((await call('GET', '/api/db/settings', { token: ct })).status, 200);
+  assert.equal((await call('GET', '/api/db/money', { token: ct })).status, 403);
+  assert.equal((await put('tasks/ta-2', { title: 'x', project: 'p-a2' }, ct)).status, 403, 'a viewer never writes');
+  assert.equal((await call('GET', '/api/share', { token: ct })).status, 403);
+  // the owner raises her to editor of the same project
+  assert.equal((await call('PATCH', '/api/share/members/' + CAROL.id, { token: ownerToken, json: { role: 'editor', projects: ['p-a2'] } })).status, 200);
+  assert.equal((await put('tasks/ta-2', { title: 'От Carol', project: 'p-a2' }, ct)).status, 200);
+  assert.equal((await put('tasks/tb-2', { title: 'Чужое', project: 'p-b2' }, ct)).status, 403);
+  assert.equal((await put('tasks/ta-3', { title: 'Без проекта' }, ct)).status, 403);
+  assert.equal((await call('PATCH', '/api/db/tasks/ta-2', { token: ct, json: { data: { project: 'p-b2' } } })).status, 403, 'cannot move a record out');
+  assert.equal((await call('PATCH', '/api/db/tasks/tb-1', { token: ct, json: { data: { title: 'взлом' } } })).status, 403);
+  assert.equal((await call('DELETE', '/api/db/tasks/tb-1', { token: ct })).status, 403);
+  assert.equal((await put('projects/p-new', { name: 'Новый' }, ct)).status, 403);
+  assert.equal((await call('DELETE', '/api/db/projects/p-a2', { token: ct })).status, 403);
+  assert.equal((await call('PATCH', '/api/db/projects/p-a2', { token: ct, json: { data: { next: 'Шаг от Carol' } } })).status, 200);
+  assert.equal((await call('PATCH', '/api/db/settings/main', { token: ct, json: { data: { capacity: 1 } } })).status, 403);
+  assert.equal((await put('tasks/ta-2', { title: 'Проект потерялся' }, ct)).status, 403, 'a full rewrite cannot drop the project');
+  // live updates follow the same border: nothing about other projects, not even an id
+  const wait = () => new Promise((r) => setTimeout(r, 150));
+  const docs = (st) => st.events.filter((e) => e.event === 'doc').map((e) => [e.data.coll, e.data.id, e.data.data && e.data.data.title]);
+  const sc = await openStream(ct);
+  await put('tasks/tb-3', { title: 'Закрытая новость', project: 'p-b2' });
+  await put('tasks/ta-4', { title: 'Открытая новость', project: 'p-a2' });
+  await put('projects/p-b2', { name: 'Закрытый проект', status: 'paused', order: 51 });
+  await call('DELETE', '/api/db/tasks/tb-3', { token: ownerToken });
+  await call('PATCH', '/api/db/tasks/ta-4', { token: ownerToken, json: { data: { project: 'p-b2' } } });
+  await wait();
+  assert.deepEqual(docs(sc), [['tasks', 'ta-4', 'Открытая новость'], ['tasks', 'ta-4', null]], 'a record that leaves her project is taken away, the rest is silence');
+  // the list for the owner
+  const share = (await call('GET', '/api/share', { token: ownerToken })).json;
+  const row = share.members.find((m) => m.id === String(CAROL.id));
+  assert.equal(row.role, 'editor'); assert.deepEqual(row.projects, ['p-a2']);
+  assert.ok(!share.links.some((l) => l.token === link.json.token), 'a used link is gone from the list');
+  // the owner moves her to the other project as a viewer: the open stream follows at once
+  assert.equal((await call('PATCH', '/api/share/members/' + CAROL.id, { token: ownerToken, json: { role: 'viewer', projects: ['p-b2'] } })).status, 200);
+  await put('tasks/ta-5', { title: 'Уже не её', project: 'p-a2' });
+  await put('tasks/tb-4', { title: 'Теперь её', project: 'p-b2' });
+  await wait();
+  assert.ok(sc.events.some((e) => e.event === 'reload'), 'her page is told to load again');
+  assert.deepEqual(docs(sc).slice(2), [['tasks', 'tb-4', 'Теперь её']]);
+  assert.deepEqual(await ids('projects'), ['p-b2']);
+  assert.equal((await put('tasks/tb-5', { title: 'x', project: 'p-b2' }, ct)).status, 403, 'a viewer again');
+  // a second link adds projects and the higher level
+  const l3 = await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'editor', projects: ['p-a2'] } });
+  await update(msg(CAROL, { text: '/start inv_' + l3.json.token }));
+  assert.deepEqual((await ids('projects')).sort(), ['p-a2', 'p-b2']);
+  assert.equal((await call('GET', '/api/me', { token: ct })).json.role, 'editor');
+  await update(msg(OWNER, { text: '/members' }));
+  assert.match(lastSay().params.text, /Carol[\s\S]*редактор, (Открытый проект, Закрытый проект|Закрытый проект, Открытый проект)/);
+  // an invitation by name shows up next to the links and can be taken back
+  await update(msg(OWNER, { text: '/invite @late_guest viewer' }));
+  assert.deepEqual((await call('GET', '/api/share', { token: ownerToken })).json.names, [{ username: 'late_guest', role: 'viewer' }]);
+  assert.equal((await call('DELETE', '/api/share/names/late_guest', { token: ownerToken })).json.ok, true);
+  assert.deepEqual((await call('GET', '/api/share', { token: ownerToken })).json.names, []);
+  // the door closes: the stream ends, the token opens nothing
+  const before = sc.events.length;
+  assert.equal((await call('DELETE', '/api/share/members/' + CAROL.id, { token: ownerToken })).status, 200);
+  await put('tasks/tb-6', { title: 'После закрытия', project: 'p-b2' });
+  await wait();
+  assert.deepEqual(sc.events.slice(before).map((e) => e.event), ['reload'], 'one last word, then nothing');
+  sc.close();
+  assert.equal((await call('GET', '/api/db/tasks', { token: ct })).status, 403);
+  assert.equal((await call('GET', '/api/stream?t=' + encodeURIComponent(ct))).status, 403);
+  // an unused link can be taken back
+  const l2 = await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'editor', projects: null } });
+  assert.equal(l2.json.projects, null);
+  assert.equal((await call('DELETE', '/api/share/links/' + l2.json.token, { token: ownerToken })).json.ok, true);
+  await update(msg(DAN, { text: '/start inv_' + l2.json.token }));
+  assert.match(lastSay().params.text, /уже использована или устарела/);
 });
 
 test('the bot dates messages by the time zone chosen in the dashboard', async () => {

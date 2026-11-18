@@ -256,6 +256,29 @@ async function guestToggle(cq, evId, min) {
   if (msg && msg.chat) await T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: await guestText(e, d.data.rem, await appTz()), parse_mode: 'HTML', reply_markup: guestKb(evId, d.data.rem) }).catch(() => {});
 }
 
+/* ---------- an invite link: access to chosen projects ---------- */
+async function inviteJoin(m, tok) {
+  const chat = m.chat.id, id = String(m.from.id);
+  if (!/^[A-Za-z0-9_-]{12,40}$/.test(tok)) return say(chat, 'Эта ссылка-приглашение не действует.');
+  if ((await auth.roleOf(m.from)) === 'owner') return say(chat, 'Это твоя собственная ссылка-приглашение. Отправь её тому, кому хочешь открыть доступ.');
+  const inv = await db.useInviteLink(tok, id);
+  if (!inv) return say(chat, 'Эта ссылка-приглашение уже использована или устарела. Попроси у владельца новую.');
+  const role = inv.role === 'editor' ? 'editor' : 'viewer', cur = await db.getMember(id);
+  let list = Array.isArray(inv.projects) ? inv.projects : null;
+  // someone who already has access keeps it: the project lists add up
+  if (cur) list = list === null || !Array.isArray(cur.projects) ? null : [...new Set(cur.projects.concat(list))];
+  await db.upsertMember(id, m.from.username || '', auth.fullName(m.from), cur && cur.role === 'editor' ? 'editor' : role);
+  await db.setMemberAccess(id, cur && cur.role === 'editor' ? 'editor' : role, list);
+  hub.setAccess(id, cur && cur.role === 'editor' ? 'editor' : role, list);
+  const all = await projects(), names = list === null ? 'все проекты' : all.filter((p) => list.includes(p.id)).map(pname).join(', ') || 'выбранные проекты';
+  const what = role === 'editor' ? 'можно смотреть и менять' : 'можно смотреть';
+  await setMenu(chat);
+  const b = openBtn('Открыть ' + cfg.appName);
+  await say(chat, 'Тебе открыт доступ в ' + esc(cfg.appName) + ': <b>' + esc(names) + '</b>, ' + what + '.', b ? kb([b]) : undefined);
+  const owner = await auth.ownerId();
+  if (owner) await say(owner, esc(auth.fullName(m.from) || 'Кто-то') + (m.from.username ? ' (@' + esc(m.from.username) + ')' : '') + ' открыл приглашение: ' + esc(names) + ', ' + (role === 'editor' ? 'редактор' : 'зритель') + '.').catch(() => {});
+}
+
 /* ---------- a question to Claude, with the dashboard in view ---------- */
 async function briefing() {
   const docs = await db.exportAll(), tz = await appTz(), now = clock.parts(Date.now(), tz), L = [];
@@ -314,7 +337,7 @@ function helpText(role) {
     '• /ask вопрос — спросить Claude, он видит проекты, задачи и события.\n' +
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
-    '• /invite @имя editor или viewer — дать доступ, /members — кто в команде.\n\n' +
+    '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
 }
 async function onCommand(m, role, cmd, arg) {
@@ -356,15 +379,18 @@ async function onCommand(m, role, cmd, arg) {
     return say(chat, 'Пригласил @' + esc(mm[1]) + ' как ' + (role2 === 'editor' ? 'редактора' : 'зрителя') + '. Пусть откроет ' + (botName ? '@' + esc(botName) : 'бота') + ' и нажмёт /start.');
   }
   if (cmd === 'members') {
-    const ms = await db.listMembers(), inv = await db.listInvites();
-    const lines = ms.map((x) => '• ' + esc(x.name || 'без имени') + (x.username ? ' @' + esc(x.username) : '') + ': ' + (x.role === 'editor' ? 'редактор' : 'зритель'))
+    const ms = await db.listMembers(), inv = await db.listInvites(), all = await projects();
+    const scope = (x) => !Array.isArray(x.projects) ? 'все проекты' : all.filter((p) => x.projects.includes(p.id)).map(pname).join(', ') || 'проекты удалены';
+    const lines = ms.map((x) => '• ' + esc(x.name || 'без имени') + (x.username ? ' @' + esc(x.username) : '') + ': ' + (x.role === 'editor' ? 'редактор' : 'зритель') + ', ' + esc(scope(x)))
       .concat(inv.map((x) => '• @' + esc(x.username) + ': приглашён, ещё не зашёл'));
     return say(chat, lines.length ? 'Доступ есть у тебя и ещё:\n' + lines.join('\n') + '\n\nУбрать: /remove @имя' : 'Пока доступ есть только у тебя. Пригласить: /invite @имя editor');
   }
   if (cmd === 'remove') {
     const mm = /^@?([A-Za-z][A-Za-z0-9_]{3,31})$/.exec(arg);
     if (!mm) return say(chat, 'Напиши так: /remove @имя');
-    const n = (await db.removeMemberByUsername(mm[1].toLowerCase())) + (await db.removeInvite(mm[1].toLowerCase()));
+    const gone = await db.removeMemberByUsername(mm[1].toLowerCase());
+    gone.forEach((x) => hub.dropUser(x));
+    const n = gone.length + (await db.removeInvite(mm[1].toLowerCase()));
     return say(chat, n ? 'Убрал доступ у @' + esc(mm[1]) + '.' : 'Не нашёл @' + esc(mm[1]) + ' среди участников.');
   }
   return say(chat, 'Не знаю такую команду. Список: /help');
@@ -377,6 +403,8 @@ async function onMessage(m) {
   const cmd = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(String(m.text || '').trim());
   const ev = cmd && cmd[1].toLowerCase() === 'start' ? /^ev_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
   if (ev) return guestJoin(m, ev[1]);
+  const inv = cmd && cmd[1].toLowerCase() === 'start' ? /^inv_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
+  if (inv) return inviteJoin(m, inv[1]);
   if (cmd) return onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim());
   if (!role) return say(m.chat.id, closedText(m.from));
   if (role !== 'owner') return say(m.chat.id, 'Ответы клиентов и заметки принимаю только от владельца. Дэшборд открывается командой /start.');

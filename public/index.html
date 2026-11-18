@@ -392,6 +392,18 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* sharing */
+.side-data .btn.ic svg{display:block}
+.pinfo-h .btn+.btn{margin-left:0}
+.scoped [data-act="new"][data-kind="project"],.scoped [data-act="new"][data-kind="channel"],.scoped [data-act="new"][data-kind="service"],.scoped [data-act="settings"],.scoped [data-act="del"][data-kind="project"]{display:none!important}
+#sh-pl{max-height:210px;overflow-y:auto}
+#sh-lists .cl-row>.row{cursor:default;border-top:0}
+#sh-lists .cl-row>.row:hover{background:none}
+#sh-link a.btn{color:var(--ink);text-decoration:none}
+#sh-lists .cl-row+.cl-row{border-top:1px solid var(--line)}
+#sh-lists .acts{flex-wrap:wrap;justify-content:flex-end}
+#sh-who{font-weight:600;color:var(--ink)}
+@media (max-width:899px){#sh-lists .cl-row{grid-template-columns:minmax(0,1fr)}#sh-lists .cl-row>.acts{justify-content:flex-start;padding:0 4px 10px 27px}}
 /* events: reminder rules */
 .rem-l{display:flex;flex-direction:column;gap:6px}
 .rem-r{display:grid;grid-template-columns:84px minmax(0,150px) minmax(0,1fr) auto;gap:8px;align-items:center}
@@ -778,6 +790,7 @@ var ICON={
   plan:'<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5.5l1.5 1.5 2.5-3M3.5 11l1.5 1.5 2.5-3M10.5 5.5H17M10.5 11H17M4 16.5h13"/></svg>',
   more:'<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4.5" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="15.5" cy="10" r="1.6"/></svg>',
   plus:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+  share:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="3.4" r="1.9"/><circle cx="4" cy="8" r="1.9"/><circle cx="12" cy="12.6" r="1.9"/><path d="M5.7 7.1l4.6-2.7M5.7 8.9l4.6 2.7"/></svg>',
   chev:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>'
 };
 
@@ -949,7 +962,7 @@ function drawSide(){
   var n=S.projects.filter(function(p){return p.status==='active'}).length,side=$('#side'),old=side.querySelector('.side-list'),st=old?old.scrollTop:0,own=ui.owner&&ui.mode==='ready';
   side.innerHTML='<div class="side-top"><div class="brand"><span class="brand-t">Проекты</span><button class="btn sm ic w" data-act="new" data-kind="project" aria-label="Новый проект" title="Новый проект">'+ICON.plus+'</button><span class="brand-s">'+n+' в работе</span></div>'+sideNext()+projAllHtml()+'</div>'+
     '<div class="side-list">'+projGroupsHtml()+'</div>'+
-    '<div class="side-load">'+(own?actBox()+'<div class="side-data"><button class="btn sm" data-act="data">Данные</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(true)+'</div>';
+    '<div class="side-load">'+(own?actBox()+'<div class="side-data"><button class="btn sm" data-act="data">Данные</button><button class="btn sm ic" data-act="share" aria-label="Доступ и приглашения" title="Доступ и приглашения">'+ICON.share+'</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(true)+'</div>';
   var nw=side.querySelector('.side-list');if(nw&&st)nw.scrollTop=st;
 }
 function drawTop(){
@@ -992,7 +1005,7 @@ function drawOverviewAll(){
     return '<section class="panel"><p>'+(ui.mode==='loading'||ui.mode==='slow'?'Проекты загружаются…':'Проектов пока нет.')+'</p>'+(ui.mode==='loading'||ui.mode==='slow'?'':'<div class="ag-add w"><button class="btn pri" data-act="new" data-kind="project">Добавить первый проект</button></div>')+'</section>';
   }
   var h=pendingPanel()+'<div class="now"><section class="panel"><div class="ph"><h2>Ближайшее</h2><button class="btn sm" data-act="view" data-v="calendar">Календарь</button></div>'+upcomingHtml(6)+'</section>';
-  h+='<section class="panel">'+(ui.owner&&ui.mode==='ready'?actBox('only-m')+'<div class="side-data only-m"><button class="btn sm" data-act="data">Данные</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(false)+'</section></div>';
+  h+='<section class="panel">'+(ui.owner&&ui.mode==='ready'?actBox('only-m')+'<div class="side-data only-m"><button class="btn sm" data-act="data">Данные</button><button class="btn sm ic" data-act="share" aria-label="Доступ и приглашения" title="Доступ и приглашения">'+ICON.share+'</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(false)+'</section></div>';
   h+='<div class="two"><section class="panel"><div class="ph"><h2>Входящие</h2></div><form class="quick w" id="inbox-f"><input id="inbox-i" class="keep" maxlength="300" placeholder="Мысль или идея: запиши сейчас, разберём потом" aria-label="Новая запись во входящие" autocomplete="off"><button class="btn" type="submit">Записать</button></form>';
   if(S.inbox.length){
     h+='<div class="inbox-l">'+S.inbox.slice().sort(function(a,b){return (a.u||'')<(b.u||'')?1:-1}).map(function(x){
@@ -1013,7 +1026,7 @@ function msLi(m){
   return '<li class="li'+(late?' late':'')+'" style="--pc:'+pc(m.project)+'"><button class="ck dia w'+(m.done?' on':'')+'" data-act="tg-ms" data-id="'+esc(m.id)+'" aria-pressed="'+!!m.done+'" aria-label="Майлстоун выполнен"></button><button class="li-b" data-act="ms-open" data-id="'+esc(m.id)+'" aria-expanded="'+open+'"><span class="li-t'+(m.done?' is-done':'')+'">'+esc(m.title)+'</span><span class="li-d">'+esc(meta)+(tot?'':' · задач нет')+'</span></button>'+(open?'<div class="li-x">'+(ts.length?ts.map(taskLi).join(''):'<p class="mute" style="font-size:14px;padding:4px 0">К этому майлстоуну задачи пока не привязаны.</p>')+'<div class="li-xa w"><button class="btn sm" data-act="new" data-kind="task" data-project="'+esc(m.project)+'" data-ms="'+esc(m.id)+'">+ Задача</button><button class="btn sm" data-act="edit" data-kind="milestone" data-id="'+esc(m.id)+'">Изменить майлстоун</button></div></div>':'')+'</li>';
 }
 function drawOverviewOne(p){
-  var h=pendingPanel(p.id)+'<section class="panel pinfo" style="--pc:'+pc(p.id)+'"><div class="pinfo-h"><span class="pill st-'+esc(p.status)+'">'+esc(ST[p.status]||'')+'</span><span class="mute">'+esc(p.area||'Без группы')+(+p.hours>0?' · '+(+p.hours)+' ч в неделю':'')+'</span><button class="btn sm w" data-act="edit" data-kind="project" data-id="'+esc(p.id)+'">Изменить</button></div>';
+  var h=pendingPanel(p.id)+'<section class="panel pinfo" style="--pc:'+pc(p.id)+'"><div class="pinfo-h"><span class="pill st-'+esc(p.status)+'">'+esc(ST[p.status]||'')+'</span><span class="mute">'+esc(p.area||'Без группы')+(+p.hours>0?' · '+(+p.hours)+' ч в неделю':'')+'</span>'+(ui.owner?'<button class="btn sm" data-act="share" data-id="'+esc(p.id)+'">Поделиться</button>':'')+'<button class="btn sm w" data-act="edit" data-kind="project" data-id="'+esc(p.id)+'">Изменить</button></div>';
   if(p.why)h+='<p class="why big">'+esc(p.why)+'</p>';
   h+='<div class="kv">';
   if(p.next)h+='<span class="k">Дальше</span><span class="v">'+esc(p.next)+'</span>';
@@ -1574,7 +1587,7 @@ function postFields(p){
   return fld('Тема поста',inp('title',p.title,'required maxlength="140"'))+
     '<div class="f2">'+fld('Плановая дата',inp('date',p.date,'type="date"'))+fld('Время, если важно',inp('time',postClock(p.time),'type="time"'))+'</div>'+
     fld('Суть: что хочешь сказать, своими словами',ta('core',p.core,5,'maxlength="6000"'))+
-    '<div class="f2">'+fld('Рубрика',inp('pillar',p.pillar,'list="pil-dl" maxlength="60" autocomplete="off"')+dl)+fld('Проект',sel('project',[['','Без проекта']].concat(projOpts()),P(p.project)?p.project:''))+'</div>'+
+    '<div class="f2">'+fld('Рубрика',inp('pillar',p.pillar,'list="pil-dl" maxlength="60" autocomplete="off"')+dl)+fld('Проект',sel('project',projOpts(true),P(p.project)?p.project:''))+'</div>'+
     fld('Ссылка на фото или видео',inp('media',p.media,'type="url" maxlength="600" placeholder="https://, можно Google Drive"'))+
     (chs.length?'<div class="f"><span class="f-l">Каналы, для которых нужен вариант</span><div class="ckl">'+chs.map(function(c){return '<label><input type="checkbox" id="f-ch-'+esc(c.id)+'" name="ch:'+esc(c.id)+'"'+(vs[c.id]?' checked':'')+'><span>'+esc(c.name)+'</span></label>'}).join('')+'</div></div>':'');
 }
@@ -2180,6 +2193,105 @@ function dataSync(t){
     out.textContent=c==='server_not_connected'||c==='server_not_found'||c==='selection_required'||c==='not_declared'?'Коннектор «Prooloog» не подключён. Отправь боту /connect и добавь полученный адрес в Claude: Customize → Connectors → Add custom connector, название Prooloog.':c==='declined'||c==='not_granted'?'Нет разрешения на вызов коннектора. Разреши его и попробуй ещё раз.':'Не получилось связаться с сервером. Попробуй ещё раз или воспользуйся файлом.';
     t.disabled=false;
   });
+}
+
+/* ---------- sharing: who has access, invite links to chosen projects ---------- */
+var shareNs=null,shState=null,shEdit=null;
+function shNames(list){
+  if(!Array.isArray(list))return 'все проекты';
+  var n=list.map(function(id){var p=P(id);return p?p.name:''}).filter(Boolean);
+  return n.length?n.join(', '):'проекты удалены';
+}
+function shPick(){
+  var all=!!($('#sh-all')||{}).checked,ids=[];
+  Array.prototype.forEach.call(document.querySelectorAll('#sh-pl input:checked'),function(x){ids.push(x.value)});
+  return {role:($('#sh-ed')||{}).checked?'editor':'viewer',projects:all?null:ids};
+}
+function shMember(id){return shState?(shState.members||[]).filter(function(x){return x.id===id})[0]||null:null}
+function shRow(main,sub,btns){
+  return '<div class="cl-row"><div class="row"><i class="dot" aria-hidden="true"></i><span class="row-t"><span>'+main+'</span><span class="row-p">'+sub+'</span></span><span></span></div><span class="acts" style="margin:0">'+btns+'</span></div>';
+}
+function shDraw(){
+  var b=$('#sh-lists');if(!b||!shState)return;
+  var m=shState.members||[],l=shState.links||[],n=shState.names||[];
+  var h='<div class="chat-h"><h2>У кого есть доступ</h2></div>'+(m.length?'<div class="rows">'+m.map(function(x){
+    return shRow(esc(x.name||'Без имени')+(x.username?' <span class="mute">@'+esc(x.username)+'</span>':''),(x.role==='editor'?'Редактирует':'Смотрит')+' · '+esc(shNames(x.projects)),
+      '<button type="button" class="btn sm" data-act="sh-edit" data-id="'+esc(x.id)+'">Изменить</button><button type="button" class="btn sm dng" data-act="sh-drop-member" data-id="'+esc(x.id)+'">Закрыть доступ</button>');
+  }).join('')+'</div>':'<p class="mute">Пока доступ есть только у тебя.</p>');
+  if(l.length||n.length)h+='<div class="chat-h"><h2>Приглашения, которыми ещё не воспользовались</h2></div><div class="rows">'+l.map(function(x){
+    return shRow((x.role==='editor'?'Редактировать':'Смотреть')+' · '+esc(shNames(x.projects)),'ссылка действует до '+esc(fmt(String(x.expires||'').slice(0,10))),
+      '<button type="button" class="btn sm" data-act="sh-copy" data-url="'+esc(x.url)+'">Скопировать</button><button type="button" class="btn sm" data-act="sh-drop-link" data-id="'+esc(x.token)+'">Отозвать</button>');
+  }).join('')+n.map(function(x){
+    return shRow('@'+esc(x.username),(x.role==='editor'?'Редактировать':'Смотреть')+' · все проекты · приглашён в боте по имени','<button type="button" class="btn sm" data-act="sh-drop-name" data-id="'+esc(x.username)+'">Отозвать</button>');
+  }).join('')+'</div>';
+  b.innerHTML=h;
+}
+// The form does two jobs: a new invite link, or the access of someone who is already in.
+function shMode(){
+  var b=$('#sh-make'),c=$('#sh-cancel'),w=$('#sh-who');if(!b)return;
+  var m=shEdit?shMember(shEdit):null;if(!m)shEdit=null;
+  b.textContent=m?'Сохранить доступ':'Создать ссылку-приглашение';
+  if(c)c.hidden=!m;
+  if(w){w.hidden=!m;w.textContent=m?'Меняешь доступ: '+(m.name||'Без имени')+(m.username?' (@'+m.username+')':''):''}
+}
+function shSync(){
+  var pl=$('#sh-pl'),lv=$('#sh-lv');if(!pl||!lv)return;
+  var all=$('#sh-all').checked,ed=$('#sh-ed').checked;
+  pl.hidden=all;
+  lv.textContent=all
+    ?(ed?'Человек видит и меняет все проекты, включая те, что появятся позже: может создавать и удалять проекты, задачи, события.':'Человек видит все проекты, включая те, что появятся позже. Менять ничего не может.')
+    :(ed?'Человек видит только выбранные проекты и может менять в них задачи, майлстоуны, события и заметки. Создавать и удалять проекты он не может.':'Человек видит только выбранные проекты: задачи, календарь, майлстоуны. Менять ничего не может.');
+}
+function shLoad(){
+  if(!shareNs)return;
+  Promise.resolve(shareNs.list()).then(function(r){shState=r||{};shDraw();shMode()}).catch(function(){var b=$('#sh-lists');if(b)b.innerHTML='<p class="sg-out">Не получилось загрузить список доступа.</p>'});
+}
+function formShare(pid){
+  if(!ui.owner)return;
+  var pre=P(pid)?pid:(ui.project!=='all'&&P(ui.project)?ui.project:'');
+  if(!shareNs){
+    openSheet('Доступ','<p>Здесь, внутри Claude, доступ к странице выдаётся в самом Claude, в настройках доступа этой страницы. Он открывает её целиком, без деления на проекты.</p><p class="mute" style="margin-top:10px">Доступ к выбранным проектам и ссылка-приглашение работают в версии на сервере. Открой Prooloog в Telegram и нажми там эту же кнопку: выберешь проекты, уровень доступа и получишь ссылку.</p><p class="sg-out" style="margin-top:12px">В любой версии бюджет, контакты, переписка, подписки и клиенты видны только тебе.</p>');
+    return;
+  }
+  shEdit=null;
+  var list=sorted(S.projects);
+  var h='<div class="form"><p class="sg-out" id="sh-who" hidden></p><div class="f" role="radiogroup" aria-label="Что открыть"><span class="f-l">Что открыть</span><div class="kindsw"><label><input type="radio" name="sh-scope" id="sh-some" checked><span>Выбранные проекты</span></label><label><input type="radio" name="sh-scope" id="sh-all"><span>Все проекты</span></label></div></div>'+
+    '<div class="ckl" id="sh-pl">'+list.map(function(p){return '<label><input type="checkbox" value="'+esc(p.id)+'"'+(p.id===pre?' checked':'')+'><span>'+esc(p.name)+'</span></label>'}).join('')+'</div>'+
+    '<div class="f" role="radiogroup" aria-label="Уровень доступа"><span class="f-l">Уровень доступа</span><div class="kindsw"><label><input type="radio" name="sh-role" id="sh-vw" checked><span>Смотреть</span></label><label><input type="radio" name="sh-role" id="sh-ed"><span>Редактировать</span></label></div><p class="sg-out" id="sh-lv"></p></div>'+
+    '<div class="acts"><button type="button" class="btn pri" id="sh-make" data-act="sh-make">Создать ссылку-приглашение</button><button type="button" class="btn" id="sh-cancel" data-act="sh-cancel" hidden>Отмена</button></div><div id="sh-link"></div><p class="sg-out" id="sh-out" role="status"></p>'+
+    '<p class="sg-out">Бюджет, контакты, переписка, подписки и клиенты видны только тебе, какой бы доступ ты ни дал.</p></div><div id="sh-lists"><p class="sg-out" style="margin-top:14px">Загружаю список…</p></div>';
+  openSheet('Доступ',h,function(b){
+    Array.prototype.forEach.call(b.querySelectorAll('input[type=radio]'),function(x){x.addEventListener('change',shSync)});
+    shSync();
+  },false,true);
+  shLoad();
+}
+function shEditStart(id){
+  var m=shMember(id);if(!m||!$('#sh-pl'))return;
+  shEdit=id;
+  var all=!Array.isArray(m.projects);
+  $('#sh-all').checked=all;$('#sh-some').checked=!all;
+  Array.prototype.forEach.call(document.querySelectorAll('#sh-pl input'),function(x){x.checked=!all&&m.projects.indexOf(x.value)>=0});
+  $('#sh-ed').checked=m.role==='editor';$('#sh-vw').checked=m.role!=='editor';
+  $('#sh-link').innerHTML='';$('#sh-out').textContent='';
+  shSync();shMode();
+  var w=$('#sh-who');if(w&&w.scrollIntoView)w.scrollIntoView({block:'nearest'});
+}
+function shMake(t){
+  var out=$('#sh-out'),box=$('#sh-link'),a=shPick();if(!shareNs||!out||!box)return;
+  if(a.projects&&!a.projects.length){out.textContent='Отметь хотя бы один проект или выбери «Все проекты».';return}
+  t.disabled=true;
+  if(shEdit){
+    out.textContent='Сохраняю…';
+    Promise.resolve(shareNs.setMember(shEdit,a.role,a.projects)).then(function(){t.disabled=false;shEdit=null;shMode();out.textContent='Доступ обновлён.';shLoad()},function(){t.disabled=false;out.textContent='Не получилось сохранить доступ. Попробуй ещё раз.'});
+    return;
+  }
+  out.textContent='Создаю ссылку…';
+  Promise.resolve(shareNs.create(a.role,a.projects)).then(function(r){
+    t.disabled=false;out.textContent='Ссылка одноразовая и действует 7 дней. Человек открывает её в Telegram и нажимает «Старт».';
+    box.innerHTML='<input id="sh-url" readonly value="'+esc(r.url)+'" style="margin-top:10px" aria-label="Ссылка-приглашение"><div class="acts"><button type="button" class="btn" data-act="sh-copy" data-url="'+esc(r.url)+'">Скопировать ссылку</button><a class="btn" href="https://t.me/share/url?url='+encodeURIComponent(r.url)+'&text='+encodeURIComponent('Приглашение в Prooloog')+'" target="_blank" rel="noopener noreferrer">Отправить в Telegram</a></div>';
+    shLoad();
+  }).catch(function(e){t.disabled=false;out.textContent=e&&e.code==='no_bot'?'Бот ещё не подключён к серверу, ссылку сделать нельзя.':'Не получилось создать ссылку. Попробуй ещё раз.'});
 }
 
 /* ---------- plan: day, week, month, built from tasks ---------- */
@@ -2793,7 +2905,7 @@ function vals(form){
   });
   return o;
 }
-function projOpts(none){var o=sorted(S.projects).map(function(p){return [p.id,p.name]});if(none)o.unshift(['','Без проекта']);return o}
+function projOpts(none){var o=sorted(S.projects).map(function(p){return [p.id,p.name]});if(none&&!ui.scoped)o.unshift(['','Без проекта']);return o}
 function msOpts(pid){return [['','Без майлстоуна']].concat(S.milestones.filter(function(m){return m.project===pid}).sort(msSort).map(function(m){return [m.id,m.title]}))}
 function defProject(){return ui.project!=='all'&&P(ui.project)?ui.project:(sorted(S.projects)[0]||{}).id}
 function merge(base,pre){Object.keys(pre||{}).forEach(function(k){if(pre[k]!==undefined&&pre[k]!==null&&pre[k]!=='')base[k]=pre[k]});return base}
@@ -2918,6 +3030,7 @@ function formSettings(){
   },false);
 }
 function saveSettings(p){
+  if(ui.scoped)return;
   var next=Object.assign({},S.settings,p);delete next.id;
   if(!db){var tzb=appTz();S.settings=next;tzChanged(tzb);render();return}
   next.u=new Date().toISOString();
@@ -3621,6 +3734,18 @@ document.addEventListener('click',function(e){
     case 'pop-undo':popUndo();break;
     case 'data':formData();break;
     case 'usage':formUsage();break;
+    case 'share':formShare(d.id||'');break;
+    case 'sh-make':shMake(t);break;
+    case 'sh-copy':copyText(d.url||'',$('#sh-url')||t).then(function(ok){var q=$('#sh-out');if(q)q.textContent=ok?'Ссылка скопирована.':'Не получилось скопировать: выдели ссылку в поле и скопируй вручную.'});break;
+    case 'sh-drop-link':if(shareNs)Promise.resolve(shareNs.dropLink(d.id)).then(shLoad,shLoad);break;
+    case 'sh-drop-name':if(shareNs)Promise.resolve(shareNs.dropName(d.id)).then(shLoad,shLoad);break;
+    case 'sh-edit':shEditStart(d.id);break;
+    case 'sh-cancel':shEdit=null;shMode();o=$('#sh-out');if(o)o.textContent='';break;
+    case 'sh-drop-member':
+      if(!shareNs)break;
+      if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно закрыть?';break}
+      if(shEdit===d.id)shEdit=null;
+      Promise.resolve(shareNs.dropMember(d.id)).then(shLoad,shLoad);break;
     case 'ev-share':
       o=byId(S.events,d.id);if(!o||ui.ro)break;
       if(!o.share){var tk='',ab=new Uint8Array(12);try{crypto.getRandomValues(ab);tk=Array.prototype.map.call(ab,function(x){return ('0'+x.toString(16)).slice(-2)}).join('')}catch(err){tk=uid('s').replace(/[^A-Za-z0-9]/g,'')+uid('s').slice(-8)}o.share=tk;patch('events',o.id,{share:tk})}
@@ -3654,7 +3779,7 @@ document.addEventListener('submit',function(e){
   e.preventDefault();
   var f=e.target,i,txt;
   if(ui.ro)return;
-  if(f.id==='inbox-f'){i=$('#inbox-i');txt=i.value.trim();if(!txt)return;i.value='';put('inbox',uid('i'),{text:txt.slice(0,300)})}
+  if(f.id==='inbox-f'){i=$('#inbox-i');txt=i.value.trim();if(!txt)return;i.value='';put('inbox',uid('i'),ui.scoped&&defProject()?{text:txt.slice(0,300),project:defProject()}:{text:txt.slice(0,300)})}
   else if(f.id==='log-f'){i=$('#log-i');txt=i.value.trim();if(!txt||ui.project==='all')return;i.value='';put('log',uid('l'),{project:ui.project,text:txt.slice(0,4000),tag:tagFromLabel(($('#log-tag')||{}).value||'insight'),at:new Date().toISOString()})}
   else if(f.id==='chat-f'){chatSend($('#sheet-b'),f.dataset.id,$('#chat-i').value.trim())}
   else if(f.id==='plan-f'){i=$('#plan-i');txt=i.value.trim();var pp=$('#plan-p'),pj=ui.project!=='all'&&P(ui.project)?ui.project:(pp&&P(pp.value)?pp.value:'');if(!txt||!pj||!validDate(f.dataset.d))return;i.value='';ui.pproj=pj;put('tasks',uid('t'),{title:txt.slice(0,200),project:pj,status:'todo',due:f.dataset.d,milestone:'',notes:'',order:maxOrder(S.tasks)+1})}
@@ -3705,12 +3830,14 @@ function start(){
   Promise.resolve(c.use('user')).then(function(u){
     if(!u||typeof u.can!=='function')return;
     if(typeof u.isOwner==='function')Promise.resolve(u.isOwner()).then(function(v){if(v===false){ui.owner=false;render()}}).catch(function(){});
+    if(typeof u.scoped==='function')Promise.resolve(u.scoped()).then(function(v){if(v){ui.scoped=true;document.body.classList.add('scoped');render()}}).catch(function(){});
     return Promise.resolve(u.can('data.write')).then(function(v){if(v===false){ui.ro=true;document.body.classList.add('ro');render()}});
   }).catch(function(){});
   Promise.resolve(c.use('sample')).then(function(f){if(typeof f==='function')sampleFn=function(){try{usageHit()}catch(e){}return f.apply(this,arguments)}}).catch(function(){});
   Promise.resolve(c.use('mcp')).then(function(m){if(m&&typeof m.callTool==='function')mcNs=m}).catch(function(){});
   Promise.resolve(c.use('files')).then(function(f){if(f&&typeof f.upload==='function')filesNs=f}).catch(function(){});
   Promise.resolve(c.use('downloads')).then(function(x){if(x&&typeof x.save==='function')dlNs=x}).catch(function(){});
+  Promise.resolve(c.use('share')).then(function(x){if(x&&typeof x.list==='function')shareNs=x}).catch(function(){});
 }
 start();
 })();

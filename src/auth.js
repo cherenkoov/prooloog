@@ -86,6 +86,19 @@ async function roleOf(user) {
   return null;
 }
 
+// The projects a member may see: null for all of them, or a list of project ids.
+async function scopeOf(id) {
+  const m = await db.getMember(String(id));
+  return m && Array.isArray(m.projects) ? m.projects.filter((x) => typeof x === 'string') : null;
+}
+// May a member with this project list see the record? Projects are matched by id, everything else by its `project`.
+function sees(projects, coll, id, data) {
+  if (projects === null || projects === undefined) return true;
+  if (coll === 'settings') return true;
+  if (coll === 'projects') return projects.includes(id);
+  return !!data && typeof data.project === 'string' && projects.includes(data.project);
+}
+
 async function profileOf(id, role) {
   if (role === 'owner') {
     const p = await db.kvGet('owner_profile');
@@ -110,9 +123,9 @@ function guard(need = 'read') {
     if (!role) return res.status(403).json({ error: 'no_access' });
     if (need === 'owner' && role !== 'owner') return res.status(403).json({ error: 'forbidden' });
     if (need === 'write' && role === 'viewer') return res.status(403).json({ error: 'forbidden' });
-    req.user = { id, role };
+    req.user = { id, role, projects: role === 'owner' ? null : await scopeOf(id) };
     next();
   };
 }
 
-module.exports = { checkInitData, signSession, verifySession, roleOf, profileOf, ownerId, guard, fullName };
+module.exports = { checkInitData, signSession, verifySession, roleOf, profileOf, ownerId, guard, fullName, scopeOf, sees };
