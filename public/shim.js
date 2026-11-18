@@ -217,6 +217,24 @@
     // Replaces or merges all data with a copy made by «Скопировать все данные».
     importData: function (copy, mode) { return api('POST', '/import', { app: 'prooloog', docs: copy.docs, mode: mode === 'replace' ? 'replace' : 'merge' }); }
   };
+  // «Скачать файлом». Inside Telegram a page cannot save files reliably, so the bot sends the copy to the chat.
+  var downloadsNs = {
+    save: function (req) {
+      if (inTg && me && me.role === 'owner') {
+        return api('POST', '/backup/send').then(function () { return { status: 'saved', note: 'Файл с копией отправлен тебе в чат с ботом.' }; });
+      }
+      return new Promise(function (resolve, reject) {
+        try {
+          var blob = req.data instanceof Blob ? req.data : new Blob([req.data], { type: 'application/json' });
+          var url = URL.createObjectURL(blob), a = document.createElement('a');
+          a.href = url; a.download = String(req.filename || 'prooloog-data.json'); a.style.display = 'none';
+          document.body.appendChild(a); a.click();
+          setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 4000);
+          resolve({ status: 'saved' });
+        } catch (e) { reject(fail('unavailable')); }
+      });
+    }
+  };
   var userNs = {
     can: function () { return Promise.resolve(!!me && me.role !== 'viewer'); },
     isOwner: function () { return Promise.resolve(!!me && me.role === 'owner'); }
@@ -240,6 +258,7 @@
         if (name === 'db') return dbNs;
         if (name === 'user') return userNs;
         if (name === 'files') return filesNs;
+        if (name === 'downloads') return downloadsNs;
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;
         return null;
       }, function () { return never; });

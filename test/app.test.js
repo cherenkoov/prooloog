@@ -365,6 +365,15 @@ test('backup to the chat and restore from the file', async () => {
   assert.ok(await db.getDoc('projects', 'p-india'), 'merge keeps the rest');
 });
 
+test('the dashboard can ask the bot to send the copy to the chat', async () => {
+  const n = tgCalls.length;
+  assert.equal((await call('POST', '/api/backup/send', { token: ownerToken })).status, 200);
+  const doc = sinceMark(n, 'sendDocument')[0];
+  assert.equal(doc.params.chat_id, String(OWNER.id));
+  assert.equal(JSON.parse(doc.params.json).app, 'prooloog');
+  assert.equal((await call('POST', '/api/backup/send', {})).status, 401);
+});
+
 test('scheduled backup: once the period has passed', async () => {
   const db = require('../src/db'), bot = require('../src/bot');
   await db.kvSet('last_backup', { at: Date.now() - 8 * 864e5 });
@@ -394,6 +403,26 @@ test('Claude answers through the server', async () => {
   assert.equal(bad.status, 502); assert.equal(bad.json.error, 'not_granted');
   assert.equal((await call('POST', '/api/ai', { token: ownerToken, json: { input: '' } })).status, 400);
   assert.equal((await call('POST', '/api/ai', { json: { input: 'x' } })).status, 401);
+});
+
+test('the bot dates messages by the time zone chosen in the dashboard', async () => {
+  const db = require('../src/db'), bot = require('../src/bot');
+  // 19:00 UTC is 23:00 on the 18th in Tbilisi and 00:30 on the 19th in India
+  const at = Math.floor(Date.parse('2026-11-18T19:00:00Z') / 1000);
+  bot.forgetTz();
+  const u1 = msg(OWNER, { text: 'от Ravi Kumar, индия: по часам Грузии', date: at });
+  await update(u1);
+  assert.equal((await db.getDoc('messages', 'gt' + u1.message.message_id)).data.date, '2026-11-18');
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { tz: 'Asia/Kolkata' } } });
+  bot.forgetTz();
+  const u2 = msg(OWNER, { text: 'от Ravi Kumar, индия: по часам Индии', date: at });
+  await update(u2);
+  assert.equal((await db.getDoc('messages', 'gt' + u2.message.message_id)).data.date, '2026-11-19');
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { tz: 'Not/AZone' } } });
+  bot.forgetTz();
+  const u3 = msg(OWNER, { text: 'от Ravi Kumar, индия: зона с ошибкой', date: at });
+  await update(u3);
+  assert.equal((await db.getDoc('messages', 'gt' + u3.message.message_id)).data.date, '2026-11-18', 'falls back to the default zone');
 });
 
 test('header parsing', () => {

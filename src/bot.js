@@ -11,7 +11,20 @@ let botName = '';
 const https = () => /^https:\/\//.test(cfg.baseUrl);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const now = () => Math.floor(Date.now() / 1000);
-const day = (unix) => new Intl.DateTimeFormat('en-CA', { timeZone: cfg.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date((unix || now()) * 1000));
+const day = (unix, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz || cfg.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date((unix || now()) * 1000));
+// The dashboard can follow a time zone of its own (Настройки → Часовой пояс). The bot dates messages by the same clock.
+let tzSeen = { at: 0, tz: '' };
+async function appTz() {
+  if (Date.now() - tzSeen.at < 30000) return tzSeen.tz;
+  let tz = cfg.tz;
+  try {
+    const d = await db.getDoc('settings', 'main');
+    const z = d && d.data && d.data.tz;
+    if (z && typeof z === 'string') { new Intl.DateTimeFormat('en-CA', { timeZone: z }); tz = z; }
+  } catch (e) { /* unknown zone or no settings yet: keep the default */ }
+  tzSeen = { at: Date.now(), tz };
+  return tz;
+}
 const kb = (rows) => ({ inline_keyboard: rows });
 const openBtn = (text, path) => (https() ? [{ text, web_app: { url: cfg.baseUrl + (path || '/') } }] : null);
 const say = (chat, html, markup) => T.tg('sendMessage', { chat_id: chat, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup });
@@ -77,9 +90,9 @@ function parseHeader(text, list) {
     body: [(m[3] || '').trim(), rest.trim()].filter(Boolean).join('\n'),
   };
 }
-function draftFrom(m) {
+function draftFrom(m, tz) {
   const o = m.forward_origin;
-  const d = { mid: m.message_id, date: day(o && o.date ? o.date : m.date), text: String(m.text || m.caption || '').slice(0, 12000), from: '', fromUser: '', fwd: !!o };
+  const d = { mid: m.message_id, date: day(o && o.date ? o.date : m.date, tz), text: String(m.text || m.caption || '').slice(0, 12000), from: '', fromUser: '', fwd: !!o };
   if (o) {
     if (o.type === 'user' && o.sender_user) { d.from = auth.fullName(o.sender_user); d.fromUser = o.sender_user.username || ''; }
     else if (o.type === 'hidden_user') d.from = String(o.sender_user_name || '').slice(0, 80);
@@ -151,7 +164,7 @@ async function route(m, draft, headerText) {
   return say(chat, 'Что сделать с этим текстом?', kb([[{ text: 'Ответ клиента', callback_data: 'k:m' }, { text: 'Во входящие', callback_data: 'k:i' }], [{ text: 'Отмена', callback_data: 'x' }]]));
 }
 async function intake(m) {
-  const draft = draftFrom(m);
+  const draft = draftFrom(m, await appTz());
   if (!draft.text && !draft.file) return say(m.chat.id, UNSUPPORTED);
   return route(m, draft, draft.fwd ? '' : draft.text);
 }
@@ -164,7 +177,7 @@ async function onDocument(m, cmd) {
     if ((+d.file_size || 0) > 512 * 1024) return say(chat, 'Файл больше 512 КБ. Пришли текст покороче или вставь его сообщением.');
     const text = (await T.readFile(d.file_id, 512 * 1024)).toString('utf8').replace(/\u0000/g, '').trim();
     if (!text) return say(chat, 'В файле нет текста.');
-    const draft = draftFrom(Object.assign({}, m, { text: undefined, caption: undefined }));
+    const draft = draftFrom(Object.assign({}, m, { text: undefined, caption: undefined }), await appTz());
     draft.text = text.slice(-8000);
     draft.file = { kind: 'text', name: name.slice(0, 80) };
     return route(m, draft, String(m.caption || ''));
@@ -190,7 +203,7 @@ async function askRestore(m) {
 async function sendBackup(chat, manual) {
   const docs = await db.exportAll();
   const body = Buffer.from(JSON.stringify({ app: 'prooloog', version: 1, exportedAt: new Date().toISOString(), docs }));
-  await T.sendDocument(chat, 'prooloog-backup-' + day() + '.json', body,
+  await T.sendDocument(chat, 'prooloog-backup-' + day(0, await appTz()) + '.json', body,
     (manual ? 'Копия данных' : 'Плановая копия данных') + ': записей ' + countDocs(docs) + '. Чтобы восстановить, пришли этот файл мне с подписью /restore.');
   await db.kvSet('last_backup', { at: Date.now() });
 }
@@ -369,4 +382,4 @@ async function setup() {
   } catch (e) { console.error('[bot] setup failed:', e.message); return false; }
 }
 
-module.exports = { setup, handleUpdate, maybeBackup, parseHeader, matchProject, name: () => botName };
+module.exports = { setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, forgetTz: () => { tzSeen = { at: 0, tz: '' }; } };

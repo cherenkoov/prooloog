@@ -385,9 +385,19 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* data */
+.side-data{display:flex;margin-bottom:12px}
+.dt-sum{font-size:15px}
+.dt-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 18px;margin:10px 0 4px;font-size:14px}
+.dt-g div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding:3px 0}
+.dt-g span{color:var(--mute)}
+.dt-g b{font-variant-numeric:tabular-nums;font-weight:600}
+.dt-pre{max-height:280px;overflow:auto;margin:10px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.dt-in{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px}
 /* plan */
 .pl-per{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .pl-per b{min-width:150px;text-align:center;font-weight:600}
+.pl-z{font-size:12px;white-space:nowrap}
 .pl-grid{display:grid;gap:10px;align-items:start;overflow-x:auto;padding-bottom:4px}
 .pl-grid.wk{grid-template-columns:repeat(7,minmax(150px,1fr))}
 .pl-grid.mo{grid-template-columns:repeat(var(--n),minmax(190px,1fr))}
@@ -434,6 +444,10 @@ button.pl-d:hover b{color:var(--accent)}
 .pc-t .mk{position:relative;top:1px}
 .pc-t span.tt{min-width:0;overflow-wrap:anywhere;flex:1}
 .pc-t .due{font-size:12px;color:var(--mute);white-space:nowrap}
+.rel{font:600 11px/1.7 var(--body);font-style:normal;padding:0 8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 12%,var(--surface));color:var(--accent);margin-left:7px;white-space:nowrap;vertical-align:middle;display:inline-block}
+.relf{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.relf button{padding:4px 11px;border:1px solid var(--line);border-radius:999px;font-size:13px;background:var(--surface)}
+.relf button.on{background:var(--ink);border-color:var(--ink);color:var(--surface)}
 .who{font-size:12px;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:0 7px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .sub-off .row-t>span:first-child{color:var(--mute)}
 .sub-off .row-d{color:var(--mute)}
@@ -596,7 +610,7 @@ var CORE=['projects','tasks','milestones','events','inbox','log','posts','channe
 var COLLS=CORE.concat(['money','contacts','messages','subs']);
 var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],settings:{capacity:40}};
 var loaded={};
-var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',cshow:'posts',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
+var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
 var ST={idea:'Идея',active:'В работе',paused:'Пауза',done:'Готово'},STO=['idea','active','paused','done'];
 var TS={todo:'Очередь',doing:'В работе',done:'Готово'},TSO=['todo','doing','done'];
@@ -633,13 +647,35 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function uid(p){return (p||'x')+Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 function pad(n){return n<10?'0'+n:''+n}
 function iso(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
-function today(){return iso(new Date())}
+/* The app can follow a time zone of its own (settings.tz). Dates and times stay what was typed:
+   the zone only decides what «today» and «now» mean. */
+var TZL=[['Asia/Kolkata','Индия: Ришикеш, Дели, Мумбаи'],['Asia/Tbilisi','Грузия: Батуми, Тбилиси'],['Europe/Istanbul','Турция: Стамбул, Анталья'],['Europe/Moscow','Москва'],['Asia/Dubai','ОАЭ: Дубай'],['Asia/Bangkok','Таиланд: Бангкок'],['Asia/Makassar','Бали'],['Europe/Lisbon','Португалия: Лиссабон'],['Europe/Berlin','Центральная Европа: Берлин'],['Europe/London','Лондон'],['America/Sao_Paulo','Бразилия: Сан-Паулу'],['America/New_York','Нью-Йорк'],['America/Los_Angeles','Лос-Анджелес']];
+function tzOk(z){if(!z||typeof z!=='string')return false;try{new Intl.DateTimeFormat('en-US',{timeZone:z});return true}catch(e){return false}}
+function deviceTz(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch(e){return 'UTC'}}
+function appTz(){var z=S.settings&&S.settings.tz;return tzOk(z)?z:''}
+function zoneParts(ms,z){
+  var o={};
+  new Intl.DateTimeFormat('en-CA',{timeZone:z,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ms)).forEach(function(x){o[x.type]=x.value});
+  return {d:o.year+'-'+o.month+'-'+o.day,t:(o.hour==='24'?'00':o.hour)+':'+o.minute};
+}
+function zoneOffset(ms,z){var q=zoneParts(ms,z),a=q.d.split('-'),b=q.t.split(':');return Math.round((Date.UTC(+a[0],+a[1]-1,+a[2],+b[0],+b[1])-Math.floor(ms/60000)*60000)/60000)}
+function wallToMs(local,z){
+  var m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(local||''));if(!m)return NaN;
+  if(!z)return new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime();
+  var g=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]),o1=zoneOffset(g,z),ms=g-o1*60000,o2=zoneOffset(ms,z);
+  return o2===o1?ms:g-o2*60000;
+}
+function tzLabel(z){var off=zoneOffset(Date.now(),z),a=Math.abs(off);return 'UTC'+(off<0?'−':'+')+Math.floor(a/60)+(a%60?':'+pad(a%60):'')}
+function tzName(z){for(var i=0;i<TZL.length;i++)if(TZL[i][0]===z)return TZL[i][1].split(':')[0];return z.split('/').pop().replace(/_/g,' ')}
+function nowClock(){var z=appTz(),d=new Date();return z?zoneParts(d.getTime(),z):{d:iso(d),t:pad(d.getHours())+':'+pad(d.getMinutes())}}
+function tzChanged(before){if(appTz()!==before){ui.day=today();ui.month=ui.day.slice(0,7);ui.pday=''}}
+function today(){return nowClock().d}
 function validDate(s){return typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)}
 function parse(s){var a=s.split('-');return new Date(+a[0],+a[1]-1,+a[2])}
 function addDays(s,n){var d=parse(s);d.setDate(d.getDate()+n);return iso(d)}
 function diff(a,b){return Math.round((parse(a)-parse(b))/864e5)}
 function plural(n,a,b,c){var m=n%100,k=n%10;if(m>10&&m<20)return c;if(k===1)return a;if(k>1&&k<5)return b;return c}
-function fmt(s){if(!validDate(s))return '';var d=parse(s);return d.getDate()+' '+MON[d.getMonth()]+(d.getFullYear()!==new Date().getFullYear()?' '+d.getFullYear():'')}
+function fmt(s){if(!validDate(s))return '';var d=parse(s);return d.getDate()+' '+MON[d.getMonth()]+(d.getFullYear()!==+today().slice(0,4)?' '+d.getFullYear():'')}
 function rel(s){var n=diff(s,today());if(n===0)return 'сегодня';if(n===1)return 'завтра';if(n===-1)return 'вчера';if(n>1)return 'через '+n+' '+plural(n,'день','дня','дней');return 'просрочено на '+(-n)+' '+plural(-n,'день','дня','дней')}
 function ago(ts){if(!ts)return '';var d=new Date(ts);if(isNaN(d))return '';var n=diff(today(),iso(d));if(n<=0)return 'сегодня';if(n===1)return 'вчера';return n+' '+plural(n,'день','дня','дней')+' назад'}
 function byId(arr,id){for(var i=0;i<arr.length;i++)if(arr[i].id===id)return arr[i];return null}
@@ -761,7 +797,7 @@ function drawSide(){
   var n=S.projects.filter(function(p){return p.status==='active'}).length;
   $('#side').innerHTML='<div class="brand"><span class="brand-t">Проекты</span><span class="brand-s">'+n+' в работе</span></div>'+projListHtml()+
     '<button class="btn sm side-add w" data-act="new" data-kind="project">'+ICON.plus+' Проект</button>'+
-    '<div class="side-load"><div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Лимит</button></div>'+loadHtml(true)+'</div>';
+    '<div class="side-load">'+(ui.owner&&ui.mode==='ready'?'<div class="side-data"><button class="btn sm" data-act="data">Данные</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(true)+'</div>';
 }
 function drawTop(){
   var p=ui.project==='all'?null:P(ui.project);
@@ -803,7 +839,7 @@ function drawOverviewAll(){
     return '<section class="panel"><p>'+(ui.mode==='loading'||ui.mode==='slow'?'Проекты загружаются…':'Проектов пока нет.')+'</p>'+(ui.mode==='loading'||ui.mode==='slow'?'':'<div class="ag-add w"><button class="btn pri" data-act="new" data-kind="project">Добавить первый проект</button></div>')+'</section>';
   }
   var h=pendingPanel()+'<div class="now"><section class="panel"><div class="ph"><h2>Ближайшее</h2><button class="btn sm" data-act="view" data-v="calendar">Календарь</button></div>'+upcomingHtml(6)+'</section>';
-  h+='<section class="panel"><div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Лимит</button></div>'+loadHtml(false)+'</section></div>';
+  h+='<section class="panel">'+(ui.owner&&ui.mode==='ready'?'<div class="side-data only-m"><button class="btn sm" data-act="data">Данные</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(false)+'</section></div>';
   h+='<div class="two"><section class="panel"><div class="ph"><h2>Входящие</h2></div><form class="quick w" id="inbox-f"><input id="inbox-i" class="keep" maxlength="300" placeholder="Мысль или идея: запиши сейчас, разберём потом" aria-label="Новая запись во входящие" autocomplete="off"><button class="btn" type="submit">Записать</button></form>';
   if(S.inbox.length){
     h+='<div class="inbox-l">'+S.inbox.slice().sort(function(a,b){return (a.u||'')<(b.u||'')?1:-1}).map(function(x){
@@ -1037,6 +1073,8 @@ function moneyPanel(p){
 /* ---------- contacts and messages ---------- */
 function byName(a,b){return String(a.name||'').localeCompare(String(b.name||''),'ru')}
 function msgDesc(a,b){return (a.date||'')<(b.date||'')?1:(a.date||'')>(b.date||'')?-1:((a.u||'')<(b.u||'')?1:-1)}
+var RELS=['Клиент','Партнёр','Подрядчик','Агент','Команда','Наставник','Ученик','Инвестор','Друг'];
+function cRel(c){return String((c&&c.rel)||'').trim()}
 function cProjects(c){return Array.isArray(c.projects)?c.projects:[]}
 function cTasks(c){return S.tasks.filter(function(t){return t.contact===c.id&&t.status!=='done'}).sort(function(a,b){var x=validDate(a.due)?a.due:'9999',y=validDate(b.due)?b.due:'9999';return x<y?-1:x>y?1:(+a.order||0)-(+b.order||0)})}
 function cOpts(project,cur){
@@ -1054,7 +1092,7 @@ function msgRow(m){
 function contactCard(c){
   var tg=tgUser(c.tg),wa=waNum(c.phone),pj=cProjects(c).map(function(id){return P(id)}).filter(Boolean);
   var last=S.messages.filter(function(m){return m.contact===c.id}).sort(msgDesc)[0];
-  var h='<div class="pc"><button class="pc-h" data-act="edit" data-kind="contact" data-id="'+esc(c.id)+'"><span class="pc-n">'+esc(c.name||'Без имени')+'</span>'+(c.role?'<span class="pc-r">'+esc(c.role)+'</span>':'')+'</button>';
+  var h='<div class="pc"><button class="pc-h" data-act="edit" data-kind="contact" data-id="'+esc(c.id)+'"><span class="pc-n">'+esc(c.name||'Без имени')+(cRel(c)?'<i class="rel">'+esc(cRel(c))+'</i>':'')+'</span>'+(c.role?'<span class="pc-r">'+esc(c.role)+'</span>':'')+'</button>';
   if(pj.length)h+='<div class="chips">'+pj.map(function(p){return '<span class="chip" style="--pc:'+pc(p.id)+'">'+esc(p.name)+'</span>'}).join('')+'</div>';
   var l='';
   if(tg)l+='<a class="lnk" href="https://t.me/'+tg+'" target="_blank" rel="noopener noreferrer">Telegram ↗</a>';else if(c.tg)l+='<span>'+esc(c.tg)+'</span>';
@@ -1069,10 +1107,15 @@ function contactCard(c){
   return h+'<div class="w sp" style="margin-left:0"><button class="btn sm" data-act="new" data-kind="task" data-contact="'+esc(c.id)+'" data-project="'+esc(pj.length?pj[0].id:'')+'">+ Задача</button><button class="btn sm" data-act="new" data-kind="event" data-contact="'+esc(c.id)+'" data-project="'+esc(pj.length?pj[0].id:'')+'">+ Встреча</button><button class="btn sm" data-act="new" data-kind="message" data-contact="'+esc(c.id)+'">+ Сообщение</button></div></div>';
 }
 function drawContacts(){
-  var cs=S.contacts.filter(function(c){return ui.project==='all'||cProjects(c).indexOf(ui.project)>=0}).sort(byName);
+  var csAll=S.contacts.filter(function(c){return ui.project==='all'||cProjects(c).indexOf(ui.project)>=0}).sort(byName);
+  var rels={},relk=[];csAll.forEach(function(c){var r=cRel(c)||'—';if(!rels[r]){rels[r]=0;relk.push(r)}rels[r]++});
+  relk.sort(function(a,b){return a==='—'?1:b==='—'?-1:a.localeCompare(b,'ru')});
+  if(ui.relf&&!rels[ui.relf])ui.relf='';
+  var cs=csAll.filter(function(c){return !ui.relf||(cRel(c)||'—')===ui.relf});
+  var relBar=relk.length>1?'<div class="relf" role="group" aria-label="Роль в отношениях"><button class="'+(ui.relf?'':'on')+'" data-act="relf" data-v="">Все '+csAll.length+'</button>'+relk.map(function(r){return '<button class="'+(ui.relf===r?'on':'')+'" data-act="relf" data-v="'+esc(r)+'">'+esc(r==='—'?'Без роли':r)+' '+rels[r]+'</button>'}).join('')+'</div>':'';
   var ms=S.messages.filter(function(m){return ui.project==='all'||m.project===ui.project}).sort(msgDesc);
   var h='<div class="b-top"><div class="seg only-m" role="group" aria-label="Что показывать"><button class="'+(ui.pshow==='people'?'on':'')+'" data-act="pshow" data-v="people">Люди <b>'+cs.length+'</b></button><button class="'+(ui.pshow==='msgs'?'on':'')+'" data-act="pshow" data-v="msgs">Сообщения <b>'+ms.length+'</b></button></div><div class="sp w"><button class="btn sm" data-act="new" data-kind="contact">+ Контакт</button><button class="btn sm" data-act="new" data-kind="message">+ Сообщение</button></div></div>';
-  h+='<div class="ppl" data-show="'+ui.pshow+'"><section class="s-people">'+(cs.length?'<div class="pcs">'+cs.map(contactCard).join('')+'</div>':'<div class="panel"><p>Контактов пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Добавь людей, с которыми ведёшь проекты: агентов, клиентов, партнёров. Контакт можно привязать к одному или нескольким проектам.</p></div>')+'</section>';
+  h+='<div class="ppl" data-show="'+ui.pshow+'"><section class="s-people">'+relBar+(cs.length?'<div class="pcs">'+cs.map(contactCard).join('')+'</div>':'<div class="panel"><p>Контактов пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Добавь людей, с которыми ведёшь проекты: агентов, клиентов, партнёров. Контакт можно привязать к одному или нескольким проектам.</p></div>')+'</section>';
   h+='<section class="s-msgs"><div class="panel"><div class="ph"><h2>Сообщения</h2></div>'+(ms.length?'<div class="msgs">'+ms.slice(0,80).map(msgRow).join('')+'</div>':'<p class="mute">Сообщений пока нет. Добавь ответ клиента текстом или файлом: он сохранится в истории проекта, а изменения в проект попадут только после твоего ревью.</p>')+'</div></section></div>';
   return h;
 }
@@ -1343,8 +1386,8 @@ function countVar(el){
   if(s){s.textContent=el.value.length;s.className=lim&&el.value.length>lim?'over':''}
 }
 function isoOff(local){
-  var d=new Date(local);if(isNaN(d))return '';
-  var off=-d.getTimezoneOffset(),a=Math.abs(off);
+  var z=appTz(),ms=wallToMs(local,z);if(isNaN(ms))return '';
+  var off=z?zoneOffset(ms,z):-new Date(ms).getTimezoneOffset(),a=Math.abs(off);
   return local+':00'+(off>=0?'+':'-')+pad(Math.floor(a/60))+':'+pad(a%60);
 }
 function mcCopy(e){
@@ -1363,11 +1406,11 @@ function mcSend(p,c,dv){
   var ch=c.id,blog=String(S.settings.metricoolBlog||'').trim(),lim=chLimit(c),tz='UTC';
   var media=dv.media||((c.net==='instagram'||c.net==='youtube')?String(p.media||''):'');
   var story=c.net==='instagram'&&dv.type==='STORY';
-  try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch(e){}
+  tz=appTz()||deviceTz();
   if(!mcNs){vNote(ch,'Metricool в этом окне недоступен.');return}
   if(!/^\d{3,12}$/.test(blog)){vNote(ch,'Укажи id бренда Metricool: кнопка «Metricool» на вкладке «Каналы».');return}
   if(!dv.at){vNote(ch,'Укажи дату и время публикации.');return}
-  if(new Date(dv.at).getTime()<Date.now()+60000){vNote(ch,'Время публикации должно быть в будущем.');return}
+  if(!(wallToMs(dv.at,appTz())>=Date.now()+60000)){vNote(ch,'Время публикации должно быть в будущем.');return}
   if(lim&&dv.text.length>lim){vNote(ch,'Текст длиннее лимита канала: '+dv.text.length+' из '+lim+' знаков. Сократи его.');return}
   if(c.net==='instagram'&&!media){vNote(ch,'Для Instagram нужна ссылка на фото или видео: добавь её здесь или в карточке поста.');return}
   if(c.net==='youtube'&&(!media||!dv.ytTitle)){vNote(ch,'Для YouTube нужны ссылка на видео и название.');return}
@@ -1661,7 +1704,7 @@ function drawPlan(){
   if(sc==='week')label=fmt(weekStart(d))+' – '+fmt(addDays(weekStart(d),6));
   else if(sc==='month')label=MONF[+d.slice(5,7)-1]+' '+d.slice(0,4);
   else label=DOWF[parse(d).getDay()]+', '+parse(d).getDate()+' '+MONG[+d.slice(5,7)-1];
-  h='<div class="b-top"><div class="seg" role="group" aria-label="Горизонт плана">'+[['day','День'],['week','Неделя'],['month','Месяц']].map(function(x){return '<button class="'+(sc===x[0]?'on':'')+'" data-act="plan" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</div><div class="pl-per"><button class="btn sm" data-act="pnav" data-v="-1" aria-label="Назад">‹</button><b>'+esc(label)+'</b><button class="btn sm" data-act="pnav" data-v="1" aria-label="Вперёд">›</button><button class="btn sm" data-act="pnav" data-v="0">Сегодня</button></div><div class="sp w"><button class="btn sm pri" data-act="new" data-kind="task" data-date="'+esc(sc==='day'?d:t0)+'">+ Задача</button></div></div>';
+  h='<div class="b-top"><div class="seg" role="group" aria-label="Горизонт плана">'+[['day','День'],['week','Неделя'],['month','Месяц']].map(function(x){return '<button class="'+(sc===x[0]?'on':'')+'" data-act="plan" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</div><div class="pl-per"><button class="btn sm" data-act="pnav" data-v="-1" aria-label="Назад">‹</button><b>'+esc(label)+'</b><button class="btn sm" data-act="pnav" data-v="1" aria-label="Вперёд">›</button><button class="btn sm" data-act="pnav" data-v="0">Сегодня</button>'+(appTz()?'<span class="mute pl-z">время: '+esc(tzName(appTz()))+' · '+tzLabel(appTz())+'</span>':'')+'</div><div class="sp w"><button class="btn sm pri" data-act="new" data-kind="task" data-date="'+esc(sc==='day'?d:t0)+'">+ Задача</button></div></div>';
   if(!S.projects.length)return h+'<section class="panel"><p class="mute">Сначала добавь проект: задачи плана живут в проектах.</p></section>';
   if(sc==='day'){
     var mine=all.filter(function(t){return t.due===d}).sort(planSort),left=mine.filter(open).length,other=dayItems(d).filter(function(x){return x.k!=='t'});
@@ -1707,6 +1750,120 @@ function planDropped(ev){
   }else due=to;
   if(due===(t.due||'')){render();return}
   patch('tasks',id,{due:due});
+}
+
+/* ---------- data: what is stored, export to a file, import from a file ---------- */
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',settings:'Настройки'};
+var dlNs=null,dataIn=null;
+function dataDump(){
+  var docs={},n=0;
+  COLLS.forEach(function(k){var o={},c=0;S[k].forEach(function(x){var d=Object.assign({},x);delete d.id;o[x.id]=d;c++});if(c){docs[k]=o;n+=c}});
+  var st=Object.assign({},S.settings);delete st.id;docs.settings={main:st};
+  return {n:n+1,json:JSON.stringify({app:'prooloog',version:1,exportedAt:new Date().toISOString(),docs:docs})};
+}
+function dataStats(docs){
+  var rows=[],n=0,last='';
+  Object.keys(COLN).forEach(function(k){
+    var o=docs&&docs[k];if(!o||typeof o!=='object'||Array.isArray(o))return;
+    var ids=Object.keys(o);if(!ids.length)return;
+    n+=ids.length;rows.push([COLN[k],ids.length]);
+    ids.forEach(function(id){var u=o[id]&&o[id].u;if(typeof u==='string'&&u>last)last=u});
+  });
+  return {rows:rows,n:n,last:last};
+}
+function dataGrid(st){return '<div class="dt-g">'+st.rows.map(function(r){return '<div><span>'+esc(r[0])+'</span><b>'+r[1]+'</b></div>'}).join('')+'</div>'}
+function dataWhen(isoStr){var d=String(isoStr||'').slice(0,10);return validDate(d)?fmt(d):''}
+// a readable look inside the file: long values (photos) are cut short
+function dataPretty(obj){
+  var t=JSON.stringify(obj,function(k,v){return typeof v==='string'&&v.length>220?v.slice(0,70)+'… ('+v.length+' знаков)':v},1);
+  return t.length>24000?t.slice(0,24000)+'\n… и ещё '+(t.length-24000)+' знаков':t;
+}
+function formData(){
+  if(!ui.owner)return;
+  var d=dataDump(),st=dataStats(JSON.parse(d.json).docs),kb=Math.max(1,Math.round(d.json.length/1024)),server=!!(filesNs&&typeof filesNs.importData==='function');
+  dataIn=null;
+  var h='<p class="dt-sum"><b>'+st.n+'</b> '+plural(st.n,'запись','записи','записей')+' · около '+kb+' КБ'+(dataWhen(st.last)?' · последнее изменение '+esc(dataWhen(st.last)):'')+'</p><p class="sg-out">Хранятся '+(server?'в базе на сервере.':'в базе этой страницы внутри Claude.')+'</p>'+dataGrid(st);
+  h+='<div class="chat-h"><h2>Выгрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Один файл со всеми записями: резервная копия или перенос в другую версию дэшборда.</p><div class="acts">'+(dlNs?'<button type="button" class="btn pri" data-act="data-save">Скачать файлом</button>':'')+'<button type="button" class="btn" data-act="data-copy">Скопировать текстом</button><button type="button" class="btn" data-act="data-peek" data-v="out" aria-expanded="false">Показать файл</button></div><p class="sg-out" id="data-out" role="status"></p><pre class="dt-pre" id="data-pre-out" hidden tabindex="0"></pre><textarea id="data-box" class="vh" readonly tabindex="-1" aria-hidden="true"></textarea>';
+  if(!ui.ro)h+='<div class="chat-h"><h2>Загрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Выбери файл копии. Сначала покажу, что в нём, и только потом спрошу, заменять ли данные.</p><div class="acts"><label class="btn" for="data-file">Выбрать файл</label><input type="file" id="data-file" class="vh" accept=".json,application/json,text/plain"><button type="button" class="btn" data-act="data-paste" aria-expanded="false">Вставить текстом</button></div><textarea id="data-in" rows="3" hidden autocomplete="off" spellcheck="false" aria-label="Текст копии данных" placeholder="Вставь сюда текст копии" style="margin-top:8px"></textarea><div id="data-inf"></div><p class="sg-out" id="data-lout" role="status"></p>';
+  openSheet('Данные',h,function(b){
+    var fi=b.querySelector('#data-file'),ti=b.querySelector('#data-in');
+    if(fi)fi.addEventListener('change',function(){var f=fi.files&&fi.files[0];fi.value='';if(f)dataRead(f)});
+    if(ti)ti.addEventListener('input',function(){if(ti.value.trim())dataParse(ti.value,'вставленный текст')});
+  },false,true);
+}
+function dataSave(){
+  var d=dataDump(),out=$('#data-out');if(!dlNs||!out)return;
+  out.textContent='Готовлю файл…';
+  Promise.resolve().then(function(){return dlNs.save({filename:'prooloog-data-'+today()+'.json',data:d.json})}).then(function(r){
+    out.textContent=(r&&r.note)||'Файл сохранён, записей: '+d.n+'.';
+  }).catch(function(e){
+    out.textContent=e&&e.code==='declined'?'Сохранение отменено.':'Не получилось сохранить файл. Можно скопировать текстом.';
+  });
+}
+function dataCopy(){
+  var d=dataDump(),box=$('#data-box'),out=$('#data-out');if(!box)return;
+  box.value=d.json;
+  copyText(d.json,box).then(function(ok){if(out)out.textContent=ok?'Скопировано, записей: '+d.n+'.':'Не получилось скопировать. Нажми «Показать файл» и скопируй текст вручную.'});
+}
+function dataPeek(t,which){
+  var pre=$(which==='in'?'#data-pre-in':'#data-pre-out');if(!pre)return;
+  if(!pre.hidden){pre.hidden=true;t.setAttribute('aria-expanded','false');t.textContent='Показать файл';return}
+  var obj=which==='in'?(dataIn&&dataIn.copy):JSON.parse(dataDump().json);if(!obj)return;
+  pre.textContent=dataPretty(obj);pre.hidden=false;t.setAttribute('aria-expanded','true');t.textContent='Скрыть файл';
+}
+function dataRead(file){
+  var out=$('#data-lout');
+  if(file.size>30*1024*1024){if(out)out.textContent='Файл больше 30 МБ, это не похоже на копию данных.';return}
+  if(out)out.textContent='Читаю файл…';
+  var done=function(text){dataParse(text,file.name)},bad=function(){if(out)out.textContent='Не получилось прочитать файл.'};
+  if(typeof file.text==='function')file.text().then(done,bad);
+  else{var fr=new FileReader();fr.onload=function(){done(String(fr.result||''))};fr.onerror=bad;fr.readAsText(file)}
+}
+function dataParse(text,label){
+  var out=$('#data-lout'),inf=$('#data-inf'),o=null;if(!inf)return;
+  try{o=JSON.parse(text)}catch(e){o=null}
+  if(!o||o.app!=='prooloog'||!o.docs||typeof o.docs!=='object'||Array.isArray(o.docs)){
+    dataIn=null;inf.innerHTML='';
+    if(out)out.textContent='Это не похоже на копию данных Prooloog. Нужен файл, который дала кнопка «Скачать файлом», или его текст целиком.';
+    return;
+  }
+  var st=dataStats(o.docs);
+  dataIn={copy:o,n:st.n};
+  if(out)out.textContent='';
+  inf.innerHTML='<div class="dt-in"><p class="dt-sum"><b>'+esc(excerpt(label,60))+'</b>'+(dataWhen(o.exportedAt)?' · копия от '+esc(dataWhen(o.exportedAt)):'')+' · '+st.n+' '+plural(st.n,'запись','записи','записей')+'</p>'+dataGrid(st)+'<div class="acts"><button type="button" class="btn" data-act="data-peek" data-v="in" aria-expanded="false">Показать файл</button><button type="button" class="btn dng" data-act="data-load" style="margin-left:0">Заменить данные этой копией</button></div><pre class="dt-pre" id="data-pre-in" hidden tabindex="0"></pre></div>';
+}
+function dataLoad(t){
+  var out=$('#data-lout');if(!dataIn||ui.ro||!out)return;
+  if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно заменить? Исчезнет всё, чего нет в копии';return}
+  var copy=dataIn.copy,n=dataIn.n;
+  t.disabled=true;out.textContent='Загружаю…';
+  var fin=function(k){out.textContent='Готово: данные заменены копией, записей '+k+'.';dataIn=null;var i=$('#data-inf');if(i)i.innerHTML='';var ta=$('#data-in');if(ta)ta.value=''};
+  if(filesNs&&typeof filesNs.importData==='function'){
+    Promise.resolve(filesNs.importData(copy,'replace')).then(function(r){fin((r&&r.imported)||n)}).catch(function(){out.textContent='Не получилось загрузить копию. Данные не менялись.';t.disabled=false});
+    return;
+  }
+  // Inside Claude there is no bulk load: records are written one by one through the page's own store.
+  var ops=[],same=function(a,b){return JSON.stringify(a)===JSON.stringify(b)};
+  COLLS.forEach(function(k){
+    var want=copy.docs[k]&&typeof copy.docs[k]==='object'&&!Array.isArray(copy.docs[k])?copy.docs[k]:{},have={};
+    S[k].forEach(function(x){var d=Object.assign({},x);delete d.id;have[x.id]=d;if(!Object.prototype.hasOwnProperty.call(want,x.id))ops.push(['del',k,x.id])});
+    Object.keys(want).forEach(function(id){var v=want[id];if(/^[A-Za-z0-9_-]{1,64}$/.test(id)&&v&&typeof v==='object'&&!Array.isArray(v)&&!(have[id]&&same(have[id],v)))ops.push(['set',k,id,v])});
+  });
+  var sm=copy.docs.settings&&copy.docs.settings.main;
+  if(sm&&typeof sm==='object'&&!Array.isArray(sm)){var cur=Object.assign({},S.settings);delete cur.id;if(!same(cur,sm))ops.push(['set','settings','main',sm])}
+  var i=0;
+  (function next(){
+    if(i>=ops.length){fin(n);return}
+    var op=ops[i++],p;
+    out.textContent='Загружаю: '+i+' из '+ops.length;
+    if(!db){
+      if(op[1]==='settings'){var tzb=appTz();S.settings=Object.assign({capacity:40},op[3]);tzChanged(tzb)}
+      else{S[op[1]]=S[op[1]].filter(function(x){return x.id!==op[2]});if(op[0]==='set')S[op[1]].push(Object.assign({id:op[2]},op[3]))}
+      p=Promise.resolve();
+    }else{var ref=db.collection(op[1]).doc(op[2]);p=op[0]==='del'?ref.delete():ref.set(op[3])}
+    Promise.resolve(p).then(next,function(){out.textContent='Остановился на записи '+i+' из '+ops.length+': она не сохранилась. Часть данных уже заменена, загрузи копию ещё раз.';t.disabled=false;delete t.dataset.armed;t.textContent='Заменить данные этой копией'});
+  })();
+  if(!db)render();
 }
 
 /* ---------- draw ---------- */
@@ -1823,37 +1980,25 @@ function formEvent(id,pre){
     '<div class="f2">'+fld('Дата',inp('date',e.date,'type="date" required'))+fld('Время',inp('time',e.time,'type="time"'))+'</div>'+
     '<div class="f2">'+fld('Повтор',sel('repeat',[['','Не повторять'],['daily','Каждый день'],['weekly','Каждую неделю']],e.repeat||''))+fld('Повторять до',inp('until',e.until,'type="date"'))+'</div>'),null,!id);
 }
-function dataDump(){
-  var docs={},n=0;
-  COLLS.forEach(function(k){var o={};S[k].forEach(function(x){var c=Object.assign({},x);delete c.id;o[x.id]=c;n++});if(n&&Object.keys(o).length)docs[k]=o});
-  var st=Object.assign({},S.settings);delete st.id;docs.settings={main:st};
-  return {n:n+1,json:JSON.stringify({app:'prooloog',version:1,exportedAt:new Date().toISOString(),docs:docs})};
-}
-function dataCopy(){
-  var d=dataDump(),box=$('#data-box'),out=$('#data-out');if(!box)return;
-  box.value=d.json;box.hidden=false;
-  copyText(d.json,box).then(function(ok){if(out)out.textContent=ok?'Скопировано, записей: '+d.n+'. Сохрани этот текст в заметках или вставь в другую версию дэшборда.':'Не получилось скопировать сразу. Текст выделен ниже: скопируй его вручную.'});
-}
-function dataLoad(t){
-  var inp_=$('#data-in'),out=$('#data-lout'),o=null,n=0;if(!inp_||!out)return;
-  try{o=JSON.parse(inp_.value)}catch(e){o=null}
-  if(!o||o.app!=='prooloog'||!o.docs||typeof o.docs!=='object'||Array.isArray(o.docs)){out.textContent='Это не похоже на копию данных. Вставь текст целиком, от первой фигурной скобки до последней.';return}
-  Object.keys(o.docs).forEach(function(k){if(o.docs[k]&&typeof o.docs[k]==='object')n+=Object.keys(o.docs[k]).length});
-  if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно заменить? Сейчас здесь исчезнет всё, чего нет в копии';out.textContent='В копии записей: '+n+(/^\d{4}-\d{2}-\d{2}/.test(String(o.exportedAt||''))?', от '+fmt(String(o.exportedAt).slice(0,10)):'')+'.';return}
-  t.disabled=true;out.textContent='Загружаю…';
-  Promise.resolve(filesNs.importData(o,'replace')).then(function(r){out.textContent='Готово: загружено записей '+((r&&r.imported)||n)+'.';inp_.value='';t.disabled=false;delete t.dataset.armed;t.textContent='Заменить данные этой копией'}).catch(function(){out.textContent='Не получилось загрузить копию. Данные не менялись.';t.disabled=false});
-}
 function formSettings(){
-  var h=formHtml('settings','',fld('Сколько часов в неделю ты готов отдавать проектам',inp('capacity',+S.settings.capacity||40,'type="number" min="1" max="120" step="1" inputmode="numeric" required'))+'<p class="mute">Считаются часы проектов со статусом «В работе». Часы каждого проекта задаются в его карточке.</p>');
-  if(ui.owner&&ui.mode==='ready'){
-    h+='<div class="chat-h"><h2>Копия данных</h2></div><p class="sg-out" style="margin:6px 0 10px">Все проекты, задачи и остальные записи одним текстом: для резервной копии или переноса в другую версию дэшборда.</p><div class="acts"><button type="button" class="btn" data-act="data-copy">Скопировать все данные</button></div><textarea id="data-box" rows="3" readonly hidden aria-label="Текст копии данных" style="margin-top:8px"></textarea><p class="sg-out" id="data-out" role="status"></p>';
-    if(filesNs&&typeof filesNs.importData==='function'&&!ui.ro)h+='<label class="f" style="margin-top:12px"><span class="f-l">Загрузить копию: вставь скопированный текст</span><textarea id="data-in" rows="3" autocomplete="off" spellcheck="false"></textarea></label><div class="acts"><button type="button" class="btn dng" data-act="data-load" style="margin-left:0">Заменить данные этой копией</button></div><p class="sg-out" id="data-lout" role="status"></p>';
-  }
-  openSheet('Настройки',h,null,false);
+  var z=appTz(),dev=deviceTz(),zo=[['','Как на этом устройстве: '+tzName(dev)+' · '+tzLabel(dev)]].concat(TZL.map(function(x){return [x[0],x[1]+' · '+tzLabel(x[0])]}));
+  if(z&&!TZL.some(function(x){return x[0]===z}))zo.push([z,z+' · '+tzLabel(z)]);
+  var h=formHtml('settings','',fld('Сколько часов в неделю ты готов отдавать проектам',inp('capacity',+S.settings.capacity||40,'type="number" min="1" max="120" step="1" inputmode="numeric" required'))+'<p class="mute">Считаются часы проектов со статусом «В работе». Часы каждого проекта задаются в его карточке.</p>'+
+    fld('Часовой пояс приложения',sel('tz',zo,z))+fld('Другой пояс: название зоны, например Asia/Tokyo',inp('tzx','','maxlength="60" autocomplete="off" placeholder="Необязательно"'))+'<p class="sg-out" id="tz-now" role="status"></p><p class="mute">По этому поясу приложение решает, какой сейчас день и час: «сегодня», сроки, план. Часы на устройстве менять не нужно. Записанные даты и время не сдвигаются.</p>');
+  openSheet('Настройки',h,function(b){
+    var se=b.querySelector('#f-tz'),tx=b.querySelector('#f-tzx'),out=b.querySelector('#tz-now');
+    var show=function(){
+      var c=tx.value.trim(),zz=c||se.value||deviceTz();
+      if(!tzOk(zz)){out.textContent='Не знаю такую зону. Проверь название, например Asia/Tokyo.';return}
+      var q=zoneParts(Date.now(),zz),dt=parse(q.d);
+      out.textContent='Сейчас в приложении будет: '+q.t+', '+DOWF[dt.getDay()].toLowerCase()+' '+dt.getDate()+' '+MONG[dt.getMonth()]+' ('+tzLabel(zz)+').';
+    };
+    se.addEventListener('change',show);tx.addEventListener('input',show);show();
+  },false);
 }
 function saveSettings(p){
   var next=Object.assign({},S.settings,p);delete next.id;
-  if(!db){S.settings=next;render();return}
+  if(!db){var tzb=appTz();S.settings=next;tzChanged(tzb);render();return}
   next.u=new Date().toISOString();
   db.doc('settings/main').set(next).catch(fail);
 }
@@ -1873,12 +2018,13 @@ function formMoney(id,pre){
 }
 function formContact(id,pre){
   var c=id?byId(S.contacts,id):null;if(id&&!c)return;
-  c=c||merge({name:'',role:'',tg:'',phone:'',email:'',projects:ui.project!=='all'&&P(ui.project)?[ui.project]:[],notes:''},pre);
+  c=c||merge({name:'',role:'',rel:'',tg:'',phone:'',email:'',projects:ui.project!=='all'&&P(ui.project)?[ui.project]:[],notes:''},pre);
   var pj=cProjects(c);
   var list=S.projects.length?'<div class="f"><span class="f-l">Проекты</span><div class="ckl">'+sorted(S.projects).map(function(p){return '<label><input type="checkbox" id="f-pj-'+esc(p.id)+'" name="pj:'+esc(p.id)+'"'+(pj.indexOf(p.id)>=0?' checked':'')+'><span>'+esc(p.name)+'</span></label>'}).join('')+'</div></div>':'';
   openSheet(id?'Контакт':'Новый контакт',formHtml('contact',id,
     fld('Имя',inp('name',c.name,'required maxlength="80"'))+
-    fld('Кто это',inp('role',c.role,'maxlength="80" placeholder="Например: кастинг-директор, клиент, партнёр"'))+
+    fld('Роль в отношениях',inp('rel',c.rel||'','list="rel-dl" maxlength="40" autocomplete="off" placeholder="Клиент, партнёр, наставник: выбери или впиши свою"')+'<datalist id="rel-dl">'+(function(){var u={};RELS.forEach(function(r){u[r]=1});S.contacts.forEach(function(x){if(cRel(x))u[cRel(x)]=1});return Object.keys(u).map(function(r){return '<option value="'+esc(r)+'"></option>'}).join('')})()+'</datalist>')+
+    fld('Кто это: должность, компания, коллектив',inp('role',c.role,'maxlength="80" placeholder="Например: кастинг-директор, Portal Dance Family"'))+
     '<div class="f2">'+fld('Telegram',inp('tg',c.tg,'maxlength="64" placeholder="@username" autocapitalize="off" autocomplete="off"'))+fld('Телефон',inp('phone',c.phone,'maxlength="32" inputmode="tel" autocomplete="off"'))+'</div>'+
     fld('Почта',inp('email',c.email,'type="email" maxlength="120" autocomplete="off"'))+list+
     fld('Заметки',ta('notes',c.notes,3))),null,!id);
@@ -2336,7 +2482,7 @@ function save(kind,id,v,form){
   }else if(kind==='contact'){
     if(!v.name)return;
     var pj=[];Object.keys(v).forEach(function(k){if(k.indexOf('pj:')===0&&v[k]&&P(k.slice(3)))pj.push(k.slice(3))});
-    data={name:v.name,role:v.role||'',tg:v.tg||'',phone:v.phone||'',email:v.email||'',projects:pj,notes:v.notes||''};
+    data={name:v.name,role:v.role||'',rel:(v.rel||'').replace(/\s+/g,' ').slice(0,40),tg:v.tg||'',phone:v.phone||'',email:v.email||'',projects:pj,notes:v.notes||''};
     if(id)patch('contacts',id,data);else put('contacts',uid('c'),data);
   }else if(kind==='message'){
     if(!v.text||!P(v.project)||!validDate(v.date))return;
@@ -2391,7 +2537,9 @@ function save(kind,id,v,form){
   }else if(kind==='mc'){
     saveSettings({metricoolBlog:String(v.blog||'').replace(/\D/g,'').slice(0,12)});
   }else if(kind==='settings'){
-    saveSettings({capacity:Math.max(1,Math.min(120,Math.round(+v.capacity||40)))});
+    var tzv=v.tzx?(tzOk(v.tzx)?v.tzx:null):(tzOk(v.tz)?v.tz:'');
+    if(tzv===null){var tn=$('#tz-now');if(tn)tn.textContent='Не знаю такую зону. Проверь название, например Asia/Tokyo.';return}
+    saveSettings({capacity:Math.max(1,Math.min(120,Math.round(+v.capacity||40))),tz:tzv});
   }
   closeSheet();
 }
@@ -2499,7 +2647,12 @@ document.addEventListener('click',function(e){
     case 'rv-apply':applyProposal(d.id);break;
     case 'rv-reject':if(t.dataset.armed)rejectProposal(d.id);else{t.dataset.armed='1';t.textContent='Точно отклонить?'}break;
     case 'rv-done':rejectProposal(d.id);break;
+    case 'relf':ui.relf=d.v||'';render();break;
+    case 'data':formData();break;
+    case 'data-save':dataSave();break;
     case 'data-copy':dataCopy();break;
+    case 'data-peek':dataPeek(t,d.v);break;
+    case 'data-paste':o=$('#data-in');if(o){o.hidden=!o.hidden;t.setAttribute('aria-expanded',String(!o.hidden));if(!o.hidden)o.focus()}break;
     case 'data-load':dataLoad(t);break;
     case 'rv-parse':reAnalyze(d.id);break;
   }
@@ -2552,7 +2705,7 @@ function start(){
         if(ui.open&&loaded.messages&&ui.mode==='ready'){var om=byId(S.messages,ui.open);ui.open='';if(om)setTimeout(function(){viewMessage(om.id)},60)}
       },function(){if(CORE.indexOf(k)<0){S[k]=[];loaded[k]=true;render();return}clearTimeout(timer);ui.mode='error';render()});
     });
-    db.doc('settings/main').onSnapshot(function(s){if(s.exists)S.settings=Object.assign({capacity:40},s.data()||{});render()},function(){});
+    db.doc('settings/main').onSnapshot(function(s){var tzb=appTz();if(s.exists)S.settings=Object.assign({capacity:40},s.data()||{});tzChanged(tzb);render()},function(){});
   }).catch(function(){clearTimeout(timer);ui.mode='local';render()});
   Promise.resolve(c.use('user')).then(function(u){
     if(!u||typeof u.can!=='function')return;
@@ -2562,6 +2715,7 @@ function start(){
   Promise.resolve(c.use('sample')).then(function(f){if(typeof f==='function')sampleFn=f}).catch(function(){});
   Promise.resolve(c.use('mcp')).then(function(m){if(m&&typeof m.callTool==='function')mcNs=m}).catch(function(){});
   Promise.resolve(c.use('files')).then(function(f){if(f&&typeof f.upload==='function')filesNs=f}).catch(function(){});
+  Promise.resolve(c.use('downloads')).then(function(x){if(x&&typeof x.save==='function')dlNs=x}).catch(function(){});
 }
 start();
 })();

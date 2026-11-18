@@ -156,6 +156,12 @@ function build() {
     res.json({ ok: true, imported: n });
   });
 
+  // «Скачать файлом» inside Telegram: the bot sends the copy to the owner's chat.
+  api.post('/backup/send', auth.guard('owner'), authLimit, async (req, res) => {
+    try { await bot.sendBackup(req.user.id, true); } catch (e) { return res.status(502).json({ error: 'bot_unavailable' }); }
+    res.json({ ok: true });
+  });
+
   // Voice messages the bot has saved: played in the dashboard straight from Telegram.
   api.get('/tg/file/:fileId', auth.guard('owner'), async (req, res) => {
     if (!/^[A-Za-z0-9_-]{10,200}$/.test(req.params.fileId)) return res.status(400).end();
