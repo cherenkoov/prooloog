@@ -69,7 +69,7 @@ test.before(async () => {
     BOT_TOKEN: BOT, TG_API_ROOT: 'http://127.0.0.1:' + tgSrv.address().port, APP_URL: 'https://prooloog.test',
     OWNER_USERNAME: 'Alex_Owner', SESSION_SECRET: 'test-session-secret', WEBHOOK_SECRET: 'test-hook+secret/=',
     ANTHROPIC_API_KEY: 'sk-test', AI_API_ROOT: 'http://127.0.0.1:' + aiSrv.address().port, BACKUP_DAYS: '7',
-    SEED_FILE: path.join(__dirname, 'fixture-seed.json'), GROUP_ASK_MS: '0',
+    SEED_FILE: path.join(__dirname, 'fixture-seed.json'), GROUP_ASK_MS: '0', AUTH_LIMIT: '500',
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
@@ -539,25 +539,68 @@ test('reminders: rules of the event, the call link, a participant with rules of 
   assert.match(texts(n)[0][1], /Через 1 час: <b>Созвон с Наташей<\/b>[\s\S]*1 дек, 10:00 · Проект для вопроса[\s\S]*zoom\.us/);
   assert.equal(texts(n)[0][0], String(OWNER.id));
   assert.equal(await remind.tick(start - 60 * 60000 + 30000), 0, 'never twice');
-  // a participant opens the bot by the link of the event
+  // a participant opens the bot by the link of the event: the language first, the likely one offered first
+  const subOf = async (u) => (await call('GET', '/api/db/evsubs', { token: ownerToken })).json.docs.find((x) => x.data.event === 'e-rem' && x.data.tg === String(u.id));
+  const keys = (c) => c.params.reply_markup.inline_keyboard.map((row) => row.map((b) => [b.text, b.callback_data]));
+  const EVR = Object.assign({}, EVE, { language_code: 'ru' });
   n = tgCalls.length;
-  await update(msg(EVE, { text: '/start ev_sharetoken123456' }));
-  assert.match(lastSay().params.text, /Созвон с Наташей[\s\S]*1 дек, 10:00 \(UTC\+5:30\)[\s\S]*за 5 минут/);
-  let sub = (await call('GET', '/api/db/evsubs', { token: ownerToken })).json.docs.find((x) => x.data.event === 'e-rem');
-  assert.deepEqual(sub.data.rem, [5]); assert.equal(sub.data.tg, String(EVE.id));
-  await update(tap(EVE, 'er:e-rem:15'));
-  sub = (await call('GET', '/api/db/evsubs', { token: ownerToken })).json.docs.find((x) => x.data.event === 'e-rem');
-  assert.deepEqual(sub.data.rem, [15, 5]);
-  await update(msg(EVE, { text: '/start ev_nosuchtoken000000' }));
-  assert.match(lastSay().params.text, /больше не действует/);
-  // 15 minutes before: the owner and the participant; 5 minutes before: the link goes to both
+  await update(msg(EVR, { text: '/start ev_sharetoken123456' }));
+  assert.equal(lastSay().params.text, '<b>Созвон с Наташей</b>\n🌐 Выберите язык · Choose your language');
+  assert.deepEqual(keys(lastSay()), [[['Русский', 'el:e-rem:ru'], ['English', 'el:e-rem:en']]]);
+  let sub = await subOf(EVE);
+  assert.deepEqual([sub.data.rem, sub.data.lang, sub.data.asked], [[5], 'ru', false], 'subscribed at once, in the likely language, even if the question is never answered');
+  await update(tap(EVR, 'el:e-rem:ru'));
+  assert.equal(lastSay().method, 'editMessageText');
+  assert.equal(lastSay().params.text, '<b>Созвон с Наташей</b>\n1 дек, 10:00 (UTC+5:30)\n\nНапомню за 5 минут. Ссылку на созвон пришлю за 5 минут до начала.\nКнопками ниже можно выбрать, когда напоминать.');
+  assert.deepEqual(keys(lastSay()), [[['✓ за 5 минут', 'er:e-rem:5'], ['за 15 минут', 'er:e-rem:15']], [['за час', 'er:e-rem:60'], ['за день', 'er:e-rem:1440']], [['🌐 Язык', 'el:e-rem:ask']]]);
+  await update(tap(EVR, 'er:e-rem:15'));
+  sub = await subOf(EVE);
+  assert.deepEqual([sub.data.rem, sub.data.lang, sub.data.asked], [[15, 5], 'ru', true]);
+  // the choice is remembered: the next link opens without a question
+  await call('PUT', '/api/db/events/e-rem2', { token: ownerToken, json: { data: { title: 'Вторая встреча', date: '2026-12-02', time: '11:00', share: 'sharetoken2222222' } } });
+  await update(msg(Object.assign({}, EVE, { language_code: 'en' }), { text: '/start ev_sharetoken2222222' }));
+  assert.match(lastSay().params.text, /^<b>Вторая встреча<\/b>\n2 дек, 11:00 \(UTC\+5:30\)\n\nНапомню за 5 минут\.\nКнопками/);
+  await update(msg(EVR, { text: '/start ev_nosuchtoken000000' }));
+  assert.match(lastSay().params.text, /больше не действует\. Попросите у организатора/);
+  // the organizer fixed English in the link: no question, whatever the person's Telegram says
+  const JOHN = { id: 777301, first_name: 'John', language_code: 'de' };
+  await update(msg(JOHN, { text: '/start even_sharetoken123456' }));
+  assert.equal(lastSay().params.text, "<b>Созвон с Наташей</b>\nDec 1, 10:00 (UTC+5:30)\n\nI'll remind you 5 minutes before. I'll send the call link 5 minutes before the start.\nUse the buttons below to choose when to be reminded.");
+  assert.deepEqual(keys(lastSay()).flat().map((b) => b[0]), ['✓ 5 minutes before', '15 minutes before', '1 hour before', '1 day before', '🌐 Language']);
+  n = tgCalls.length;
+  await update(tap(JOHN, 'er:e-rem:60'));
+  assert.equal(sinceMark(n, 'answerCallbackQuery')[0].params.text, "I'll remind you 1 hour before");
+  assert.deepEqual([(await subOf(JOHN)).data.lang, (await subOf(JOHN)).data.asked], ['en', true]);
+  await update(msg(JOHN, { text: '/start even_nosuchtoken000000' }));
+  assert.match(lastSay().params.text, /^This meeting link no longer works/);
+  // the link leaves the choice, the person's Telegram is not in Russian: English is offered first
+  const ANA = { id: 777302, first_name: 'Ana', language_code: 'es' };
+  await update(msg(ANA, { text: '/start ev_sharetoken123456' }));
+  assert.deepEqual(keys(lastSay()), [[['English', 'el:e-rem:en'], ['Русский', 'el:e-rem:ru']]]);
+  assert.deepEqual([(await subOf(ANA)).data.lang, (await subOf(ANA)).data.asked], ['en', false]);
+  // 15 minutes before: the owner and the participant who asked for it; 5 minutes before: the link goes to everybody, each in their language
   n = tgCalls.length;
   assert.equal(await remind.tick(start - 15 * 60000 + 2000), 2);
   assert.deepEqual(texts(n).map((x) => x[0]).sort(), [String(OWNER.id), String(EVE.id)].sort());
   assert.match(texts(n).find((x) => x[0] === String(EVE.id))[1], /Через 15 минут[\s\S]*\(UTC\+5:30\)[\s\S]*zoom\.us/);
   n = tgCalls.length;
-  assert.equal(await remind.tick(start - 5 * 60000 + 2000), 2);
-  assert.match(texts(n)[0][1], /Через 5 минут[\s\S]*Ссылка: https:\/\/zoom\.us\/j\/123/);
+  assert.equal(await remind.tick(start - 5 * 60000 + 2000), 4);
+  const to = (u) => texts(n).find((x) => x[0] === String(u.id))[1];
+  assert.equal(to(EVE), '⏰ Через 5 минут: <b>Созвон с Наташей</b>\n1 дек, 10:00 (UTC+5:30)\nСсылка: https://zoom.us/j/123');
+  assert.equal(to(JOHN), '⏰ In 5 minutes: <b>Созвон с Наташей</b>\nDec 1, 10:00 (UTC+5:30)\nLink: https://zoom.us/j/123');
+  assert.match(to(ANA), /^⏰ In 5 minutes:/, 'no answer to the question: the likely language');
+  assert.match(to(OWNER), /^⏰ Через 5 минут:[\s\S]*Ссылка: https:\/\/zoom\.us\/j\/123/);
+  // the language can be changed later with the button under the meeting
+  await update(tap(ANA, 'el:e-rem:ask'));
+  assert.match(lastSay().params.text, /Выберите язык · Choose your language/);
+  n = tgCalls.length;
+  await update(tap(ANA, 'el:e-rem:ru'));
+  assert.equal(sinceMark(n, 'answerCallbackQuery')[0].params.text, 'Язык: русский');
+  assert.match(lastSay().params.text, /Напомню за 5 минут/);
+  assert.deepEqual([(await subOf(ANA)).data.lang, (await subOf(ANA)).data.asked], ['ru', true]);
+  const i18n = require('../src/i18n');
+  assert.equal(i18n.of('en').before(1), 'In 1 minute'); assert.equal(i18n.of('en').before(120), 'In 2 hours'); assert.equal(i18n.of('en').before(1440), 'In 1 day');
+  assert.equal(i18n.guess('ru-RU'), 'ru'); assert.equal(i18n.guess(undefined), 'en'); assert.deepEqual(i18n.offer('hi'), ['en', 'ru']);
   assert.equal(await remind.tick(start + 11 * 60000), 0, 'nothing after the start');
   // a daily event without rules and without a link stays silent; with a rule it fires every day
   await call('PUT', '/api/db/events/e-day', { token: ownerToken, json: { data: { title: 'Эфир', date: '2026-12-01', time: '08:00', repeat: 'daily', rem: [10] } } });
@@ -593,7 +636,7 @@ test('invite link: access to chosen projects at a chosen level', async () => {
   await update(msg(CAROL, { text: '/start inv_' + link.json.token }));
   const said = sinceMark(n, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text]);
   assert.match(said.find((x) => x[0] === String(CAROL.id))[1], /открыт доступ[\s\S]*Открытый проект[\s\S]*можно смотреть/);
-  assert.match(said.find((x) => x[0] === String(OWNER.id))[1], /Carol[\s\S]*открыл приглашение[\s\S]*зритель/);
+  assert.match(said.find((x) => x[0] === String(OWNER.id))[1], /Carol[\s\S]*вход по приглашению[\s\S]*зритель/);
   await update(msg(DAN, { text: '/start inv_' + link.json.token }));
   assert.match(lastSay().params.text, /уже использована/);
   assert.equal((await call('POST', '/api/auth/telegram', { json: { initData: initData(DAN) } })).status, 403);
@@ -812,7 +855,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   n = tgCalls.length;
   await update(gtap(NAT, 'gp:app'));
   assert.equal(sinceMark(n, 'answerCallbackQuery')[0].params.url, 'https://t.me/prooloog_test_bot?start=open');
-  assert.match(said(n, OWNER.id)[0].params.text, /Наташа \(@natakhas_t\) открыл проект <b>EcoChakra<\/b> из чата «Команда EcoChakra»: доступ «смотреть»/);
+  assert.match(said(n, OWNER.id)[0].params.text, /Наташа \(@natakhas_t\): доступ «смотреть» к проекту <b>EcoChakra<\/b> из чата «Команда EcoChakra»/);
   const nat = await login(NAT);
   assert.equal(nat.json.role, 'viewer'); assert.deepEqual(nat.json.projects, ['p-eco']);
   const natGet = (coll) => call('GET', '/api/db/' + coll, { token: nat.json.token });
@@ -855,6 +898,12 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   n = tgCalls.length;
   await remind.tick(start2 - 5 * 60000 + 1000);
   assert.match(said(n, GID)[0].params.text, /Через 5 минут[\s\S]*Ссылка: https:\/\/meet\.google\.com\/abc/);
+  await put('events/e-eco-en', { title: 'Team call', project: 'p-eco', date: '2031-03-07', time: '12:00', rem: [15], share: 'ecosharetoken456', lang: 'en' });
+  n = tgCalls.length;
+  await remind.tick(clock.wallToMs('2031-03-07', '12:00', tz) - 15 * 60000 + 1000);
+  const en = said(n, GID)[0];
+  assert.match(en.params.text, /^⏰ In 15 minutes: <b>Team call<\/b>\nMar 7, 12:00/);
+  assert.deepEqual([en.params.reply_markup.inline_keyboard[0][0].text, en.params.reply_markup.inline_keyboard[0][0].url], ['Remind me personally', 'https://t.me/prooloog_test_bot?start=even_ecosharetoken456']);
 
   // «only what is addressed to the bot»
   await patch('chats/' + CH, { collect: 'ask' });
@@ -1050,6 +1099,74 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   assert.deepEqual(await ids('projects'), ['p-net']);
   await update(msg(OWNER, { text: '/onboard Сеть мастеров' }));
   assert.notEqual(/start=join_([A-Za-z0-9_-]+)/.exec(lastSay().params.text)[1], tok);
+});
+
+test('journal: who did what with the data, kept by the server, outside copies', async () => {
+  const journal = require('../src/journal');
+  const put = (path, data, token = ownerToken) => call('PUT', '/api/db/' + path, { token, json: { data } });
+  const patch = (path, data, token = ownerToken) => call('PATCH', '/api/db/' + path, { token, json: { data } });
+  const entries = async () => { await journal.flush(); return (await call('GET', '/api/db/audit', { token: ownerToken })).json.docs.flatMap((d) => d.data.items); };
+  await journal.flush();
+  const from = (await entries()).length;
+  const fresh = async () => (await entries()).slice(from);
+  // the earlier tests left their trace: chats, invitations, the connector
+  const old = await entries();
+  assert.ok(old.some((e) => e.a === 'acc' && /Вход по приглашению: Carol[\s\S]*зритель/.test(e.n)), 'an invitation used');
+  assert.ok(old.some((e) => e.a === 'acc' && /Доступ закрыт: Carol/.test(e.n)));
+  assert.ok(old.some((e) => e.a === 'bulk' && /Бот добавлен в чат «Команда EcoChakra»/.test(e.n) && e.by === 'Наташа'));
+  assert.ok(old.some((e) => e.c === 'messages' && e.a === 'add' && e.by === 'чат «Команда EcoChakra»' && /^Чат «Команда EcoChakra»/.test(e.n)), 'a day of chat talk is one line');
+  assert.equal(old.filter((e) => e.c === 'messages' && e.by === 'чат «Команда EcoChakra»' && e.n === 'Чат «Команда EcoChakra»').length, 1, 'not a line per message');
+  assert.ok(old.some((e) => e.c === 'messages' && e.by === 'чат «Команда EcoChakra»: Наташа' && e.n === 'Собрать список участников'));
+  assert.ok(old.some((e) => e.by === 'Claude'), 'what Claude wrote through the connector is signed');
+  assert.ok(old.some((e) => e.c === 'chats' && e.a === 'upd' && e.f.includes('project')));
+  assert.ok(!old.some((e) => ['activity', 'usage', 'gone', 'audit', 'evsubs'].includes(e.c)), 'bookkeeping is not an action');
+
+  // the owner: add, change, a change of state, a move in a list, a deletion
+  await put('projects/p-j', { name: 'Журнал', status: 'active', order: 90 });
+  await put('tasks/t-j', { title: 'Проверить журнал', project: 'p-j', status: 'todo', order: 1 });
+  await patch('tasks/t-j', { status: 'done', due: '2031-05-01' });
+  await patch('tasks/t-j', { order: 7 });
+  await patch('tasks/t-j', { status: 'done' });
+  await put('tasks/t-j', { title: 'Проверить журнал', project: 'p-j', status: 'done', due: '2031-05-01', order: 7, notes: 'готово' });
+  // a guest editor of this project
+  const DAN = { id: 777201, first_name: 'Dan', username: 'dan_j' };
+  const link = await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'editor', projects: ['p-j'] } });
+  await update(msg(DAN, { text: '/start inv_' + link.json.token }));
+  const dan = (await call('POST', '/api/auth/telegram', { json: { initData: initData(DAN) } })).json.token;
+  await put('tasks/t-j2', { title: 'Задача гостя', project: 'p-j', status: 'todo' }, dan);
+  await call('DELETE', '/api/db/tasks/t-j2', { token: dan });
+  await call('DELETE', '/api/db/tasks/t-j', { token: ownerToken });
+  const got = (await fresh()).map((e) => [e.a, e.c || '', e.n, (e.f || []).join(','), e.s || '', e.by || '', e.p || '']);
+  assert.deepEqual(got, [
+    ['add', 'projects', 'Журнал', '', '', '', ''],
+    ['add', 'tasks', 'Проверить журнал', '', '', '', 'p-j'],
+    ['upd', 'tasks', 'Проверить журнал', 'status,due', 'done', '', 'p-j'],
+    ['upd', 'tasks', 'Проверить журнал', 'notes', '', '', 'p-j'],
+    ['acc', '', 'Создана ссылка-приглашение: редактировать, проектов: 1', '', '', '', ''],
+    ['acc', '', 'Вход по приглашению: Dan (@dan_j) — Журнал, редактор', '', '', '', ''],
+    ['add', 'tasks', 'Задача гостя', '', '', 'Dan', 'p-j'],
+    ['del', 'tasks', 'Задача гостя', '', '', 'Dan', 'p-j'],
+    ['del', 'tasks', 'Проверить журнал', '', '', '', 'p-j'],
+  ], 'a move in a list and a change that changes nothing leave no line');
+  assert.ok((await fresh()).every((e) => /^\d{4}-\d\d-\d\dT/.test(e.t)));
+  // only the owner reads it, nobody writes it by hand
+  assert.equal((await call('GET', '/api/db/audit', { token: dan })).status, 403);
+  assert.equal((await call('GET', '/api/db/audit', { token: bobToken })).status, 403);
+  assert.equal((await put('audit/s20310101', { items: [] })).status, 403);
+  assert.equal((await call('DELETE', '/api/db/audit/s20310101', { token: ownerToken })).status, 403);
+  // it stays out of copies and survives a copy being loaded
+  const copy = (await call('GET', '/api/export', { token: ownerToken })).json;
+  assert.equal(copy.docs.audit, undefined);
+  const before = (await entries()).length;
+  assert.equal((await call('POST', '/api/import', { token: ownerToken, json: { app: 'prooloog', docs: copy.docs, mode: 'replace' } })).status, 200);
+  const after = await entries();
+  assert.equal(after.length, before + 1);
+  assert.match(after[after.length - 1].n, /^Данные заменены копией: записей \d+$/);
+  // one record per day, in the order things happened
+  const docs = (await call('GET', '/api/db/audit', { token: ownerToken })).json.docs;
+  assert.ok(docs.every((d) => /^s\d{8}(-\d+)?$/.test(d.id) && /^\d{4}-\d\d-\d\d$/.test(d.data.date)));
+  await call('DELETE', '/api/share/members/' + DAN.id, { token: ownerToken });
+  await call('DELETE', '/api/db/projects/p-j', { token: ownerToken });
 });
 
 test('the bot dates messages by the time zone chosen in the dashboard', async () => {

@@ -43,11 +43,14 @@ cfg.aiPrices = {
 if (+env.AI_PRICE_IN > 0 && +env.AI_PRICE_OUT > 0) cfg.aiPrices[cfg.aiModel] = { in: +env.AI_PRICE_IN, out: +env.AI_PRICE_OUT, cr: +env.AI_PRICE_IN / 10, cw: +env.AI_PRICE_IN * 1.25 };
 
 // Collections the dashboard page uses. Anything else is refused.
-cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'gone', 'settings'];
+cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'audit', 'gone', 'settings'];
+// what a copy, a merge or a sync carries: everything but the journal, which is the history of this copy alone
+cfg.dataCollections = cfg.collections.filter((c) => c !== 'audit');
 // Money, people and client messages are for the owner only.
-cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'gone']);
+cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'audit', 'gone']);
 // Kept by the server alone (onboarding answers): the page never reads them, but backups carry them.
 cfg.serverOnly = ['joins'];
-cfg.allCollections = cfg.collections.concat(cfg.serverOnly);
+// what a backup restores: the data and the server's own records, without the journal
+cfg.allCollections = cfg.dataCollections.concat(cfg.serverOnly);
 
 module.exports = cfg;

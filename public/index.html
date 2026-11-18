@@ -392,6 +392,39 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* the nearest meeting */
+#sn-meet:empty{display:none}
+.sn-i{width:8px;height:8px;border-radius:50%;background:var(--pc,var(--mute));justify-self:center;margin-top:7px}
+.sn-a{font-size:12px;font-weight:500;color:var(--accent);margin-left:31px;align-self:flex-start}
+@media (min-width:900px) and (max-height:760px){.side-next{padding:7px 10px 8px;gap:4px;margin-bottom:6px}.side-next .sn-t{-webkit-line-clamp:1}}
+/* the journal */
+.lg-h{display:flex;align-items:center;gap:10px}
+.lg-h h2{margin-right:auto}
+.lg-n{font-size:12px;color:var(--mute);white-space:nowrap}
+.lg-box{margin-top:8px;height:196px;overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:0 0 4px}
+.lg-d{position:sticky;top:0;z-index:1;background:var(--surface2);padding:7px 10px 4px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)}
+.lg-r{display:grid;grid-template-columns:38px 8px minmax(0,1fr);gap:8px;align-items:baseline;width:100%;padding:4px 10px;font-size:13px;line-height:1.35;text-align:left}
+button.lg-r:hover{background:var(--surface)}
+button.lg-r:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.lg-t{font-variant-numeric:tabular-nums;color:var(--mute);font-size:12px}
+.lg-i{width:7px;height:7px;border-radius:50%;background:var(--mute);align-self:center}
+.lg-i.add{background:var(--good)}
+.lg-i.upd{background:var(--accent)}
+.lg-i.del{background:var(--crit)}
+.lg-i.acc{background:var(--warn)}
+.lg-x{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-m{color:var(--mute)}
+.lg-e{padding:14px 10px;color:var(--mute);font-size:13px}
+.lg-full{position:fixed;inset:0;z-index:40;background:var(--bg);display:flex;flex-direction:column;padding:16px 20px calc(16px + env(safe-area-inset-bottom,0px))}
+.lg-full[hidden]{display:none}
+.lg-fh{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.lg-fh h2{font:600 18px/1.2 var(--display);text-transform:none;letter-spacing:0;color:var(--ink);margin-right:auto}
+.lg-box.full{flex:1;height:auto;min-height:0;margin-top:0;background:var(--surface)}
+.lg-box.full .lg-d{background:var(--surface);padding:10px 16px 5px}
+.lg-box.full .lg-r{grid-template-columns:44px 8px minmax(0,1fr);gap:10px;padding:7px 16px;font-size:14px}
+.lg-box.full button.lg-r:hover{background:var(--surface2)}
+.lg-box.full .lg-x{white-space:normal;overflow-wrap:anywhere}
+@media (max-width:899px){.lg-full{padding:12px 12px calc(12px + env(safe-area-inset-bottom,0px))}.lg-fh h2{flex-basis:100%;margin:0}}
 /* work chats */
 .cl-row>.row{border-top:0}
 .cl-row+.cl-row{border-top:1px solid var(--line)}
@@ -765,7 +798,7 @@ button.pl-d:hover b{color:var(--accent)}
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
 var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','chats','activity','gone']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],chats:[],activity:[],gone:[],settings:{capacity:40}};
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],chats:[],activity:[],gone:[],audit:[],settings:{capacity:40}};
 var loaded={};
 var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
@@ -796,6 +829,8 @@ var ICON={
   plan:'<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5.5l1.5 1.5 2.5-3M3.5 11l1.5 1.5 2.5-3M10.5 5.5H17M10.5 11H17M4 16.5h13"/></svg>',
   more:'<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4.5" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="15.5" cy="10" r="1.6"/></svg>',
   plus:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+  expand:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5L9 7M2.5 13.5L7 9"/></svg>',
+  shrink:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 6.5h-4v-4M2.5 9.5h4v4M9.5 6.5L14 2M6.5 9.5L2 14"/></svg>',
   share:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="3.4" r="1.9"/><circle cx="4" cy="8" r="1.9"/><circle cx="12" cy="12.6" r="1.9"/><path d="M5.7 7.1l4.6-2.7M5.7 8.9l4.6 2.7"/></svg>',
   chev:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>'
 };
@@ -851,13 +886,15 @@ function clean(o){var r={};Object.keys(o).forEach(function(k){if(k!=='id'&&o[k]!
 function fail(e){toast(e&&e.code==='quota_exceeded'?'База заполнена: удали лишнее и попробуй снова':'Не удалось сохранить. Возможно, нет прав на запись или нет связи');}
 function put(coll,id,data){
   data=clean(data);
-  if(!db){var o=byId(S[coll],id);if(o){Object.keys(o).forEach(function(k){if(k!=='id')delete o[k]});Object.assign(o,data)}else{S[coll].push(Object.assign({id:id},data))}render();return Promise.resolve()}
-  return db.collection(coll).doc(id).set(data).catch(fail);
+  var was=logWas(coll,id);
+  if(!db){var o=byId(S[coll],id);if(o){Object.keys(o).forEach(function(k){if(k!=='id')delete o[k]});Object.assign(o,data)}else{S[coll].push(Object.assign({id:id},data))}logNote(was?'upd':'add',coll,id,data,was);render();return Promise.resolve()}
+  return db.collection(coll).doc(id).set(data).then(function(){logNote(was?'upd':'add',coll,id,data,was)}).catch(fail);
 }
 function patch(coll,id,data){
   data=clean(data);
-  if(!db){var o=byId(S[coll],id);if(o)mergeDeep(o,data);render();return Promise.resolve()}
-  return db.collection(coll).doc(id).update(data).catch(fail);
+  var was=logWas(coll,id);
+  if(!db){var o=byId(S[coll],id);if(o)mergeDeep(o,data);logNote('upd',coll,id,data,was);render();return Promise.resolve()}
+  return db.collection(coll).doc(id).update(data).then(function(){logNote('upd',coll,id,data,was)}).catch(fail);
 }
 function goneId(coll,id){return (coll+'-'+id).slice(0,64)}
 function tomb(coll,id){
@@ -867,9 +904,10 @@ function tomb(coll,id){
   if(db)db.collection('gone').doc(gid).set(data).catch(function(){});
 }
 function del(coll,id){
+  var was=logWas(coll,id);
   tomb(coll,id);
-  if(!db){S[coll]=S[coll].filter(function(x){return x.id!==id});render();return Promise.resolve()}
-  return db.collection(coll).doc(id).delete().catch(fail);
+  if(!db){S[coll]=S[coll].filter(function(x){return x.id!==id});if(was)logNote('del',coll,id,null,was);render();return Promise.resolve()}
+  return db.collection(coll).doc(id).delete().then(function(){if(was)logNote('del',coll,id,null,was)}).catch(fail);
 }
 
 /* ---------- derived ---------- */
@@ -966,7 +1004,7 @@ function projGroupsHtml(){
 /* ---------- chrome ---------- */
 function drawSide(){
   var n=S.projects.filter(function(p){return p.status==='active'}).length,side=$('#side'),old=side.querySelector('.side-list'),st=old?old.scrollTop:0,own=ui.owner&&ui.mode==='ready';
-  side.innerHTML='<div class="side-top"><div class="brand"><span class="brand-t">Проекты</span><button class="btn sm ic w" data-act="new" data-kind="project" aria-label="Новый проект" title="Новый проект">'+ICON.plus+'</button><span class="brand-s">'+n+' в работе</span></div>'+sideNext()+projAllHtml()+'</div>'+
+  side.innerHTML='<div class="side-top"><div class="brand"><span class="brand-t">Проекты</span><button class="btn sm ic w" data-act="new" data-kind="project" aria-label="Новый проект" title="Новый проект">'+ICON.plus+'</button><span class="brand-s">'+n+' в работе</span></div>'+sideNext()+'<div id="sn-meet">'+sideMeet()+'</div>'+projAllHtml()+'</div>'+
     '<div class="side-list">'+projGroupsHtml()+'</div>'+
     '<div class="side-load">'+(own?actBox()+'<div class="side-data"><button class="btn sm" data-act="data">Данные</button><button class="btn sm ic" data-act="share" aria-label="Доступ и приглашения" title="Доступ и приглашения">'+ICON.share+'</button></div>':'')+'<div class="ph"><h2>Загрузка недели</h2><button class="btn sm w" data-act="settings">Настройки</button></div>'+loadHtml(true)+'</div>';
   var nw=side.querySelector('.side-list');if(nw&&st)nw.scrollTop=st;
@@ -2191,7 +2229,7 @@ function dataSync(t){
     try{o=typeof pl==='string'?JSON.parse(pl):pl;if(o&&Array.isArray(o.content)&&o.content[0]&&typeof o.content[0].text==='string')o=JSON.parse(o.content[0].text)}catch(e){o=null}
     if(!o||!o.docs||typeof o.docs!=='object'){out.textContent='Сервер ответил не так, как ожидалось. Данные здесь не менялись.'+(typeof pl==='string'?' Ответ: '+excerpt(pl,200):'');t.disabled=false;return}
     var there=o.changedHere||{},plan=dataPlan({docs:o.docs}),st=plan.st;
-    var done=function(){out.textContent='Готово. На сервере: добавлено '+(there.added||0)+', обновлено '+(there.updated||0)+', удалено '+(there.deleted||0)+'. Здесь: добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del+'.';t.disabled=false;if(!db)render()};
+    var done=function(){logBulk('Синхронизация с сервером: здесь добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del+'; на сервере добавлено '+(there.added||0)+', обновлено '+(there.updated||0)+', удалено '+(there.deleted||0));out.textContent='Готово. На сервере: добавлено '+(there.added||0)+', обновлено '+(there.updated||0)+', удалено '+(there.deleted||0)+'. Здесь: добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del+'.';t.disabled=false;if(!db)render()};
     if(!plan.ops.length){done();return}
     dataRun(plan.ops,out,done,function(n,total){out.textContent='Сервер обновлён, а здесь запись остановилась на '+n+' из '+total+'. Нажми «Синхронизировать» ещё раз.';t.disabled=false});
   }).catch(function(e){
@@ -2657,6 +2695,191 @@ function sideNext(){
   return '<div class="side-next'+(late?' late':'')+'" style="--pc:'+pc(t.project)+'"><span class="sn-l">Ближайшая задача</span><div class="sn-r"><button class="ck rnd w" data-act="tg-task" data-id="'+esc(t.id)+'" aria-label="Задача готова"></button><button class="sn-b" data-act="edit" data-kind="task" data-id="'+esc(t.id)+'"><span class="sn-t">'+esc(t.title)+'</span><span class="sn-d"><b>'+esc(rel(t.due))+(tm?', '+tm:'')+'</b>'+(p?' · '+esc(p.name):'')+'</span></button></div></div>';
 }
 
+/* ---------- the nearest meeting, under the nearest task ---------- */
+function nextEvent(){
+  var c=nowClock(),best=null;
+  S.events.forEach(function(e){
+    if(!validDate(e.date))return;
+    var tm=postClock(e.time),d=e.date<c.d?c.d:e.date,i,k;
+    for(i=0;i<8;i++,d=addDays(d,1)){
+      if(!occurs(e,d)||(d===c.d&&tm&&tm<c.t)){if(!e.repeat)return;continue} // not that day, or it has already begun today
+      k=d+(tm||'99:99');
+      if(!best||k<best.k)best={e:e,d:d,t:tm,k:k};
+      return;
+    }
+  });
+  return best;
+}
+function sideMeet(){
+  if(ui.mode!=='ready'&&ui.mode!=='local')return '';
+  var m=nextEvent();
+  if(!m)return '<div class="side-next"><span class="sn-l">Ближайшая встреча</span><span class="sn-e">Встреч впереди нет</span></div>';
+  var e=m.e,p=P(e.project),link=/^https?:\/\/\S+$/i.test(e.link||'')?e.link:'';
+  return '<div class="side-next" style="--pc:'+pc(e.project)+'"><span class="sn-l">Ближайшая встреча</span><div class="sn-r"><i class="sn-i" aria-hidden="true"></i><button class="sn-b" data-act="edit" data-kind="event" data-id="'+esc(e.id)+'"><span class="sn-t">'+esc(e.title||'Событие')+'</span><span class="sn-d"><b>'+esc(rel(m.d))+(m.t?', '+m.t:'')+'</b>'+(p?' · '+esc(p.name):'')+'</span></button></div>'+
+    (link?'<a class="sn-a" href="'+esc(link)+'" target="_blank" rel="noopener noreferrer">Ссылка на созвон</a>':'')+'</div>';
+}
+// the card follows the clock: a meeting that has begun gives way to the next one
+function meetTick(){
+  var el=$('#sn-meet');if(!el||document.hidden||el.contains(document.activeElement))return;
+  var h=sideMeet();if(el.dataset.h!==h){el.dataset.h=h;el.innerHTML=h}
+}
+
+/* ---------- the journal: what was done with the data, by whom and when ---------- */
+// Inside Claude the page writes its own actions down, one record per day and device.
+// On the server the journal is kept by the server for everybody (the owner, guests, the bot, Claude through
+// the connector), and the page only shows it. Copies, merges and syncs do not carry the journal.
+var LOG_KEEP=90,LOG_CAP=600,LOG_SKIP={activity:1,usage:1,gone:1,audit:1,evsubs:1};
+var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['майлстоун','m'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],settings:['настройки','p']};
+var LOGV={add:{m:'Добавлен',f:'Добавлена',n:'Добавлено',p:'Добавлены'},upd:{m:'Изменён',f:'Изменена',n:'Изменено',p:'Изменены'},del:{m:'Удалён',f:'Удалена',n:'Удалено',p:'Удалены'}};
+var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'майлстоун',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника'};
+var LOGK={projects:'project',tasks:'task',milestones:'milestone',events:'event',posts:'post',services:'service',clients:'client',contacts:'contact'};
+var lg={srv:null,queue:[],mine:[],day:'',live:null,un:undefined,timer:0,tries:0,sub:false,ready:false,full:false,f:'all',pruned:false};
+function logSame(a,b){
+  if(a===b)return true;
+  var e=function(x){return x===undefined||x===null||x===''};
+  if(e(a)&&e(b))return true;
+  if(Array.isArray(a)&&Array.isArray(b))return a.length===b.length&&a.every(function(x,i){return logSame(x,b[i])});
+  if(a&&b&&typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){var k=Object.keys(a),q=Object.keys(b);return k.length===q.length&&k.every(function(x){return logSame(a[x],b[x])})}
+  return false;
+}
+function logWas(coll,id){if(lg.srv||coll==='settings'||!S[coll])return null;var o=byId(S[coll],id);return o?Object.assign({},o):null}
+function logTitle(o){return String((o&&(o.name||o.title||o.text||o.summary||o.from))||'').replace(/\s+/g,' ').trim().slice(0,80)}
+function logKey(e){return e.t+'|'+e.a+'|'+(e.c||'')+'|'+(e.i||'')+'|'+(e.c?'':e.n||'')}
+function logAdd(e){lg.queue.push(e);lg.mine.push(e);logSoon(5000);logPaint()}
+// a: add | upd | del; next is what was written, prev is the record before (null when there was none)
+function logNote(a,coll,id,next,prev){
+  try{
+    if(lg.srv||!ui.owner||ui.ro||LOG_SKIP[coll])return;
+    var all=a==='del'?(prev||{}):Object.assign({},prev||{},next||{}),e={t:new Date().toISOString(),a:a,c:coll,i:String(id),n:logTitle(all)};
+    if(typeof all.project==='string'&&all.project)e.p=all.project;
+    if(a==='upd'){
+      var f=Object.keys(next||{}).filter(function(k){return k!=='u'&&k!=='id'&&!logSame(prev?prev[k]:undefined,next[k])});
+      if(!f.length||(f.length===1&&f[0]==='order'))return; // nothing changed, or only the place in a list
+      e.f=f.filter(function(k){return k!=='order'}).slice(0,6);
+      ['status','st','review','done'].some(function(k){if(f.indexOf(k)<0)return false;e.s=String(next[k]);return true});
+    }
+    logAdd(e);
+  }catch(x){/* the journal never gets in the way of the action itself */}
+}
+function logBulk(text){try{if(lg.srv||!ui.owner||ui.ro)return;logAdd({t:new Date().toISOString(),a:'bulk',n:String(text).slice(0,240)})}catch(x){}}
+function logSoon(ms){if(!lg.timer)lg.timer=setTimeout(logFlush,ms||5000)}
+function logDoc(d){return 'l'+d.replace(/-/g,'')+'-'+actDev().slice(0,12)}
+// today's record of this device is followed live, so a flush adds to it and never replaces what another tab wrote
+function logWatch(){
+  var d=today();
+  if(lg.day===d&&lg.un!==undefined)return;
+  if(typeof lg.un==='function'){try{lg.un()}catch(e){}}
+  lg.day=d;lg.live=null;lg.tries=0;lg.un=null;
+  try{lg.un=db.doc('audit/'+logDoc(d)).onSnapshot(function(s){var o=s&&s.exists?(s.data()||{}):{};lg.live=Array.isArray(o.items)?o.items:[]},function(){lg.live=[]})||null}catch(e){lg.live=[]}
+}
+function logFlush(){
+  clearTimeout(lg.timer);lg.timer=0;
+  if(!lg.queue.length)return;
+  if(lg.srv||!ui.owner||ui.ro){lg.queue=[];return}
+  if(!db)return; // no store behind the page: the session's actions stay on screen only
+  if(lg.srv===null){logSoon(1500);return}
+  logWatch();
+  if(lg.live===null){if(++lg.tries<6){logSoon(1200);return}lg.live=[]}
+  var seen={},items=[];
+  lg.live.concat(lg.queue).forEach(function(e){var k=logKey(e);if(!seen[k]){seen[k]=1;items.push(e)}});
+  lg.queue=[];
+  if(items.length>LOG_CAP)items=items.slice(-LOG_CAP);
+  lg.live=items;
+  db.collection('audit').doc(logDoc(lg.day)).set({date:lg.day,dev:actDev(),items:items,u:new Date().toISOString()}).catch(function(){});
+}
+function logSub(){
+  if(lg.sub)return;lg.sub=true;
+  if(!db||!ui.owner){lg.ready=true;return}
+  db.collection('audit').onSnapshot(function(snap){
+    S.audit=snap.docs.map(function(x){var o=Object.assign({},x.data()||{});o.id=x.id;return o});
+    lg.ready=true;logPaint();
+    // inside Claude the page also clears what is older than the journal keeps; on the server the server does
+    if(lg.srv===false&&!lg.pruned&&!ui.ro){lg.pruned=true;var cut=addDays(today(),-LOG_KEEP);S.audit.filter(function(d){return validDate(d.date)&&d.date<cut}).slice(0,25).forEach(function(d){db.collection('audit').doc(d.id).delete().catch(function(){})})}
+  },function(){lg.ready=true;logPaint()});
+}
+function logClock(ts){
+  var ms=Date.parse(ts),z=appTz();if(!isFinite(ms))return {d:'',t:''};
+  if(z)return zoneParts(ms,z);
+  var d=new Date(ms);return {d:iso(d),t:pad(d.getHours())+':'+pad(d.getMinutes())};
+}
+function logItems(){
+  var seen={},a=[],take=function(e){if(!e||!e.t||!e.a)return;var k=logKey(e);if(!seen[k]){seen[k]=1;a.push(e)}};
+  S.audit.forEach(function(d){(Array.isArray(d.items)?d.items:[]).forEach(take)});
+  lg.mine.forEach(take);
+  a.sort(function(x,y){return x.t<y.t?1:x.t>y.t?-1:0});
+  return a;
+}
+function logState(e){
+  var s=e.s;
+  if(e.c==='tasks'&&TS[s])return 'статус: '+TS[s];
+  if(e.c==='projects'&&ST[s])return 'статус: '+ST[s];
+  if(e.c==='clients'&&CLS[s])return 'статус: '+CLS[s];
+  if(e.c==='milestones')return s==='true'?'пройден':s==='false'?'снова впереди':'';
+  if(e.c==='messages')return s==='done'?'ревью пройдено':s==='pending'?'ждёт ревью':'';
+  return s==='true'?'готово':s==='false'?'не готово':'';
+}
+function logText(e,full){
+  if(e.a==='bulk'||e.a==='acc')return esc(e.n||'');
+  var n=LOGN[e.c]||['запись','f'],t=(LOGV[e.a]||LOGV.upd)[n[1]]+' '+n[0]+(e.n?' «'+esc(e.n)+'»':'');
+  if(e.a==='upd'){
+    var st=e.s!==undefined?logState(e):'',skip={status:1,st:1,review:1,done:1};
+    var f=(Array.isArray(e.f)?e.f:[]).filter(function(k){return !(st&&skip[k])}).map(function(k){return LOGF[k]}).filter(Boolean);
+    f=f.filter(function(x,i){return f.indexOf(x)===i});
+    var d=(st?[st]:[]).concat(f.slice(0,full?6:3));
+    if(d.length)t+=': '+esc(d.join(', '));
+  }
+  return t;
+}
+function logRows(a,full){
+  if(!a.length)return '<p class="lg-e">'+(lg.ready||!db?(lg.f!=='all'&&full?'Таких действий нет.':'Действий пока нет. Здесь появится история: что добавлено, изменено и удалено.'):'Загружаю…')+'</p>';
+  var h='',day=null,td=today(),yd=addDays(td,-1);
+  a.forEach(function(e){
+    var c=logClock(e.t),meta=[],p=e.p&&e.c!=='projects'?P(e.p):null;
+    if(c.d!==day){day=c.d;h+='<div class="lg-d">'+(day===td?'Сегодня':day===yd?'Вчера':esc(fmt(day)))+'</div>'}
+    if(p)meta.push(p.name);if(e.by)meta.push(e.by);
+    var can=e.a!=='del'&&e.i&&((LOGK[e.c]&&byId(S[e.c],e.i))||(e.c==='messages'&&byId(S.messages,e.i)));
+    var inner='<span class="lg-t">'+esc(c.t)+'</span><i class="lg-i '+esc(e.a)+'" aria-hidden="true"></i><span class="lg-x">'+logText(e,full)+(meta.length?'<span class="lg-m"> · '+esc(meta.join(' · '))+'</span>':'')+'</span>';
+    h+=can?'<button type="button" class="lg-r" data-act="log-open" data-c="'+esc(e.c)+'" data-id="'+esc(e.i)+'">'+inner+'</button>':'<div class="lg-r">'+inner+'</div>';
+  });
+  return h;
+}
+function logCount(n){return n?n+' '+plural(n,'действие','действия','действий'):''}
+function logPaint(){
+  var box=$('#lg-box'),fb=lg.full?$('#lg-fbox'):null,st,n;if(!box&&!fb)return;
+  var all=logItems();
+  if(box){st=box.scrollTop;box.innerHTML=logRows(all.slice(0,200),false);box.scrollTop=st;n=$('#lg-n');if(n)n.textContent=logCount(all.length)}
+  if(fb){
+    var its=lg.f==='all'?all:all.filter(function(e){return e.a===lg.f});
+    st=fb.scrollTop;fb.innerHTML=logRows(its.slice(0,2000),true)+(its.length>2000?'<p class="lg-e">Показаны последние 2000 действий.</p>':'');fb.scrollTop=st;
+    n=$('#lg-fn');if(n)n.textContent=logCount(its.length);
+    Array.prototype.forEach.call(document.querySelectorAll('#logfull .seg button'),function(b){var on=b.dataset.v===lg.f;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false')});
+  }
+}
+function logSection(){
+  return '<div class="chat-h lg-h"><h2>Логи</h2><span class="lg-n" id="lg-n"></span><button type="button" class="btn sm ic" data-act="log-full" aria-label="Развернуть логи на весь экран" title="Развернуть на весь экран">'+ICON.expand+'</button></div>'+
+    '<div class="lg-box" id="lg-box" role="log" aria-label="Логи: история действий с данными" tabindex="0"></div>'+
+    '<p class="sg-out" style="margin-top:6px">'+(lg.srv?'История за '+LOG_KEEP+' дней: твои действия, гостей, бота и Claude.':'История действий на этой странице за '+LOG_KEEP+' дней.')+' В копии и синхронизацию логи не попадают.</p>';
+}
+// the list on the whole screen: taller and wider, with a filter by the kind of action
+function logFull(on){
+  var el=$('#logfull'),sh=$('#sheet');
+  if(on&&!el){
+    el=document.createElement('div');el.id='logfull';el.className='lg-full';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','Логи');
+    el.innerHTML='<div class="lg-fh"><h2>Логи</h2><div class="seg" role="group" aria-label="Какие действия показывать">'+[['all','Все'],['add','Добавлено'],['upd','Изменено'],['del','Удалено']].map(function(x){return '<button type="button" data-act="log-f" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</div><span class="lg-n" id="lg-fn"></span><button type="button" class="btn sm ic" id="lg-close" data-act="log-full" aria-label="Свернуть логи" title="Свернуть">'+ICON.shrink+'</button></div><div class="lg-box full" id="lg-fbox" role="log" aria-label="Логи: история действий с данными" tabindex="0"></div>';
+    document.body.appendChild(el);
+  }
+  if(!el)return;
+  lg.full=!!on;el.hidden=!on;
+  if(sh)sh.inert=!!on;
+  if(on){logPaint();var c=$('#lg-close');if(c)c.focus()}
+  else{var b=sh&&!sh.hidden?sh.querySelector('[data-act="log-full"]'):null;if(b)b.focus()}
+}
+function logOpen(c,id){
+  logFull(false);
+  if(c==='messages'){if(byId(S.messages,id))viewMessage(id)}
+  else if(LOGK[c]&&byId(S[c],id))mnOpen(LOGK[c],id);
+}
+
 /* ---------- activity: how long the app is really in use ---------- */
 var ACT_IDLE=120000,act={sess:0,last:0,live:false,pend:{},dev:'',flushAt:0,on:false};
 function actDev(){
@@ -2712,7 +2935,7 @@ function actFlush(){
 function actStart(){
   if(act.on)return;act.on=true;act.last=Date.now();act.flushAt=Date.now();
   ['pointerdown','keydown','wheel','touchstart','scroll'].forEach(function(n){document.addEventListener(n,function(){act.last=Date.now()},{capture:true,passive:true})});
-  document.addEventListener('visibilitychange',function(){if(document.hidden)actFlush();else act.last=Date.now()});
+  document.addEventListener('visibilitychange',function(){if(document.hidden){actFlush();logFlush()}else act.last=Date.now()});
   window.addEventListener('pagehide',actFlush);
   setInterval(actTick,1000);
 }
@@ -2758,12 +2981,13 @@ function formData(){
   if(!ui.owner)return;
   var d=dataDump(),st=dataStats(JSON.parse(d.json).docs),kb=Math.max(1,Math.round(d.json.length/1024)),server=!!(filesNs&&typeof filesNs.importData==='function');
   dataIn=null;
-  var h='<p class="dt-sum"><b>'+st.n+'</b> '+plural(st.n,'запись','записи','записей')+' · около '+kb+' КБ'+(dataWhen(st.last)?' · последнее изменение '+esc(dataWhen(st.last)):'')+'</p><p class="sg-out">Хранятся '+(server?'в базе на сервере.':'в базе этой страницы внутри Claude.')+'</p>'+dataGrid(st);
+  var h='<p class="dt-sum"><b>'+st.n+'</b> '+plural(st.n,'запись','записи','записей')+' · около '+kb+' КБ'+(dataWhen(st.last)?' · последнее изменение '+esc(dataWhen(st.last)):'')+'</p><p class="sg-out">Хранятся '+(server?'в базе на сервере.':'в базе этой страницы внутри Claude.')+'</p>'+dataGrid(st)+logSection();
   if(!ui.ro&&!server&&mcNs)h+='<div class="chat-h"><h2>Сервер</h2></div><p class="sg-out" style="margin:6px 0 10px">Одной кнопкой: данные отсюда уходят на сервер Prooloog, там объединяются, и свежее возвращается сюда.</p><div class="acts"><button type="button" class="btn pri" data-act="data-sync">Синхронизировать с сервером</button></div><p class="sg-out" id="data-sync-out" role="status"></p>';
   if(server)h+='<div class="chat-h"><h2>Claude</h2></div><p class="sg-out" style="margin:6px 0 0">Чтобы Claude в чате видел эти данные и синхронизировал их со страницей внутри Claude, отправь боту команду /connect и добавь полученный адрес в Claude как коннектор с названием Prooloog.</p>';
   h+='<div class="chat-h"><h2>Выгрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Один файл со всеми записями: резервная копия или перенос в другую версию дэшборда.</p><div class="acts">'+(dlNs?'<button type="button" class="btn pri" data-act="data-save">Скачать файлом</button>':'')+'<button type="button" class="btn" data-act="data-copy">Скопировать текстом</button><button type="button" class="btn" data-act="data-peek" data-v="out" aria-expanded="false">Показать файл</button></div><p class="sg-out" id="data-out" role="status"></p><pre class="dt-pre" id="data-pre-out" hidden tabindex="0"></pre><textarea id="data-box" class="vh" readonly tabindex="-1" aria-hidden="true"></textarea>';
   if(!ui.ro)h+='<div class="chat-h"><h2>Загрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Выбери файл копии из другой версии. Покажу, что в нём, и предложу объединить: побеждает более свежая запись, удалённое остаётся удалённым.</p><div class="acts"><label class="btn" for="data-file">Выбрать файл</label><input type="file" id="data-file" class="vh" accept=".json,application/json,text/plain"><button type="button" class="btn" data-act="data-paste" aria-expanded="false">Вставить текстом</button></div><textarea id="data-in" rows="3" hidden autocomplete="off" spellcheck="false" aria-label="Текст копии данных" placeholder="Вставь сюда текст копии" style="margin-top:8px"></textarea><div id="data-inf"></div><p class="sg-out" id="data-lout" role="status"></p>';
   openSheet('Данные',h,function(b){
+    logSub();logPaint();
     var fi=b.querySelector('#data-file'),ti=b.querySelector('#data-in');
     if(fi)fi.addEventListener('change',function(){var f=fi.files&&fi.files[0];fi.value='';if(f)dataRead(f)});
     if(ti)ti.addEventListener('input',function(){if(ti.value.trim())dataParse(ti.value,'вставленный текст')});
@@ -2868,6 +3092,7 @@ function dataMerge(t){
   if(!plan.ops.length){out.textContent='Объединять нечего: всё, что есть в копии, здесь уже не старее.';return}
   t.disabled=true;out.textContent='Объединяю…';
   dataRun(plan.ops,out,function(){
+    logBulk('Объединение с копией: добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del);
     out.textContent='Готово: добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del+'. Чтобы вторая сторона получила твои свежие записи, скачай файл здесь и объедини его там.';
     dataIn=null;var q=$('#data-inf');if(q)q.innerHTML='';var ta=$('#data-in');if(ta)ta.value='';
     if(!db)render();
@@ -2878,7 +3103,7 @@ function dataLoad(t){
   if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно заменить? Исчезнет всё, чего нет в копии';return}
   var copy=dataIn.copy,n=dataIn.n;
   t.disabled=true;out.textContent='Загружаю…';
-  var fin=function(k){out.textContent='Готово: данные заменены копией, записей '+k+'.';dataIn=null;var i=$('#data-inf');if(i)i.innerHTML='';var ta=$('#data-in');if(ta)ta.value=''};
+  var fin=function(k){logBulk('Данные заменены копией: записей '+k);out.textContent='Готово: данные заменены копией, записей '+k+'.';dataIn=null;var i=$('#data-inf');if(i)i.innerHTML='';var ta=$('#data-in');if(ta)ta.value=''};
   if(filesNs&&typeof filesNs.importData==='function'){
     Promise.resolve(filesNs.importData(copy,'replace')).then(function(r){fin((r&&r.imported)||n)}).catch(function(){out.textContent='Не получилось загрузить копию. Данные не менялись.';t.disabled=false});
     return;
@@ -2950,7 +3175,7 @@ function openSheet(title,html,ready,focus,wide){
   selEnhance(b);
   if(focus){var f=b.querySelector('input:not([type=hidden]):not([type=radio]),textarea,button.sel');if(f)f.focus()}
 }
-function closeSheet(){selHide();if(chatCtl){try{chatCtl.abort()}catch(e){}}dropBlob();delete $('#sheet-b').dataset.msg;delete $('#sheet-b').dataset.post;$('#sheet').hidden=true;$('#sheet-b').innerHTML=''}
+function closeSheet(){if(lg.full)logFull(false);selHide();if(chatCtl){try{chatCtl.abort()}catch(e){}}dropBlob();delete $('#sheet-b').dataset.msg;delete $('#sheet-b').dataset.post;$('#sheet').hidden=true;$('#sheet-b').innerHTML=''}
 function fld(label,ctrl,cls){return '<label class="f'+(cls?' '+cls:'')+'"><span class="f-l">'+label+'</span>'+ctrl+'</label>'}
 function inp(name,val,attrs){return '<input id="f-'+name+'" name="'+name+'" value="'+esc(val==null?'':val)+'" '+(attrs||'')+'>'}
 function optsHtml(opts,val){return opts.map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===val?' selected':'')+'>'+esc(o[1])+'</option>'}).join('')}
@@ -3021,11 +3246,12 @@ var CALLS={zoom:'Zoom',meet:'Google Meet',other:'Другая ссылка'};
 function remList(v){var seen={},o=[];(Array.isArray(v)?v:[]).forEach(function(x){x=Math.round(+x);if(x>=1&&x<=43200&&!seen[x]){seen[x]=1;o.push(x)}});return o.sort(function(a,b){return b-a}).slice(0,5)}
 function remText(m){return m%1440===0?(m/1440)+' '+plural(m/1440,'день','дня','дней'):m%60===0?(m/60)+' '+plural(m/60,'час','часа','часов'):m+' '+plural(m,'минуту','минуты','минут')}
 function botName(){return filesNs&&typeof filesNs.bot==='function'?String(filesNs.bot()||''):''}
-function evShareUrl(e){var b=botName();return b&&e&&e.share?'https://t.me/'+b+'?start=ev_'+e.share:''}
+var GLANG={ru:'Русский',en:'English'};
+function evShareUrl(e){var b=botName();return b&&e&&e.share?'https://t.me/'+b+'?start=ev'+(GLANG[e.lang]?e.lang:'')+'_'+e.share:''}
 function evShareBox(e){
   var url=evShareUrl(e),subs=S.evsubs.filter(function(x){return x.event===e.id});
-  return '<div class="acts"><button type="button" class="btn sm" data-act="ev-share" data-id="'+esc(e.id)+'">'+(url?'Скопировать ссылку для участника':'Ссылка для участника')+'</button></div>'+(url?'<input id="ev-share-url" readonly value="'+esc(url)+'" style="margin-top:8px" aria-label="Ссылка для участника встречи">':'')+
-    '<p class="sg-out" id="ev-share-out" role="status" style="margin-top:6px">'+(subs.length?'Подписались: '+esc(subs.map(function(x){return (x.name||'участник')+' ('+(remList(x.rem).length?remList(x.rem).slice().reverse().map(function(m){return 'за '+remText(m)}).join(', '):'без напоминаний')+')'}).join('; '))+'.':'По этой ссылке участник открывает бота, выбирает напоминания и за 5 минут до начала получает ссылку на созвон.')+'</p>';
+  return fld('Язык сообщений участнику','<select id="ev-lang" data-id="'+esc(e.id)+'">'+optsHtml([['','Участник выберет сам: бот спросит, вероятный язык первым'],['ru','Русский: без вопроса'],['en','English: без вопроса']],GLANG[e.lang]?e.lang:'')+'</select>')+'<div class="acts"><button type="button" class="btn sm" data-act="ev-share" data-id="'+esc(e.id)+'">'+(url?'Скопировать ссылку для участника':'Ссылка для участника')+'</button></div>'+(url?'<input id="ev-share-url" readonly value="'+esc(url)+'" style="margin-top:8px" aria-label="Ссылка для участника встречи">':'')+
+    '<p class="sg-out" id="ev-share-out" role="status" style="margin-top:6px">'+(subs.length?'Подписались: '+esc(subs.map(function(x){return (x.name||'участник')+' ('+(GLANG[x.lang]?GLANG[x.lang]+', ':'')+(remList(x.rem).length?remList(x.rem).slice().reverse().map(function(m){return 'за '+remText(m)}).join(', '):'без напоминаний')+')'}).join('; '))+'.':'По этой ссылке участник открывает бота, выбирает язык и напоминания и за 5 минут до начала получает ссылку на созвон. Язык можно задать заранее: тогда бот сразу пишет на нём.')+'</p>';
 }
 function formEvent(id,pre){
   var e=id?byId(S.events,id):null;if(id&&!e)return;
@@ -3096,6 +3322,7 @@ function formSettings(){
 function saveSettings(p){
   if(ui.scoped)return;
   var next=Object.assign({},S.settings,p);delete next.id;
+  logNote('upd','settings','main',p,Object.assign({},S.settings));
   if(!db){var tzb=appTz();S.settings=next;tzChanged(tzb);render();return}
   next.u=new Date().toISOString();
   db.doc('settings/main').set(next).catch(fail);
@@ -3706,6 +3933,12 @@ function setProject(id,quiet){
 function readHash(){var h=String(location.hash||'').replace('#','');if(VIEWS[h])ui.view=h}
 
 /* ---------- events ---------- */
+document.addEventListener('change',function(e){
+  var t=e.target;if(!t||t.id!=='ev-lang')return;
+  var o=byId(S.events,t.dataset.id);if(!o||ui.ro)return;
+  var v=GLANG[t.value]?t.value:'';o.lang=v;patch('events',o.id,{lang:v});
+  var sb=$('#ev-share');if(sb)sb.innerHTML=evShareBox(o);
+});
 document.addEventListener('click',function(e){
   var mo=e.target.closest('#mnpop .mo');if(mo){mnPick(+mo.dataset.i);return}
   var so=e.target.closest('#selpop .so'),sb=so?null:e.target.closest('button.sel');
@@ -3802,6 +4035,9 @@ document.addEventListener('click',function(e){
     case 'pop-undo':popUndo();break;
     case 'data':formData();break;
     case 'usage':formUsage();break;
+    case 'log-full':logFull(!lg.full);break;
+    case 'log-f':lg.f=d.v||'all';logPaint();break;
+    case 'log-open':logOpen(d.c,d.id);break;
     case 'chat-open':formChat(d.id);break;
     case 'chat-link':if(byId(S.chats,d.id)&&P(d.project))patch('chats',d.id,{project:d.project});break;
     case 'chat-post':chatPost(t,d.id);break;
@@ -3844,6 +4080,7 @@ document.addEventListener('keydown',function(e){
   if(selKey(e))return;
   if(e.key==='Escape'&&selOpen){selHide();return}
   if(e.key==='Escape'&&pop){popClose();return}
+  if(e.key==='Escape'&&lg.full){logFull(false);return}
   if(e.key==='Escape'&&!$('#sheet').hidden){closeSheet();return}
   if(e.key==='Escape'&&ui.msSel){clearMsSel();return}
   if(msKey(e))return;
@@ -3883,8 +4120,9 @@ function start(){
   try{var om=/[?&]open=msg-([\w-]{1,64})/.exec(location.search||'');if(om)ui.open=om[1]}catch(e){}
   try{var sp=localStorage.getItem('dash.project');if(sp)ui.project=sp}catch(e){}
   draw();
+  setInterval(meetTick,30000);
   var c=window.claude;
-  if(!c||typeof c.use!=='function'){ui.mode='local';if(ui.project!=='all')ui.project='all';render();return}
+  if(!c||typeof c.use!=='function'){lg.srv=false;ui.mode='local';if(ui.project!=='all')ui.project='all';render();return}
   var timer=setTimeout(function(){if(ui.mode==='loading'){ui.mode='slow';render()}},10000);
   Promise.resolve(c.use('db')).then(function(d){
     if(!d){clearTimeout(timer);ui.mode='local';ui.project='all';render();return}
@@ -3913,6 +4151,7 @@ function start(){
   Promise.resolve(c.use('files')).then(function(f){if(f&&typeof f.upload==='function')filesNs=f}).catch(function(){});
   Promise.resolve(c.use('downloads')).then(function(x){if(x&&typeof x.save==='function')dlNs=x}).catch(function(){});
   Promise.resolve(c.use('share')).then(function(x){if(x&&typeof x.list==='function')shareNs=x}).catch(function(){});
+  Promise.resolve(c.use('journal')).then(function(x){lg.srv=!!(x&&x.server)}).catch(function(){lg.srv=false});
   Promise.resolve(c.use('chat')).then(function(x){if(x&&typeof x.post==='function'){chatNs=x;render()}}).catch(function(){});
 }
 start();

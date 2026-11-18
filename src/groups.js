@@ -14,6 +14,7 @@ const T = require('./telegram');
 const hub = require('./realtime');
 const clock = require('./clock');
 const remind = require('./remind');
+const journal = require('./journal');
 
 let B = null; // what the bot lends: say, kb, esc, projects, pname, me()
 const init = (ctx) => { B = ctx; };
@@ -135,7 +136,9 @@ async function hintOwner(doc) {
 async function link(tgId, projectId) {
   const p = (await B.projects()).find((x) => x.id === projectId);
   if (!p) return null;
+  const before = await chatOf(tgId);
   const doc = await saveChat(tgId, { project: projectId, on: true });
+  journal.note(before ? 'upd' : 'add', 'chats', doc.id, doc.data, before && before.data, '');
   await announce(doc);
   await hintOwner(doc);
   return { doc, project: p };
@@ -147,8 +150,12 @@ async function onMember(u) {
   if (!isGroup(c) || !st) return;
   const inside = st === 'member' || st === 'administrator' || st === 'creator' || (st === 'restricted' && u.new_chat_member.is_member !== false);
   const was = await chatOf(c.id);
-  if (!inside) { if (was) await saveChat(c.id, { on: false, admin: false }); return; }
+  if (!inside) {
+    if (was) { await saveChat(c.id, { on: false, admin: false }); if (was.data.on !== false) journal.event('bulk', 'Бот удалён из чата «' + one(was.data.title, 80) + '»'); }
+    return;
+  }
   const fresh = !was || was.data.on === false, admin = st === 'administrator' || st === 'creator';
+  if (fresh) journal.event('bulk', 'Бот добавлен в чат «' + one(c.title, 80) + '»', person(u.from));
   const doc = await saveChat(c.id, {
     on: true, admin, title: one(c.title, 120), kind: c.type, pub: !!c.username,
     by: was && was.data.by ? was.data.by : { id: String((u.from && u.from.id) || ''), name: person(u.from) },
@@ -205,9 +212,10 @@ async function collect(m, doc) {
   let part = ch.cur && ch.cur.d === p.d ? Math.max(1, +ch.cur.part || 1) : 1, saved = null;
   for (let i = 0; i < 30 && !saved; i++, part++) {
     const id = base + (part > 1 ? '-' + part : '');
-    let full = false;
+    let full = false, born = false;
     const d = await db.mutateDoc('messages', id, (cur) => {
       const fresh = !cur.src;
+      born = fresh;
       if (!fresh && (cur.review !== 'pending' || cur.project !== ch.project || String(cur.text || '').length + line.length > PART)) { full = true; return cur; }
       const people = Array.isArray(cur.people) ? cur.people.slice() : [];
       if (!people.includes(who) && people.length < 30) people.push(who);
@@ -217,7 +225,11 @@ async function collect(m, doc) {
       });
       return next;
     });
-    if (!full) { saved = d; hub.publish('messages', d.id, d.data, d.version); }
+    if (!full) {
+      saved = d; hub.publish('messages', d.id, d.data, d.version);
+      // the journal gets one line when a day's record begins, not one per message
+      if (born) journal.note('add', 'messages', d.id, Object.assign({}, d.data, { text: '', summary: '' }), null, 'чат «' + one(ch.title, 50) + '»');
+    }
   }
   if (saved) await saveChat(ch.tg, (cur) => ({ cur: { d: p.d, part: part - 1 }, n: (+cur.n || 0) + 1, last: nowIso() }));
   // Audio cannot live inside a text record: it gets a record of its own, with the player the dashboard already has.
@@ -229,6 +241,7 @@ async function collect(m, doc) {
       src: 'chat', chat: doc.id, u: nowIso(),
     });
     hub.publish('messages', v.id, v.data, v.version);
+    journal.note('add', 'messages', v.id, Object.assign({}, v.data, { text: v.data.text || v.data.file.name }), null, 'чат «' + one(ch.title, 50) + '»: ' + who);
   }
   return saved;
 }
@@ -250,6 +263,7 @@ async function suggest(m, doc, kind, body) {
     date: clock.parts(m.date * 1000, tz).d, channel: 'tg', review: 'pending', proposal: { items: [item], by: 'bot', at }, applied: [], src: 'chat', chat: doc.id, u: at,
   });
   hub.publish('messages', d.id, d.data, d.version);
+  journal.note('add', 'messages', d.id, Object.assign({}, d.data, { from: '' }), null, 'чат «' + one(ch.title, 50) + '»: ' + person(m.from));
   await saveChat(ch.tg, { last: at });
   await send(ch, (kind === 'task' ? 'Записал задачу.' : 'Записал заметку.') + ' В проекте она появится, когда ' + B.esc(await ownerName()) + ' подтвердит.',
     undefined, { reply_parameters: { message_id: m.message_id, allow_sending_without_reply: true } }).catch(() => {});
@@ -302,7 +316,7 @@ async function onMessage(m) {
   const thread = m.is_topic_message && m.message_thread_id ? { message_thread_id: m.message_thread_id } : {};
 
   if (cmd) {
-    if (name === 'unlink' && isOwner) { await saveChat(c.id, { project: '' }); return send(ch, 'Отвязал чат от проекта. Больше ничего здесь не сохраняю.', undefined, thread).catch(() => {}); }
+    if (name === 'unlink' && isOwner) { const off = await saveChat(c.id, { project: '' }); journal.note('upd', 'chats', off.id, off.data, ch, ''); return send(ch, 'Отвязал чат от проекта. Больше ничего здесь не сохраняю.', undefined, thread).catch(() => {}); }
     if (name === 'task' || name === 'note') {
       const quoted = rt && !toMe ? one(rt.text || rt.caption, 3500) : '';
       if (arg) return suggest(m, doc, name, arg + (quoted ? '\n\n' + person(rt.from) + ': ' + quoted : ''));
@@ -353,7 +367,8 @@ async function openApp(cq, doc, ack) {
     await db.setMemberAccess(uid, role, list);
     hub.setAccess(uid, role, list);
     const p = (await B.projects()).find((x) => x.id === ch.project);
-    if (owner) await B.say(owner, B.esc(person(cq.from)) + (cq.from.username ? ' (@' + B.esc(cq.from.username) + ')' : '') + ' открыл проект <b>' + B.esc(p ? B.pname(p) : '') + '</b> из чата «' + B.esc(ch.title || '') + '»: доступ «смотреть». Закрыть его можно в окне «Доступ».').catch(() => {});
+    journal.event('acc', 'Доступ «смотреть» к проекту «' + (p ? B.pname(p) : '') + '» из чата «' + one(ch.title, 50) + '»: ' + person(cq.from) + (cq.from.username ? ' (@' + cq.from.username + ')' : ''));
+    if (owner) await B.say(owner, B.esc(person(cq.from)) + (cq.from.username ? ' (@' + B.esc(cq.from.username) + ')' : '') + ': доступ «смотреть» к проекту <b>' + B.esc(p ? B.pname(p) : '') + '</b> из чата «' + B.esc(ch.title || '') + '». Закрыть его можно в окне «Доступ».').catch(() => {});
   }
   return go();
 }

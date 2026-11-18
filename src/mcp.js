@@ -7,6 +7,7 @@ const cfg = require('./config');
 const db = require('./db');
 const hub = require('./realtime');
 const sync = require('./sync');
+const journal = require('./journal');
 const clock = require('./clock');
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -68,6 +69,7 @@ async function call(name, a) {
     for (const o of a.ops) {
       if (!isObj(o) || !['set', 'merge', 'delete'].includes(o.op) || !ID_RE.test(String(o.id || ''))) throw fail('Each change needs op (set, merge, delete), collection and id');
       coll(o.collection);
+      if (o.collection === 'audit') throw fail('The journal (audit) is written by the server only. It can be read with list.');
       if (o.op !== 'delete' && !isObj(o.data)) throw fail('set and merge need data');
     }
     const done = [], at = new Date().toISOString();
@@ -76,6 +78,7 @@ async function call(name, a) {
         const old = await db.getDoc(o.collection, o.id);
         const was = await db.deleteDoc(o.collection, o.id);
         hub.publish(o.collection, o.id, null, 0, '', old && old.data);
+        if (was) journal.note('del', o.collection, o.id, null, old && old.data, 'Claude');
         if (was && o.collection !== 'gone' && o.collection !== 'activity') { const g = await db.setDoc('gone', sync.goneId(o.collection, o.id), { c: o.collection, i: o.id, at, u: at }); hub.publish('gone', g.id, g.data, g.version); }
         done.push({ op: 'delete', collection: o.collection, id: o.id, existed: was });
         continue;
@@ -84,6 +87,7 @@ async function call(name, a) {
       const d = o.op === 'set' ? await db.setDoc(o.collection, o.id, data) : await db.updateDoc(o.collection, o.id, data);
       if (!d) throw fail('Nothing to merge into: ' + o.collection + '/' + o.id + ' does not exist. Changes before it were saved.');
       hub.publish(o.collection, d.id, d.data, d.version, '', old && old.data);
+      journal.note(old ? 'upd' : 'add', o.collection, d.id, d.data, old && old.data, 'Claude');
       // a chat that gets a project, or is kept more fully than before, is told so by the bot
       if (o.collection === 'chats') await require('./groups').onSettings(old && old.data, d).catch(() => {});
       done.push({ op: o.op, collection: o.collection, id: o.id, version: d.version });
@@ -105,6 +109,7 @@ async function call(name, a) {
       review: 'pending', proposal: items.length ? { items, by: 'claude', at } : null, applied: [], src: 'claude', u: at,
     });
     hub.publish('messages', d.id, d.data, d.version);
+    journal.note('add', 'messages', d.id, d.data, null, 'Claude');
     return { saved: { id, project: p.id }, note: 'The message waits for review in the dashboard. Nothing in the project was changed.' };
   }
   if (name === 'sync') {
@@ -112,7 +117,10 @@ async function call(name, a) {
     if (a.docs !== undefined) {
       if (!isObj(a.docs)) throw fail('docs must be an object: {collection: {id: record}}');
       stats = await sync.mergeDocs(a.docs);
-      if (stats.added || stats.updated || stats.deleted) hub.reloadAll();
+      if (stats.added || stats.updated || stats.deleted) {
+        journal.event('bulk', 'Синхронизация со страницей в Claude: добавлено ' + stats.added + ', обновлено ' + stats.updated + ', удалено ' + stats.deleted, 'Claude');
+        hub.reloadAll();
+      }
     }
     return { changedHere: stats, exportedAt: new Date().toISOString(), docs: await db.exportAll() };
   }

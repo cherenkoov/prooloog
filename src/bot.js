@@ -7,6 +7,8 @@ const hub = require('./realtime');
 const T = require('./telegram');
 const clock = require('./clock');
 const groups = require('./groups');
+const journal = require('./journal');
+const i18n = require('./i18n');
 const ai = require('./ai');
 const mcp = require('./mcp');
 const usage = require('./usage');
@@ -115,6 +117,7 @@ async function saveMessage(draft, projectId) {
   if (draft.file) data.file = draft.file;
   const doc = await db.setDoc('messages', id, data);
   hub.publish('messages', id, doc.data, doc.version);
+  journal.note('add', 'messages', id, doc.data, null, 'бот');
   return id;
 }
 async function finish(chat, uid, draft, projectId, reply) {
@@ -222,40 +225,67 @@ async function maybeBackup() {
 
 /* ---------- a meeting participant: reminders by the event's link ---------- */
 const GUEST_RULES = [5, 15, 60, 1440];
-const ruleName = (m) => (m === 5 ? 'за 5 минут' : m === 15 ? 'за 15 минут' : m === 60 ? 'за час' : 'за день');
 async function eventByShare(tok) {
   if (!/^[A-Za-z0-9_-]{12,48}$/.test(tok)) return null;
   return (await db.listDocs('events')).find((e) => e.data.share === tok) || null;
 }
-function guestKb(evId, rem) {
-  return kb([GUEST_RULES.slice(0, 2), GUEST_RULES.slice(2)].map((row) => row.map((m) => ({ text: (rem.includes(m) ? '✓ ' : '') + ruleName(m), callback_data: 'er:' + evId + ':' + m }))));
+// A participant talks to the bot in their own language. Where it comes from, in this order:
+// the language the organizer fixed in the link, the one this person chose before, a question with the likely one first.
+const langOf = async (uid) => { const v = await db.kvGet('lang:' + uid); return i18n.ok(v) ? v : ''; };
+function guestKb(evId, rem, lang) {
+  const L = i18n.of(lang);
+  return kb([GUEST_RULES.slice(0, 2), GUEST_RULES.slice(2)].map((row) => row.map((m) => ({ text: (rem.includes(m) ? '✓ ' : '') + L.rules[m], callback_data: 'er:' + evId + ':' + m })))
+    .concat([[{ text: L.langBtn, callback_data: 'el:' + evId + ':ask' }]]));
 }
-async function guestText(e, rem, tz) {
+const langKb = (evId, code) => kb([i18n.offer(code).map((x) => ({ text: i18n.LANGS[x], callback_data: 'el:' + evId + ':' + x }))]);
+async function guestText(e, rem, tz, lang) {
+  const L = i18n.of(lang);
   const s = remind.starts(e.data, tz, Date.now()).filter((x) => x.ms > Date.now() - 600000)[0];
   const timed = /^\d{2}:\d{2}$/.test(e.data.time || '');
-  return '<b>' + esc(e.data.title || 'Встреча') + '</b>\n' + (s ? remind.dayLabel(s.d) + (timed ? ', ' + e.data.time + ' (' + remind.offsetLabel(s.ms, tz) + ')' : '') : 'дата уточняется') +
-    '\n\n' + (rem.length ? 'Напомню ' + rem.slice().sort((a, b) => a - b).map(ruleName).join(', ') + '.' : 'Напоминания выключены.') +
-    (remind.okLink(e.data.link) ? ' Ссылку на созвон пришлю за 5 минут до начала.' : '') + '\nКнопками ниже можно выбрать, когда напоминать.';
+  return '<b>' + esc(e.data.title || L.meeting) + '</b>\n' + (s ? L.day(s.d) + (timed ? ', ' + e.data.time + ' (' + remind.offsetLabel(s.ms, tz) + ')' : '') : L.tbd) +
+    '\n\n' + (rem.length ? L.will(rem.slice().sort((a, b) => a - b).map((m) => L.rules[m] || '').filter(Boolean).join(', ')) : L.off) +
+    (remind.okLink(e.data.link) ? ' ' + L.link5 : '') + '\n' + L.choose;
 }
-async function guestJoin(m, tok) {
-  const e = await eventByShare(tok), chat = m.chat.id;
-  if (!e) return say(chat, 'Эта ссылка на встречу больше не действует. Попроси у организатора новую.');
-  const id = (e.id + '-' + m.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id);
+// fixed: the language the organizer put into the link ('' when the participant is to choose)
+async function guestJoin(m, tok, fixed) {
+  const e = await eventByShare(tok), chat = m.chat.id, code = m.from.language_code, uid = m.from.id;
+  const known = i18n.ok(fixed) ? fixed : await langOf(uid);
+  if (!e) return say(chat, i18n.of(known || i18n.guess(code)).gone);
+  const id = (e.id + '-' + uid).slice(0, 64), cur = await db.getDoc('evsubs', id);
   const rem = cur ? remind.rules(cur.data.rem) : [5];
-  const d = await db.setDoc('evsubs', id, { event: e.id, tg: String(m.from.id), name: auth.fullName(m.from), username: m.from.username || '', rem, u: new Date().toISOString() });
+  // until the person chooses, reminders go out in the likely language: nobody is left without them
+  const lang = known || (cur && i18n.ok(cur.data.lang) ? cur.data.lang : i18n.guess(code));
+  const settled = !!known || !!(cur && cur.data.asked);
+  const d = await db.setDoc('evsubs', id, { event: e.id, tg: String(uid), name: auth.fullName(m.from), username: m.from.username || '', rem, lang, asked: settled, u: new Date().toISOString() });
   hub.publish('evsubs', d.id, d.data, d.version);
-  return say(chat, await guestText(e, rem, await appTz()), guestKb(e.id, rem));
+  if (!settled) return say(chat, '<b>' + esc(e.data.title || '') + '</b>\n' + i18n.PICK, langKb(e.id, code));
+  return say(chat, await guestText(e, rem, await appTz(), lang), guestKb(e.id, rem, lang));
 }
 async function guestToggle(cq, evId, min) {
   const id = (evId + '-' + cq.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id), e = await db.getDoc('events', evId);
   const ack = (t) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: t }).catch(() => {});
-  if (!cur || !e || !GUEST_RULES.includes(min)) return ack('Эта встреча больше не доступна');
+  const lang = cur && i18n.ok(cur.data.lang) ? cur.data.lang : i18n.guess(cq.from.language_code), L = i18n.of(lang);
+  if (!cur || !e || !GUEST_RULES.includes(min)) return ack(L.goneShort);
   const old = remind.rules(cur.data.rem), rem = old.includes(min) ? old.filter((x) => x !== min) : old.concat([min]);
   const d = await db.setDoc('evsubs', id, Object.assign({}, cur.data, { rem: remind.rules(rem), u: new Date().toISOString() }));
   hub.publish('evsubs', d.id, d.data, d.version);
-  await ack(rem.includes(min) ? 'Напомню ' + ruleName(min) : 'Убрал напоминание');
+  await ack(rem.includes(min) ? L.on(L.rules[min]) : L.removed);
   const msg = cq.message;
-  if (msg && msg.chat) await T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: await guestText(e, d.data.rem, await appTz()), parse_mode: 'HTML', reply_markup: guestKb(evId, d.data.rem) }).catch(() => {});
+  if (msg && msg.chat) await T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: await guestText(e, d.data.rem, await appTz(), lang), parse_mode: 'HTML', reply_markup: guestKb(evId, d.data.rem, lang) }).catch(() => {});
+}
+// el:<event>:ask shows the languages again; el:<event>:<lang> sets one, for this meeting and for the next links
+async function guestLang(cq, evId, want) {
+  const id = (evId + '-' + cq.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id), e = await db.getDoc('events', evId), msg = cq.message;
+  const ack = (t) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: t || undefined }).catch(() => {});
+  const edit = (html, markup) => (msg && msg.chat ? T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: html, parse_mode: 'HTML', reply_markup: markup }).catch(() => {}) : null);
+  if (!cur || !e) return ack(i18n.of(cur && cur.data.lang ? cur.data.lang : i18n.guess(cq.from.language_code)).goneShort);
+  if (want === 'ask') { await ack(); return edit('<b>' + esc(e.data.title || '') + '</b>\n' + i18n.PICK, langKb(evId, cur.data.lang || cq.from.language_code)); }
+  if (!i18n.ok(want)) return ack();
+  const d = await db.setDoc('evsubs', id, Object.assign({}, cur.data, { lang: want, asked: true, u: new Date().toISOString() }));
+  hub.publish('evsubs', d.id, d.data, d.version);
+  await db.kvSet('lang:' + cq.from.id, want);
+  await ack(i18n.of(want).saved);
+  return edit(await guestText(e, remind.rules(d.data.rem), await appTz(), want), guestKb(evId, remind.rules(d.data.rem), want));
 }
 
 /* ---------- an invite link: access to chosen projects ---------- */
@@ -277,8 +307,9 @@ async function inviteJoin(m, tok) {
   await setMenu(chat);
   const b = openBtn('Открыть ' + cfg.appName);
   await say(chat, 'Тебе открыт доступ в ' + esc(cfg.appName) + ': <b>' + esc(names) + '</b>, ' + what + '.', b ? kb([b]) : undefined);
+  journal.event('acc', 'Вход по приглашению: ' + (auth.fullName(m.from) || 'без имени') + (m.from.username ? ' (@' + m.from.username + ')' : '') + ' — ' + names + ', ' + (role === 'editor' ? 'редактор' : 'зритель'));
   const owner = await auth.ownerId();
-  if (owner) await say(owner, esc(auth.fullName(m.from) || 'Кто-то') + (m.from.username ? ' (@' + esc(m.from.username) + ')' : '') + ' открыл приглашение: ' + esc(names) + ', ' + (role === 'editor' ? 'редактор' : 'зритель') + '.').catch(() => {});
+  if (owner) await say(owner, esc(auth.fullName(m.from) || 'Кто-то') + (m.from.username ? ' (@' + esc(m.from.username) + ')' : '') + ': вход по приглашению. ' + esc(names) + ', ' + (role === 'editor' ? 'редактор' : 'зритель') + '.').catch(() => {});
 }
 
 /* ---------- a question to Claude, with the dashboard in view ---------- */
@@ -429,6 +460,7 @@ async function onCommand(m, role, cmd, arg) {
     if (!mm) return say(chat, 'Напиши так: /invite @имя editor или /invite @имя viewer.\neditor может менять данные, viewer только смотрит. Деньги, контакты и переписку видишь только ты.');
     const role2 = /^(editor|редактор)$/i.test(mm[2] || '') ? 'editor' : 'viewer';
     await db.setInvite(mm[1].toLowerCase(), role2);
+    journal.event('acc', 'Приглашён @' + mm[1] + ': ' + (role2 === 'editor' ? 'редактор' : 'зритель') + ', все проекты');
     return say(chat, 'Пригласил @' + esc(mm[1]) + ' как ' + (role2 === 'editor' ? 'редактора' : 'зрителя') + '. Пусть откроет ' + (botName ? '@' + esc(botName) : 'бота') + ' и нажмёт /start.');
   }
   if (cmd === 'members') {
@@ -444,6 +476,7 @@ async function onCommand(m, role, cmd, arg) {
     const gone = await db.removeMemberByUsername(mm[1].toLowerCase());
     gone.forEach((x) => hub.dropUser(x));
     const n = gone.length + (await db.removeInvite(mm[1].toLowerCase()));
+    if (n) journal.event('acc', 'Доступ закрыт: @' + mm[1]);
     return say(chat, n ? 'Убрал доступ у @' + esc(mm[1]) + '.' : 'Не нашёл @' + esc(mm[1]) + ' среди участников.');
   }
   return say(chat, 'Не знаю такую команду. Список: /help');
@@ -456,8 +489,9 @@ async function onMessage(m) {
   if (!m.chat || m.chat.type !== 'private' || !m.from || m.from.is_bot) return;
   const role = await auth.roleOf(m.from);
   const cmd = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(String(m.text || '').trim());
-  const ev = cmd && cmd[1].toLowerCase() === 'start' ? /^ev_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
-  if (ev) return guestJoin(m, ev[1]);
+  // ev_<token>: the participant chooses the language; evru_<token>, even_<token>: the organizer has fixed it
+  const ev = cmd && cmd[1].toLowerCase() === 'start' ? /^ev([a-z]{2})?_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
+  if (ev) return guestJoin(m, ev[2], ev[1] || '');
   const inv = cmd && cmd[1].toLowerCase() === 'start' ? /^inv_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
   if (inv) return inviteJoin(m, inv[1]);
   const jn = cmd && cmd[1].toLowerCase() === 'start' ? /^join_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
@@ -481,6 +515,8 @@ async function onCallback(cq) {
   if (!chat) return ack();
   const er = /^er:([A-Za-z0-9_-]{1,40}):(\d{1,5})$/.exec(data);
   if (er) return guestToggle(cq, er[1], +er[2]);
+  const el = /^el:([A-Za-z0-9_-]{1,40}):([a-z]{2,3})$/.exec(data);
+  if (el) return guestLang(cq, el[1], el[2]);
   if ((await auth.roleOf(cq.from)) !== 'owner') return ack('Доступно только владельцу');
   const st = await db.getState(uid);
   const stale = async () => { await ack('Уже обработано'); return edit(chat, 'Здесь уже нечего сохранять. Пришли сообщение ещё раз.'); };
@@ -491,6 +527,7 @@ async function onCallback(cq) {
     const id = 'it' + st.draft.mid;
     const doc = await db.setDoc('inbox', id, { text: st.draft.text.slice(0, 300), u: new Date().toISOString() });
     hub.publish('inbox', id, doc.data, doc.version);
+    journal.note('add', 'inbox', id, doc.data, null, 'бот');
     await db.setState(uid, {});
     await ack('Добавил');
     return edit(chat, 'Добавил во входящие.');
@@ -534,6 +571,7 @@ async function onCallback(cq) {
     await db.setState(uid, {});
     if (!b || !b.n) return edit(chat, 'Не получилось прочитать копию. Данные не менялись.');
     const n = await db.importAll(b.docs, cfg.allCollections, true);
+    journal.event('bulk', 'Данные заменены копией из файла: записей ' + n, 'бот');
     hub.reloadAll();
     return edit(chat, 'Готово: данные заменены копией, записей ' + n + '.');
   }

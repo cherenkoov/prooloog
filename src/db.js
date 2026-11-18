@@ -182,7 +182,7 @@ async function countDocs() {
   return r.rows[0].n;
 }
 async function exportAll() {
-  const r = await q('SELECT coll, id, data FROM docs ORDER BY coll, id');
+  const r = await q("SELECT coll, id, data FROM docs WHERE coll <> 'audit' ORDER BY coll, id");
   const docs = {};
   for (const row of r.rows) { (docs[row.coll] = docs[row.coll] || {})[row.id] = row.data; }
   return docs;

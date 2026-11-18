@@ -15,7 +15,7 @@ async function mergeDocs(incoming) {
   const mine = await db.exportAll();
   const myGone = mine.gone || {}, theirGone = isObj(incoming.gone) ? incoming.gone : {};
   const st = { added: 0, updated: 0, deleted: 0, kept: 0 };
-  for (const k of cfg.collections) {
+  for (const k of cfg.dataCollections) {
     if (k === 'gone') continue;
     const theirs = isObj(incoming[k]) ? incoming[k] : {}, have = mine[k] || {};
     for (const id of Object.keys(theirs)) {

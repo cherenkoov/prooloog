@@ -300,6 +300,8 @@
         if (name === 'downloads') return downloadsNs;
         if (name === 'share') return me && me.role === 'owner' ? shareNs : null;
         if (name === 'chat') return me && me.role === 'owner' ? chatNs : null;
+        // the journal of actions is kept by the server, so the page does not write its own
+        if (name === 'journal') return { server: true };
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;
         return null;
       }, function () { return never; });

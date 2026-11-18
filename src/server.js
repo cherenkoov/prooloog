@@ -12,6 +12,7 @@ const ai = require('./ai');
 const mcp = require('./mcp');
 const remind = require('./remind');
 const groups = require('./groups');
+const journal = require('./journal');
 const T = require('./telegram');
 const join = require('./join');
 
@@ -50,6 +51,7 @@ function collOf(req, res, write) {
   if (!cfg.collections.includes(coll)) { res.status(404).json({ error: 'unknown_collection' }); return null; }
   if (cfg.ownerOnly.has(coll) && req.user.role !== 'owner') { res.status(403).json({ error: 'forbidden' }); return null; }
   if (write && req.user.role === 'viewer') { res.status(403).json({ error: 'forbidden' }); return null; }
+  if (write && coll === 'audit') { res.status(403).json({ error: 'forbidden' }); return null; } // the journal is written by the server only
   return coll;
 }
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -91,7 +93,8 @@ function build() {
   /* ---------- API ---------- */
   const api = express.Router();
   const json = express.json({ limit: '400kb' });
-  const authLimit = limiter(30, 60000);
+  const authLimit = limiter(Math.max(1, +process.env.AUTH_LIMIT || 30), 60000); // sign-in attempts from one address
+  const actLimit = limiter(60, 60000);                                         // the owner's actions that reach Telegram
 
   const session = async (user, role) => ({
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
@@ -135,6 +138,16 @@ function build() {
     if (bad) res.status(403).json({ error: 'forbidden' });
     return !bad;
   };
+  // who is behind a request, for the journal: '' for the owner, a name for anybody else
+  const names = new Map();
+  const who = async (req) => {
+    if (req.user.role === 'owner') return '';
+    const hit = names.get(req.user.id);
+    if (hit && Date.now() - hit.at < 60000) return hit.name;
+    const m = await db.getMember(req.user.id), name = (m && (m.name || (m.username ? '@' + m.username : ''))) || 'гость';
+    names.set(req.user.id, { name, at: Date.now() });
+    return name;
+  };
   api.put('/db/:coll/:id', auth.guard('write'), json, async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
@@ -142,6 +155,7 @@ function build() {
     if (!mayWrite(req, res, coll, req.params.id, cur, req.body.data)) return;
     const d = await db.setDoc(coll, req.params.id, req.body.data);
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
+    journal.note(cur ? 'upd' : 'add', coll, d.id, d.data, cur && cur.data, await who(req));
     if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
     res.json({ ok: true, version: d.version });
   });
@@ -153,6 +167,7 @@ function build() {
     const d = await db.updateDoc(coll, req.params.id, req.body.data);
     if (!d) return res.status(404).json({ error: 'not_found' });
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
+    journal.note('upd', coll, d.id, d.data, cur && cur.data, await who(req));
     if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
     res.json({ ok: true, version: d.version });
   });
@@ -163,6 +178,7 @@ function build() {
     if (!mayWrite(req, res, coll, req.params.id, cur, null)) return;
     const was = await db.deleteDoc(coll, req.params.id);
     hub.publish(coll, req.params.id, null, 0, srcOf(req), cur && cur.data);
+    if (was) journal.note('del', coll, req.params.id, null, cur && cur.data, await who(req));
     // A deletion leaves a mark: when two copies of the data are merged, the record does not come back.
     if (was && coll !== 'gone' && coll !== 'activity') {
       const at = new Date().toISOString();
@@ -193,11 +209,12 @@ function build() {
       names: (await db.listInvites()).map((x) => ({ username: x.username, role: x.role === 'editor' ? 'editor' : 'viewer' })),
     });
   });
-  api.post('/share/links', auth.guard('owner'), authLimit, json, async (req, res) => {
+  api.post('/share/links', auth.guard('owner'), actLimit, json, async (req, res) => {
     const a = await cleanAccess(req.body);
     if (!a) return res.status(400).json({ error: 'bad_request' });
     if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
     const token = await db.createInviteLink(a.role, a.projects, 7);
+    journal.event('acc', 'Создана ссылка-приглашение: ' + (a.role === 'editor' ? 'редактировать' : 'смотреть') + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты'));
     res.json({ token, url: 'https://t.me/' + bot.name() + '?start=inv_' + token, role: a.role, projects: a.projects });
   });
   api.delete('/share/links/:token', auth.guard('owner'), async (req, res) => { res.json({ ok: await db.dropInviteLink(String(req.params.token)) }); });
@@ -207,12 +224,15 @@ function build() {
     if (!a || !/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
     const ok = await db.setMemberAccess(req.params.id, a.role, a.projects);
     if (ok) hub.setAccess(req.params.id, a.role, a.projects);
+    if (ok) { const m = await db.getMember(req.params.id); journal.event('acc', 'Доступ изменён: ' + ((m && (m.name || m.username)) || req.params.id) + ' — ' + (a.role === 'editor' ? 'редактирует' : 'смотрит') + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты')); }
     res.status(ok ? 200 : 404).json({ ok });
   });
   api.delete('/share/members/:id', auth.guard('owner'), async (req, res) => {
     if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    const gone = await db.getMember(req.params.id);
     const ok = await db.removeMember(req.params.id);
     if (ok) hub.dropUser(req.params.id);
+    if (ok) journal.event('acc', 'Доступ закрыт: ' + ((gone && (gone.name || gone.username)) || req.params.id));
     res.json({ ok });
   });
 
@@ -227,8 +247,8 @@ function build() {
       res.status(502).json({ error: 'not_sent' });
     }
   };
-  api.post('/chats/:id/post', auth.guard('owner'), authLimit, json, chatCall((req) => groups.post(req.params.id, req.body && req.body.text, !!(req.body && req.body.buttons))));
-  api.post('/chats/:id/leave', auth.guard('owner'), authLimit, chatCall((req) => groups.leave(req.params.id)));
+  api.post('/chats/:id/post', auth.guard('owner'), actLimit, json, chatCall((req) => groups.post(req.params.id, req.body && req.body.text, !!(req.body && req.body.buttons))));
+  api.post('/chats/:id/leave', auth.guard('owner'), actLimit, chatCall((req) => groups.leave(req.params.id)));
 
   api.post('/files', auth.guard('write'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
@@ -245,12 +265,13 @@ function build() {
     const b = req.body || {};
     if (b.app !== 'prooloog' || !isObj(b.docs)) return res.status(400).json({ error: 'bad_request' });
     const n = await db.importAll(b.docs, cfg.allCollections, b.mode === 'replace');
+    journal.event('bulk', (b.mode === 'replace' ? 'Данные заменены копией' : 'Загружена копия') + ': записей ' + n);
     hub.reloadAll();
     res.json({ ok: true, imported: n });
   });
 
   // «Скачать файлом» inside Telegram: the bot sends the copy to the owner's chat.
-  api.post('/backup/send', auth.guard('owner'), authLimit, async (req, res) => {
+  api.post('/backup/send', auth.guard('owner'), actLimit, async (req, res) => {
     try { await bot.sendBackup(req.user.id, true); } catch (e) { return res.status(502).json({ error: 'bot_unavailable' }); }
     res.json({ ok: true });
   });
@@ -314,7 +335,7 @@ async function start() {
   bot.setup();
   remind.use({ bot: () => bot.name() });
   if (process.env.REMINDERS !== '0') remind.start();
-  const stop = async () => { remind.stop(); hub.closeAll(); server.close(); await db.close(); };
+  const stop = async () => { remind.stop(); await journal.stop(); hub.closeAll(); server.close(); await db.close(); };
   return { app, server, stop };
 }
 

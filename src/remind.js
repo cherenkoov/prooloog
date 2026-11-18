@@ -7,6 +7,7 @@ const db = require('./db');
 const auth = require('./auth');
 const T = require('./telegram');
 const clock = require('./clock');
+const i18n = require('./i18n');
 
 const GRACE = 10 * 60000, LINK_MIN = 5;
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -40,10 +41,11 @@ function offsetLabel(ms, tz) {
 }
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const dayLabel = (d) => +d.slice(8, 10) + ' ' + MON[+d.slice(5, 7) - 1];
-function text(e, s, m, tz, project, guest) {
-  const timed = /^\d{2}:\d{2}$/.test(e.time || '');
-  return '⏰ ' + before(m) + ': <b>' + esc(e.title || 'Событие') + '</b>\n' + dayLabel(s.d) + (timed ? ', ' + e.time + (guest ? ' (' + offsetLabel(s.ms, tz) + ')' : '') : '') +
-    (project && !guest ? ' · ' + esc(project) : '') + (okLink(e.link) && m <= 60 ? '\nСсылка: ' + esc(e.link) : '');
+// lang: the language of the one who gets the reminder; the owner reads Russian
+function text(e, s, m, tz, project, guest, lang) {
+  const timed = /^\d{2}:\d{2}$/.test(e.time || ''), L = i18n.of(guest ? lang : 'ru');
+  return '⏰ ' + L.before(m) + ': <b>' + esc(e.title || L.meeting) + '</b>\n' + L.day(s.d) + (timed ? ', ' + e.time + (guest ? ' (' + offsetLabel(s.ms, tz) + ')' : '') : '') +
+    (project && !guest ? ' · ' + esc(project) : '') + (okLink(e.link) && m <= 60 ? '\n' + L.link + ': ' + esc(e.link) : '');
 }
 async function claim(key) {
   const r = await db.q('INSERT INTO sent_reminders (key) VALUES ($1) ON CONFLICT (key) DO NOTHING RETURNING key', [key]);
@@ -63,8 +65,10 @@ async function tick(nowMs) {
     const e = row.data, link = okLink(e.link);
     const to = [];
     if (owner) to.push({ chat: owner, rem: rules(e.rem), guest: false });
-    for (const s of subs) if (s.data.event === row.id && /^\d{1,20}$/.test(String(s.data.tg || '')) && String(s.data.tg) !== String(owner)) to.push({ chat: String(s.data.tg), rem: rules(s.data.rem), guest: true });
-    for (const c of chats) if (c.data.project === e.project) to.push({ chat: String(c.data.tg), rem: rules(e.rem), guest: true, group: true });
+    for (const s of subs) if (s.data.event === row.id && /^\d{1,20}$/.test(String(s.data.tg || '')) && String(s.data.tg) !== String(owner)) to.push({ chat: String(s.data.tg), rem: rules(s.data.rem), guest: true, lang: i18n.ok(s.data.lang) ? s.data.lang : 'ru' });
+    // a chat hears the reminder in the language the organizer fixed for this meeting, Russian otherwise
+    const fixed = i18n.ok(e.lang) ? e.lang : '';
+    for (const c of chats) if (c.data.project === e.project) to.push({ chat: String(c.data.tg), rem: rules(e.rem), guest: true, group: true, lang: fixed || 'ru' });
     if (!to.some((r) => r.rem.length) && !link) continue;
     for (const s of starts(e, tz, now)) {
       if (!isFinite(s.ms)) continue;
@@ -77,8 +81,8 @@ async function tick(nowMs) {
           try {
             // in a chat everyone can ask for a reminder of their own, if the owner made a link for participants
             const own = r.group && botName() && /^[A-Za-z0-9_-]{8,60}$/.test(String(e.share || ''))
-              ? { inline_keyboard: [[{ text: 'Напоминать мне лично', url: 'https://t.me/' + botName() + '?start=ev_' + e.share }]] } : undefined;
-            await T.tg('sendMessage', { chat_id: r.chat, text: text(e, s, m, tz, projects[e.project], r.guest), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: own });
+              ? { inline_keyboard: [[{ text: i18n.of(r.lang).mine, url: 'https://t.me/' + botName() + '?start=ev' + fixed + '_' + e.share }]] } : undefined;
+            await T.tg('sendMessage', { chat_id: r.chat, text: text(e, s, m, tz, projects[e.project], r.guest, r.lang), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: own });
             sent++;
           } catch (err) { console.error('[remind] not delivered to ' + r.chat + ':', err.message); }
         }
