@@ -10,6 +10,7 @@ const hub = require('./realtime');
 const bot = require('./bot');
 const ai = require('./ai');
 const mcp = require('./mcp');
+const remind = require('./remind');
 const T = require('./telegram');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -230,7 +231,8 @@ async function start() {
   const server = await new Promise((resolve) => { const s = app.listen(cfg.port, '0.0.0.0', () => resolve(s)); });
   console.log('[http] ' + cfg.appName + ' is on port ' + cfg.port + (cfg.baseUrl ? ', public address ' + cfg.baseUrl : ''));
   bot.setup();
-  const stop = async () => { hub.closeAll(); server.close(); await db.close(); };
+  if (process.env.REMINDERS !== '0') remind.start();
+  const stop = async () => { remind.stop(); hub.closeAll(); server.close(); await db.close(); };
   return { app, server, stop };
 }
 

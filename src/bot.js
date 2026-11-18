@@ -9,6 +9,7 @@ const clock = require('./clock');
 const ai = require('./ai');
 const mcp = require('./mcp');
 const usage = require('./usage');
+const remind = require('./remind');
 
 let botName = '';
 
@@ -217,6 +218,44 @@ async function maybeBackup() {
   } catch (e) { console.error('[bot] backup failed:', e.message); } finally { backupBusy = false; }
 }
 
+/* ---------- a meeting participant: reminders by the event's link ---------- */
+const GUEST_RULES = [5, 15, 60, 1440];
+const ruleName = (m) => (m === 5 ? 'за 5 минут' : m === 15 ? 'за 15 минут' : m === 60 ? 'за час' : 'за день');
+async function eventByShare(tok) {
+  if (!/^[A-Za-z0-9_-]{12,48}$/.test(tok)) return null;
+  return (await db.listDocs('events')).find((e) => e.data.share === tok) || null;
+}
+function guestKb(evId, rem) {
+  return kb([GUEST_RULES.slice(0, 2), GUEST_RULES.slice(2)].map((row) => row.map((m) => ({ text: (rem.includes(m) ? '✓ ' : '') + ruleName(m), callback_data: 'er:' + evId + ':' + m }))));
+}
+async function guestText(e, rem, tz) {
+  const s = remind.starts(e.data, tz, Date.now()).filter((x) => x.ms > Date.now() - 600000)[0];
+  const timed = /^\d{2}:\d{2}$/.test(e.data.time || '');
+  return '<b>' + esc(e.data.title || 'Встреча') + '</b>\n' + (s ? remind.dayLabel(s.d) + (timed ? ', ' + e.data.time + ' (' + remind.offsetLabel(s.ms, tz) + ')' : '') : 'дата уточняется') +
+    '\n\n' + (rem.length ? 'Напомню ' + rem.slice().sort((a, b) => a - b).map(ruleName).join(', ') + '.' : 'Напоминания выключены.') +
+    (remind.okLink(e.data.link) ? ' Ссылку на созвон пришлю за 5 минут до начала.' : '') + '\nКнопками ниже можно выбрать, когда напоминать.';
+}
+async function guestJoin(m, tok) {
+  const e = await eventByShare(tok), chat = m.chat.id;
+  if (!e) return say(chat, 'Эта ссылка на встречу больше не действует. Попроси у организатора новую.');
+  const id = (e.id + '-' + m.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id);
+  const rem = cur ? remind.rules(cur.data.rem) : [5];
+  const d = await db.setDoc('evsubs', id, { event: e.id, tg: String(m.from.id), name: auth.fullName(m.from), username: m.from.username || '', rem, u: new Date().toISOString() });
+  hub.publish('evsubs', d.id, d.data, d.version);
+  return say(chat, await guestText(e, rem, await appTz()), guestKb(e.id, rem));
+}
+async function guestToggle(cq, evId, min) {
+  const id = (evId + '-' + cq.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id), e = await db.getDoc('events', evId);
+  const ack = (t) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: t }).catch(() => {});
+  if (!cur || !e || !GUEST_RULES.includes(min)) return ack('Эта встреча больше не доступна');
+  const old = remind.rules(cur.data.rem), rem = old.includes(min) ? old.filter((x) => x !== min) : old.concat([min]);
+  const d = await db.setDoc('evsubs', id, Object.assign({}, cur.data, { rem: remind.rules(rem), u: new Date().toISOString() }));
+  hub.publish('evsubs', d.id, d.data, d.version);
+  await ack(rem.includes(min) ? 'Напомню ' + ruleName(min) : 'Убрал напоминание');
+  const msg = cq.message;
+  if (msg && msg.chat) await T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: await guestText(e, d.data.rem, await appTz()), parse_mode: 'HTML', reply_markup: guestKb(evId, d.data.rem) }).catch(() => {});
+}
+
 /* ---------- a question to Claude, with the dashboard in view ---------- */
 async function briefing() {
   const docs = await db.exportAll(), tz = await appTz(), now = clock.parts(Date.now(), tz), L = [];
@@ -336,6 +375,8 @@ async function onMessage(m) {
   if (!m.chat || m.chat.type !== 'private' || !m.from || m.from.is_bot) return;
   const role = await auth.roleOf(m.from);
   const cmd = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(String(m.text || '').trim());
+  const ev = cmd && cmd[1].toLowerCase() === 'start' ? /^ev_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
+  if (ev) return guestJoin(m, ev[1]);
   if (cmd) return onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim());
   if (!role) return say(m.chat.id, closedText(m.from));
   if (role !== 'owner') return say(m.chat.id, 'Ответы клиентов и заметки принимаю только от владельца. Дэшборд открывается командой /start.');
@@ -352,6 +393,8 @@ async function onCallback(cq) {
     ? T.tg('editMessageText', { chat_id: c, message_id: msg.message_id, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup }).catch(() => say(c, html, markup))
     : say(c, html, markup));
   if (!chat) return ack();
+  const er = /^er:([A-Za-z0-9_-]{1,40}):(\d{1,5})$/.exec(data);
+  if (er) return guestToggle(cq, er[1], +er[2]);
   if ((await auth.roleOf(cq.from)) !== 'owner') return ack('Доступно только владельцу');
   const st = await db.getState(uid);
   const stale = async () => { await ack('Уже обработано'); return edit(chat, 'Здесь уже нечего сохранять. Пришли сообщение ещё раз.'); };

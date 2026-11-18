@@ -68,7 +68,7 @@ test.before(async () => {
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
-  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files');
+  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders');
   await db.close();
   srv = await require('../src/server').start();
   await new Promise((r) => setTimeout(r, 300));   // bot.setup() talks to the Telegram stand-in
@@ -518,6 +518,52 @@ test('connector for Claude: address from the bot, tools, review rule, merge', as
   // a new address switches the old one off
   await update(msg(OWNER, { text: '/connect new' }));
   assert.equal((await rpc(mp, 'tools/list')).status, 404);
+});
+
+test('reminders: rules of the event, the call link, a participant with rules of their own', async () => {
+  const remind = require('../src/remind'), clock = require('../src/clock');
+  await call('PUT', '/api/db/settings/main', { token: ownerToken, json: { data: { capacity: 40, tz: 'Asia/Kolkata' } } });
+  clock.forget();
+  await call('PUT', '/api/db/events/e-rem', { token: ownerToken, json: { data: { title: 'Созвон с Наташей', project: 'p-ask', date: '2026-12-01', time: '10:00', rem: [60, 15], link: 'https://zoom.us/j/123', share: 'sharetoken123456' } } });
+  const start = clock.wallToMs('2026-12-01', '10:00', 'Asia/Kolkata');
+  assert.equal(new Date(start).toISOString(), '2026-12-01T04:30:00.000Z');
+  const texts = (n) => sinceMark(n, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text]);
+  let n = tgCalls.length;
+  assert.equal(await remind.tick(start - 61 * 60000), 0, 'too early');
+  assert.equal(await remind.tick(start - 60 * 60000 + 1000), 1);
+  assert.match(texts(n)[0][1], /Через 1 час: <b>Созвон с Наташей<\/b>[\s\S]*1 дек, 10:00 · Проект для вопроса[\s\S]*zoom\.us/);
+  assert.equal(texts(n)[0][0], String(OWNER.id));
+  assert.equal(await remind.tick(start - 60 * 60000 + 30000), 0, 'never twice');
+  // a participant opens the bot by the link of the event
+  n = tgCalls.length;
+  await update(msg(EVE, { text: '/start ev_sharetoken123456' }));
+  assert.match(lastSay().params.text, /Созвон с Наташей[\s\S]*1 дек, 10:00 \(UTC\+5:30\)[\s\S]*за 5 минут/);
+  let sub = (await call('GET', '/api/db/evsubs', { token: ownerToken })).json.docs.find((x) => x.data.event === 'e-rem');
+  assert.deepEqual(sub.data.rem, [5]); assert.equal(sub.data.tg, String(EVE.id));
+  await update(tap(EVE, 'er:e-rem:15'));
+  sub = (await call('GET', '/api/db/evsubs', { token: ownerToken })).json.docs.find((x) => x.data.event === 'e-rem');
+  assert.deepEqual(sub.data.rem, [15, 5]);
+  await update(msg(EVE, { text: '/start ev_nosuchtoken000000' }));
+  assert.match(lastSay().params.text, /больше не действует/);
+  // 15 minutes before: the owner and the participant; 5 minutes before: the link goes to both
+  n = tgCalls.length;
+  assert.equal(await remind.tick(start - 15 * 60000 + 2000), 2);
+  assert.deepEqual(texts(n).map((x) => x[0]).sort(), [String(OWNER.id), String(EVE.id)].sort());
+  assert.match(texts(n).find((x) => x[0] === String(EVE.id))[1], /Через 15 минут[\s\S]*\(UTC\+5:30\)[\s\S]*zoom\.us/);
+  n = tgCalls.length;
+  assert.equal(await remind.tick(start - 5 * 60000 + 2000), 2);
+  assert.match(texts(n)[0][1], /Через 5 минут[\s\S]*Ссылка: https:\/\/zoom\.us\/j\/123/);
+  assert.equal(await remind.tick(start + 11 * 60000), 0, 'nothing after the start');
+  // a daily event without rules and without a link stays silent; with a rule it fires every day
+  await call('PUT', '/api/db/events/e-day', { token: ownerToken, json: { data: { title: 'Эфир', date: '2026-12-01', time: '08:00', repeat: 'daily', rem: [10] } } });
+  const d2 = clock.wallToMs('2026-12-03', '08:00', 'Asia/Kolkata');
+  n = tgCalls.length;
+  assert.equal(await remind.tick(d2 - 10 * 60000 + 1000), 1);
+  assert.match(texts(n)[0][1], /Через 10 минут: <b>Эфир<\/b>\n3 дек, 08:00/);
+  assert.equal(remind.before(2880), 'Через 2 дня'); assert.equal(remind.before(90), 'Через 90 минут');
+  assert.deepEqual(remind.rules([5, '15', 5, 0, 99999, 60]), [60, 15, 5]);
+  await call('PUT', '/api/db/settings/main', { token: ownerToken, json: { data: { capacity: 40 } } });
+  clock.forget();
 });
 
 test('the bot dates messages by the time zone chosen in the dashboard', async () => {

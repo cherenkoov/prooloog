@@ -214,6 +214,8 @@
       return api('POST', '/files', undefined, { body: blob, type: (meta && meta.type) || blob.type || 'image/jpeg' });
     },
     tgUrl: function (fileId) { return '/api/tg/file/' + encodeURIComponent(fileId) + '?t=' + encodeURIComponent(token); },
+    // The bot's username, for links that lead people to the bot.
+    bot: function () { return (me && me.app && me.app.bot) || ''; },
     // Replaces or merges all data with a copy made by «Скопировать все данные».
     importData: function (copy, mode) { return api('POST', '/import', { app: 'prooloog', docs: copy.docs, mode: mode === 'replace' ? 'replace' : 'merge' }); }
   };

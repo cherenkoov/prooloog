@@ -392,6 +392,11 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* events: reminder rules */
+.rem-l{display:flex;flex-direction:column;gap:6px}
+.rem-r{display:grid;grid-template-columns:84px minmax(0,150px) minmax(0,1fr) auto;gap:8px;align-items:center}
+.rem-t{font-size:13px;color:var(--mute)}
+.rem-l:empty{display:none}
 /* Claude: subscription and API usage */
 .cld-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:10px}
 .cld-k{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
@@ -741,8 +746,8 @@ button.pl-d:hover b{color:var(--accent)}
 'use strict';
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
-var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','activity','gone']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],activity:[],gone:[],settings:{capacity:40}};
+var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','activity','gone']);
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],activity:[],gone:[],settings:{capacity:40}};
 var loaded={};
 var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
@@ -2548,7 +2553,7 @@ function formActivity(){
 }
 
 /* ---------- data: what is stored, export to a file, import from a file ---------- */
-var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',usage:'Расход Claude',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',usage:'Расход Claude',evsubs:'Подписки участников встреч',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
 var dlNs=null,dataIn=null;
 function dataDump(){
   var docs={},n=0;
@@ -2836,15 +2841,48 @@ function formMs(id,pre){
     '<div class="f2">'+fld('Дата',inp('date',m.date,'type="date"'))+fld('Время, если нужно',inp('time',postClock(m.time),'type="time" step="300"'))+'</div>'+
     fld('Выполнен','<input type="checkbox" id="f-done" name="done"'+(m.done?' checked':'')+'>','fc')),null,!id);
 }
+var CALLS={zoom:'Zoom',meet:'Google Meet',other:'Другая ссылка'};
+function remList(v){var seen={},o=[];(Array.isArray(v)?v:[]).forEach(function(x){x=Math.round(+x);if(x>=1&&x<=43200&&!seen[x]){seen[x]=1;o.push(x)}});return o.sort(function(a,b){return b-a}).slice(0,5)}
+function remText(m){return m%1440===0?(m/1440)+' '+plural(m/1440,'день','дня','дней'):m%60===0?(m/60)+' '+plural(m/60,'час','часа','часов'):m+' '+plural(m,'минуту','минуты','минут')}
+function botName(){return filesNs&&typeof filesNs.bot==='function'?String(filesNs.bot()||''):''}
+function evShareUrl(e){var b=botName();return b&&e&&e.share?'https://t.me/'+b+'?start=ev_'+e.share:''}
+function evShareBox(e){
+  var url=evShareUrl(e),subs=S.evsubs.filter(function(x){return x.event===e.id});
+  return '<div class="acts"><button type="button" class="btn sm" data-act="ev-share" data-id="'+esc(e.id)+'">'+(url?'Скопировать ссылку для участника':'Ссылка для участника')+'</button></div>'+(url?'<input id="ev-share-url" readonly value="'+esc(url)+'" style="margin-top:8px" aria-label="Ссылка для участника встречи">':'')+
+    '<p class="sg-out" id="ev-share-out" role="status" style="margin-top:6px">'+(subs.length?'Подписались: '+esc(subs.map(function(x){return (x.name||'участник')+' ('+(remList(x.rem).length?remList(x.rem).slice().reverse().map(function(m){return 'за '+remText(m)}).join(', '):'без напоминаний')+')'}).join('; '))+'.':'По этой ссылке участник открывает бота, выбирает напоминания и за 5 минут до начала получает ссылку на созвон.')+'</p>';
+}
 function formEvent(id,pre){
   var e=id?byId(S.events,id):null;if(id&&!e)return;
-  e=e||merge({title:'',project:ui.project!=='all'&&P(ui.project)?ui.project:'',date:ui.day||today(),time:'',repeat:'',until:'',contact:''},pre);
+  e=e||merge({title:'',project:ui.project!=='all'&&P(ui.project)?ui.project:'',date:ui.day||today(),time:'',repeat:'',until:'',contact:'',call:'',link:'',rem:remList(S.settings.rem)},pre);
+  var meet=S.settings.meet&&typeof S.settings.meet==='object'?S.settings.meet:{},bot=botName();
   openSheet(id?'Событие':'Новое событие',formHtml('event',id,
     fld('Что будет',inp('title',e.title,'required maxlength="200"'))+
     fld('Проект',sel('project',projOpts(true),e.project||''))+
     (ui.owner&&S.contacts.length?fld('С кем',sel('contact',cOpts(e.project||'',e.contact),byId(S.contacts,e.contact)?e.contact:'')):'')+
     '<div class="f2">'+fld('Дата',inp('date',e.date,'type="date" required'))+fld('Время',inp('time',e.time,'type="time"'))+'</div>'+
-    '<div class="f2">'+fld('Повтор',sel('repeat',[['','Не повторять'],['daily','Каждый день'],['weekly','Каждую неделю']],e.repeat||''))+fld('Повторять до',inp('until',e.until,'type="date"'))+'</div>'),null,!id);
+    '<div class="f2">'+fld('Повтор',sel('repeat',[['','Не повторять'],['daily','Каждый день'],['weekly','Каждую неделю']],e.repeat||''))+fld('Повторять до',inp('until',e.until,'type="date"'))+'</div>'+
+    '<div class="f2">'+fld('Созвон',sel('call',[['','Не созвон']].concat(Object.keys(CALLS).map(function(k){return [k,CALLS[k]]})),CALLS[e.call]?e.call:''))+fld('Ссылка на созвон',inp('link',e.link||'','type="url" maxlength="500" placeholder="https://" autocomplete="off"'))+'</div>'+
+    '<p class="sg-out" id="ev-link-n" role="status"></p>'+
+    '<div class="f"><span class="f-l">Уведомления бота: за сколько до начала</span><div id="ev-rem" class="rem-l"></div><div class="acts" style="margin-top:2px"><button type="button" class="btn sm" id="ev-rem-add">+ Уведомление</button></div></div>'+
+    '<p class="sg-out">'+(bot?'Бот @'+esc(bot)+' пришлёт напоминания в Telegram. Если у события есть ссылка на созвон, за 5 минут до начала придёт ещё и она.':'Напоминания присылает бот серверной версии. Здесь правила сохраняются и уйдут на сервер при синхронизации.')+'</p>'+
+    (id&&bot&&ui.owner?'<div class="chat-h"><h2>Участнику встречи</h2></div><div id="ev-share">'+evShareBox(e)+'</div>':'')),function(b){
+      var list=b.querySelector('#ev-rem'),add=b.querySelector('#ev-rem-add'),cs=b.querySelector('#f-call'),ln=b.querySelector('#f-link'),note=b.querySelector('#ev-link-n');
+      var row=function(m){
+        var u=m%1440===0?1440:m%60===0?60:1,d=document.createElement('div');d.className='rem-r';
+        d.innerHTML='<input type="number" class="rem-n" min="1" max="999" step="1" inputmode="numeric" value="'+(m/u)+'" aria-label="Сколько"><select class="rem-u" aria-label="Единица времени"><option value="1"'+(u===1?' selected':'')+'>минут</option><option value="60"'+(u===60?' selected':'')+'>часов</option><option value="1440"'+(u===1440?' selected':'')+'>дней</option></select><span class="rem-t">до начала</span><button type="button" class="x rem-x" aria-label="Убрать уведомление">×</button>';
+        list.appendChild(d);sync();
+      };
+      var sync=function(){add.hidden=list.children.length>=5;add.textContent=list.children.length?'+ Ещё уведомление':'+ Уведомление'};
+      remList(e.rem).forEach(row);sync();
+      add.addEventListener('click',function(){var n=list.children.length;row(n===0?15:n===1?60:1440)});
+      list.addEventListener('click',function(ev){var x=ev.target.closest('.rem-x');if(x){x.parentNode.remove();sync()}});
+      var hint=function(){
+        var k=cs.value;
+        note.textContent=!k?'':(k==='other'?'':(meet[k]?'Подставлена твоя постоянная ссылка '+CALLS[k]+'. Её можно заменить для этой встречи.':'Вставь свою постоянную ссылку '+CALLS[k]+': она запомнится и будет подставляться сама.'));
+      };
+      cs.addEventListener('change',function(){var k=cs.value,saved=Object.keys(meet).map(function(x){return meet[x]});if(!ln.value||saved.indexOf(ln.value)>=0)ln.value=k&&meet[k]?meet[k]:'';hint()});
+      hint();
+    },!id);
 }
 function hm(h){var m=Math.round(h*60),a=Math.floor(m/60),b=m%60;return (a?a+' ч':'')+(a&&b?' ':'')+(b||!a?b+' мин':'')}
 // The week as a ring: 168 hours, the part given to projects, and how much of it is already taken.
@@ -3352,7 +3390,14 @@ function save(kind,id,v,form){
     if(id)patch('milestones',id,data);else{data.order=maxOrder(S.milestones)+1;put('milestones',uid('m'),data)}
   }else if(kind==='event'){
     if(!v.title||!validDate(v.date))return;
-    data={title:v.title,project:v.project||'',date:v.date,time:/^\d{2}:\d{2}$/.test(v.time||'')?v.time:'',repeat:v.repeat==='daily'||v.repeat==='weekly'?v.repeat:'',until:validDate(v.until)?v.until:''};
+    var erem=[],elink=/^https?:\/\/\S+$/i.test(v.link||'')?v.link.slice(0,500):'',ecall=CALLS[v.call]?v.call:(elink?'other':'');
+    if(form)Array.prototype.forEach.call(form.querySelectorAll('.rem-r'),function(r){var n=Math.round(+r.querySelector('.rem-n').value),u=+r.querySelector('.rem-u').value;if(n>0&&(u===1||u===60||u===1440))erem.push(n*u)});
+    erem=remList(erem);
+    data={title:v.title,project:v.project||'',date:v.date,time:/^\d{2}:\d{2}$/.test(v.time||'')?v.time:'',repeat:v.repeat==='daily'||v.repeat==='weekly'?v.repeat:'',until:validDate(v.until)?v.until:'',call:ecall,link:elink,rem:erem};
+    var est={},em=S.settings.meet&&typeof S.settings.meet==='object'?S.settings.meet:{};
+    if(JSON.stringify(remList(S.settings.rem))!==JSON.stringify(erem))est.rem=erem;
+    if((ecall==='zoom'||ecall==='meet')&&elink&&em[ecall]!==elink){est.meet=Object.assign({},em);est.meet[ecall]=elink}
+    if(ui.owner&&Object.keys(est).length)saveSettings(est);
     if(v.contact!==undefined)data.contact=byId(S.contacts,v.contact)?v.contact:'';
     if(id)patch('events',id,data);else put('events',uid('e'),data);
   }else if(kind==='money'){
@@ -3576,6 +3621,13 @@ document.addEventListener('click',function(e){
     case 'pop-undo':popUndo();break;
     case 'data':formData();break;
     case 'usage':formUsage();break;
+    case 'ev-share':
+      o=byId(S.events,d.id);if(!o||ui.ro)break;
+      if(!o.share){var tk='',ab=new Uint8Array(12);try{crypto.getRandomValues(ab);tk=Array.prototype.map.call(ab,function(x){return ('0'+x.toString(16)).slice(-2)}).join('')}catch(err){tk=uid('s').replace(/[^A-Za-z0-9]/g,'')+uid('s').slice(-8)}o.share=tk;patch('events',o.id,{share:tk})}
+      var sb=$('#ev-share');if(sb)sb.innerHTML=evShareBox(o);
+      var su=$('#ev-share-url'),so2=$('#ev-share-out');
+      if(su)copyText(su.value,su).then(function(ok){if(so2)so2.textContent=ok?'Ссылка скопирована. Отправь её участнику встречи.':'Скопируй ссылку из поля выше и отправь участнику.'});
+      break;
     case 'data-sync':dataSync(t);break;
     case 'activity':formActivity();break;
     case 'data-save':dataSave();break;

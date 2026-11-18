@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS bot_state (
   state jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS sent_reminders (
+  key text PRIMARY KEY,
+  at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS files (
   id text PRIMARY KEY,
   mime text NOT NULL,
