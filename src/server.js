@@ -9,6 +9,7 @@ const auth = require('./auth');
 const hub = require('./realtime');
 const bot = require('./bot');
 const ai = require('./ai');
+const mcp = require('./mcp');
 const T = require('./telegram');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -75,6 +76,12 @@ function build() {
     await Promise.race([work, timeout]);
     res.json({ ok: true });
   });
+
+  /* ---------- connector for Claude ---------- */
+  const mcpJson = express.json({ limit: '30mb' });
+  const mcpLimit = limiter(240, 60000);
+  app.post(['/mcp/:token', '/mcp'], mcpLimit, mcpJson, (req, res, next) => mcp.handle(req, res).catch(next));
+  app.all(['/mcp/:token', '/mcp'], (req, res) => res.status(405).set('Allow', 'POST').json({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Use POST' } }));
 
   /* ---------- API ---------- */
   const api = express.Router();

@@ -392,6 +392,12 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* Claude: subscription and API usage */
+.cld-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:10px}
+.cld-k{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
+.cld-n{font:600 22px/1.2 var(--display);font-variant-numeric:tabular-nums}
+.cld .sg-out{margin-top:6px}
+@media (max-width:699px){.cld-g{grid-template-columns:minmax(0,1fr)}}
 /* @ mentions */
 .mn{color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:5px;padding:0 3px;cursor:pointer;white-space:nowrap}
 .mn:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
@@ -735,8 +741,8 @@ button.pl-d:hover b{color:var(--accent)}
 'use strict';
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
-var COLLS=CORE.concat(['money','contacts','messages','subs','clients','activity','gone']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],activity:[],gone:[],settings:{capacity:40}};
+var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','activity','gone']);
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],activity:[],gone:[],settings:{capacity:40}};
 var loaded={};
 var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
@@ -1936,6 +1942,7 @@ function subRow(x,showProject){
 function drawSubs(){
   var all=S.subs.filter(subScope),on=all.filter(subOn),off=all.filter(function(x){return !subOn(x)}),f=ui.subf;
   var h='<div class="b-top"><div class="seg" role="group" aria-label="Какие подписки показывать">'+[['on','Активные',on.length],['off','Не активные',off.length],['all','Все',all.length]].map(function(x){return '<button class="'+(f===x[0]?'on':'')+'" data-act="subf" data-v="'+x[0]+'">'+x[1]+' <b>'+x[2]+'</b></button>'}).join('')+'</div><div class="sp w"><button class="btn sm pri" data-act="new" data-kind="sub">+ Подписка</button></div></div>';
+  if(ui.project==='all')h+=claudePanel();
   if(!all.length)return h+'<section class="panel"><p>Подписок пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Запиши сервисы, за которые платишь регулярно: сумму, период и проект. Дэшборд посчитает, сколько уходит в месяц и в год, и покажет ближайшие списания.</p></section>';
   h+='<div class="tiles"><div class="tile"><h2>В месяц</h2><div class="n">'+subLine(subSums(all,subMonthly))+'</div><small>только активные</small></div><div class="tile"><h2>В год</h2><div class="n">'+subLine(subSums(all,subYearly))+'</div><small>если ничего не менять</small></div><div class="tile"><h2>Подписок</h2><div class="n">'+on.length+' из '+all.length+'</div><small>активны</small></div></div>';
   if(subSums(all,subMonthly).length>1)h+='<p class="mute" style="font-size:13px">Валюты считаются отдельно, без пересчёта по курсу.</p>';
@@ -2108,6 +2115,66 @@ function formSales(pid){
     '<div class="f2">'+fld('Подключение: разовая сумма',inp('fee',s.fee||'','type="number" min="0" step="0.01" inputmode="decimal"'))+fld('Валюта',sel('cur',cl.map(function(c){return [c,c+(CUR[c]?' '+CUR[c]:'')]}),s.cur))+'</div>'+
     fld('Пробный период, дней',inp('trial',s.trial||'','type="number" min="0" max="365" step="1" inputmode="numeric"'))+
     '<p class="mute">Эти значения подставляются в новую запись. У каждой команды или клиента их можно поменять.</p><div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',null,false);
+}
+
+/* ---------- Claude: the subscription and how much of the API is used ---------- */
+function usageHit(){
+  if(filesNs||!ui.owner||ui.ro)return;                 // on the server the server itself counts, with tokens
+  var d=today(),id='c'+d.replace(/-/g,''),o=byId(S.usage,id),n=(o?+o.n||0:0)+1;
+  put('usage',id,{date:d,n:n,by:{page:{n:n}},src:'claude'});
+}
+function usageMonth(m){
+  var r={n:0,in:0,out:0,cost:0,priced:false,tok:false,plain:0,days:[]};
+  S.usage.forEach(function(x){
+    if(String(x.date||'').slice(0,7)!==m)return;
+    r.days.push(x);
+    if(x.src==='claude'){r.plain+=+x.n||0;return}
+    r.n+=+x.n||0;r.in+=+x.in||0;r.out+=+x.out||0;r.tok=true;
+    if(typeof x.cost==='number'){r.cost+=x.cost;r.priced=true}
+  });
+  r.days.sort(function(a,b){return a.date<b.date?1:-1});
+  return r;
+}
+function tokStr(n){return n>=1e6?(Math.round(n/1e5)/10).toLocaleString('ru-RU')+' млн':n>=1000?(Math.round(n/100)/10).toLocaleString('ru-RU')+' тыс.':String(n)}
+function usd(n){return (n<0.01&&n>0?'меньше 0,01':n.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}))+' $'}
+function claudePanel(){
+  var t=today(),m=t.slice(0,7),u=usageMonth(m),mon=MONP[+m.slice(5,7)-1];
+  var sub=S.subs.filter(function(x){return /claude/i.test(String(x.title||''))}).sort(subSort)[0];
+  var h='<section class="panel cld"><div class="ph"><h2>Claude</h2>'+(u.days.length?'<button class="btn sm" data-act="usage">По дням</button>':'')+'</div><div class="cld-g"><div><span class="cld-k">Подписка</span>';
+  h+=sub?'<div class="rows">'+subRow(sub,false)+'</div>':'<p class="mute">Не записана.</p>'+(ui.ro?'':'<button class="btn sm" data-act="new" data-kind="sub" data-title="Claude" style="margin-top:8px">Записать подписку Claude</button>');
+  h+='</div><div><span class="cld-k">API в '+mon+'</span>';
+  if(u.tok)h+='<div class="cld-n">'+(u.priced?'≈ '+usd(u.cost):tokStr(u.in+u.out)+' токенов')+'</div><p class="mute">'+u.n+' '+plural(u.n,'запрос','запроса','запросов')+' · на вход '+tokStr(u.in)+' · на выход '+tokStr(u.out)+'</p><p class="sg-out">Считаются запросы самого приложения: бот и страница. Сумма оценочная, по прайсу модели; точная в консоли Anthropic.</p>';
+  else if(u.plain)h+='<div class="cld-n">'+u.plain+' '+plural(u.plain,'запрос','запроса','запросов')+'</div><p class="sg-out">Запросы к Claude с этой страницы идут в счёт подписки, токены здесь не видны. На сервере считаются токены и стоимость.</p>';
+  else h+='<p class="mute">Запросов в этом месяце не было.</p><p class="sg-out">'+(filesNs&&!sampleFn?'Claude на сервере не подключён: нужен ключ API в настройках сервера.':'Здесь появится расход, когда приложение начнёт обращаться к Claude.')+'</p>';
+  return h+'</div></div></section>';
+}
+function formUsage(){
+  var days=S.usage.slice().sort(function(a,b){return a.date<b.date?1:-1}).slice(0,60);
+  var h=days.length?'<div class="tbl-w"><table class="tbl"><thead><tr><th scope="col">День</th><th scope="col">Запросов</th><th scope="col">На вход</th><th scope="col">На выход</th><th scope="col">Оценка</th></tr></thead><tbody>'+days.map(function(x){
+    var tok=x.src!=='claude';
+    return '<tr><td>'+esc(fmt(x.date))+'</td><td>'+(+x.n||0)+'</td><td>'+(tok?tokStr(+x.in||0):'—')+'</td><td>'+(tok?tokStr(+x.out||0):'—')+'</td><td class="amt">'+(typeof x.cost==='number'?usd(x.cost):'—')+'</td></tr>';
+  }).join('')+'</tbody></table></div>':'<p class="mute">Записей пока нет.</p>';
+  openSheet('Claude: расход по дням',h+'<p class="sg-out" style="margin-top:12px">Прочерк в токенах значит, что запрос шёл со страницы внутри Claude: там он входит в подписку.</p>',null,false,true);
+}
+/* ---------- data: one-button sync with the server through the connector ---------- */
+var SYNC_SRV='Prooloog';
+function dataSync(t){
+  var out=$('#data-sync-out');if(!mcNs||!out||ui.ro)return;
+  var d=JSON.parse(dataDump().json);
+  t.disabled=true;out.textContent='Отправляю данные на сервер…';
+  mcNs.callTool(SYNC_SRV,'sync',{docs:d.docs},{cache:false}).then(function(res){
+    var pl=res&&res.payload,o=null;
+    try{o=typeof pl==='string'?JSON.parse(pl):pl;if(o&&Array.isArray(o.content)&&o.content[0]&&typeof o.content[0].text==='string')o=JSON.parse(o.content[0].text)}catch(e){o=null}
+    if(!o||!o.docs||typeof o.docs!=='object'){out.textContent='Сервер ответил не так, как ожидалось. Данные здесь не менялись.'+(typeof pl==='string'?' Ответ: '+excerpt(pl,200):'');t.disabled=false;return}
+    var there=o.changedHere||{},plan=dataPlan({docs:o.docs}),st=plan.st;
+    var done=function(){out.textContent='Готово. На сервере: добавлено '+(there.added||0)+', обновлено '+(there.updated||0)+', удалено '+(there.deleted||0)+'. Здесь: добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del+'.';t.disabled=false;if(!db)render()};
+    if(!plan.ops.length){done();return}
+    dataRun(plan.ops,out,done,function(n,total){out.textContent='Сервер обновлён, а здесь запись остановилась на '+n+' из '+total+'. Нажми «Синхронизировать» ещё раз.';t.disabled=false});
+  }).catch(function(e){
+    var c=String((e&&e.code)||'');
+    out.textContent=c==='server_not_connected'||c==='server_not_found'||c==='selection_required'||c==='not_declared'?'Коннектор «Prooloog» не подключён. Отправь боту /connect и добавь полученный адрес в Claude: Customize → Connectors → Add custom connector, название Prooloog.':c==='declined'||c==='not_granted'?'Нет разрешения на вызов коннектора. Разреши его и попробуй ещё раз.':'Не получилось связаться с сервером. Попробуй ещё раз или воспользуйся файлом.';
+    t.disabled=false;
+  });
 }
 
 /* ---------- plan: day, week, month, built from tasks ---------- */
@@ -2481,7 +2548,7 @@ function formActivity(){
 }
 
 /* ---------- data: what is stored, export to a file, import from a file ---------- */
-var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',usage:'Расход Claude',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
 var dlNs=null,dataIn=null;
 function dataDump(){
   var docs={},n=0;
@@ -2511,6 +2578,8 @@ function formData(){
   var d=dataDump(),st=dataStats(JSON.parse(d.json).docs),kb=Math.max(1,Math.round(d.json.length/1024)),server=!!(filesNs&&typeof filesNs.importData==='function');
   dataIn=null;
   var h='<p class="dt-sum"><b>'+st.n+'</b> '+plural(st.n,'запись','записи','записей')+' · около '+kb+' КБ'+(dataWhen(st.last)?' · последнее изменение '+esc(dataWhen(st.last)):'')+'</p><p class="sg-out">Хранятся '+(server?'в базе на сервере.':'в базе этой страницы внутри Claude.')+'</p>'+dataGrid(st);
+  if(!ui.ro&&!server&&mcNs)h+='<div class="chat-h"><h2>Сервер</h2></div><p class="sg-out" style="margin:6px 0 10px">Одной кнопкой: данные отсюда уходят на сервер Prooloog, там объединяются, и свежее возвращается сюда.</p><div class="acts"><button type="button" class="btn pri" data-act="data-sync">Синхронизировать с сервером</button></div><p class="sg-out" id="data-sync-out" role="status"></p>';
+  if(server)h+='<div class="chat-h"><h2>Claude</h2></div><p class="sg-out" style="margin:6px 0 0">Чтобы Claude в чате видел эти данные и синхронизировал их со страницей внутри Claude, отправь боту команду /connect и добавь полученный адрес в Claude как коннектор с названием Prooloog.</p>';
   h+='<div class="chat-h"><h2>Выгрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Один файл со всеми записями: резервная копия или перенос в другую версию дэшборда.</p><div class="acts">'+(dlNs?'<button type="button" class="btn pri" data-act="data-save">Скачать файлом</button>':'')+'<button type="button" class="btn" data-act="data-copy">Скопировать текстом</button><button type="button" class="btn" data-act="data-peek" data-v="out" aria-expanded="false">Показать файл</button></div><p class="sg-out" id="data-out" role="status"></p><pre class="dt-pre" id="data-pre-out" hidden tabindex="0"></pre><textarea id="data-box" class="vh" readonly tabindex="-1" aria-hidden="true"></textarea>';
   if(!ui.ro)h+='<div class="chat-h"><h2>Загрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Выбери файл копии из другой версии. Покажу, что в нём, и предложу объединить: побеждает более свежая запись, удалённое остаётся удалённым.</p><div class="acts"><label class="btn" for="data-file">Выбрать файл</label><input type="file" id="data-file" class="vh" accept=".json,application/json,text/plain"><button type="button" class="btn" data-act="data-paste" aria-expanded="false">Вставить текстом</button></div><textarea id="data-in" rows="3" hidden autocomplete="off" spellcheck="false" aria-label="Текст копии данных" placeholder="Вставь сюда текст копии" style="margin-top:8px"></textarea><div id="data-inf"></div><p class="sg-out" id="data-lout" role="status"></p>';
   openSheet('Данные',h,function(b){
@@ -3436,7 +3505,7 @@ document.addEventListener('click',function(e){
       else if(d.kind==='post')formPost();
       else if(d.kind==='channel')formChannel(null);
       else if(d.kind==='service')formService(null);
-      else if(d.kind==='sub')formSub(null,{project:d.project});
+      else if(d.kind==='sub')formSub(null,d.title?{title:d.title}:{project:d.project});
       else if(d.kind==='client')formClient(null,{project:d.project});
       else if(d.kind==='contact')formContact(null,d.project?{projects:[d.project]}:null);
       else if(d.kind==='message')formMessage(null,{contact:d.contact,project:d.project});
@@ -3506,6 +3575,8 @@ document.addEventListener('click',function(e){
     case 'pop-ok':o=$('#pop-time');popSet(o?o.value:'',false);break;
     case 'pop-undo':popUndo();break;
     case 'data':formData();break;
+    case 'usage':formUsage();break;
+    case 'data-sync':dataSync(t);break;
     case 'activity':formActivity();break;
     case 'data-save':dataSave();break;
     case 'data-copy':dataCopy();break;
@@ -3584,7 +3655,7 @@ function start(){
     if(typeof u.isOwner==='function')Promise.resolve(u.isOwner()).then(function(v){if(v===false){ui.owner=false;render()}}).catch(function(){});
     return Promise.resolve(u.can('data.write')).then(function(v){if(v===false){ui.ro=true;document.body.classList.add('ro');render()}});
   }).catch(function(){});
-  Promise.resolve(c.use('sample')).then(function(f){if(typeof f==='function')sampleFn=f}).catch(function(){});
+  Promise.resolve(c.use('sample')).then(function(f){if(typeof f==='function')sampleFn=function(){try{usageHit()}catch(e){}return f.apply(this,arguments)}}).catch(function(){});
   Promise.resolve(c.use('mcp')).then(function(m){if(m&&typeof m.callTool==='function')mcNs=m}).catch(function(){});
   Promise.resolve(c.use('files')).then(function(f){if(f&&typeof f.upload==='function')filesNs=f}).catch(function(){});
   Promise.resolve(c.use('downloads')).then(function(x){if(x&&typeof x.save==='function')dlNs=x}).catch(function(){});

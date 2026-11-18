@@ -133,6 +133,25 @@ async function updateDoc(coll, id, patch) {
     throw e;
   } finally { c.release(); }
 }
+// Reads the document (or {}), lets fn change it and stores the result, all under one lock.
+async function mutateDoc(coll, id, fn) {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [coll + '/' + id]);
+    const cur = await c.query('SELECT data FROM docs WHERE coll = $1 AND id = $2', [coll, id]);
+    const next = sanitize(fn(cur.rows.length ? cur.rows[0].data || {} : {}));
+    const r = await c.query(
+      `INSERT INTO docs (coll, id, data) VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (coll, id) DO UPDATE SET data = EXCLUDED.data, version = docs.version + 1, updated_at = now()
+       RETURNING version`, [coll, id, JSON.stringify(next)]);
+    await c.query('COMMIT');
+    return { id, data: next, version: r.rows[0].version };
+  } catch (e) {
+    try { await c.query('ROLLBACK'); } catch (_) { /* connection is gone */ }
+    throw e;
+  } finally { c.release(); }
+}
 async function deleteDoc(coll, id) {
   const r = await q('DELETE FROM docs WHERE coll = $1 AND id = $2', [coll, id]);
   return r.rowCount > 0;
@@ -229,7 +248,7 @@ async function getFile(id) { const r = await q('SELECT mime, bytes FROM files WH
 
 module.exports = {
   init, close, q, sanitize, merge,
-  listDocs, getDoc, setDoc, updateDoc, deleteDoc, countDocs, exportAll, importAll,
+  listDocs, getDoc, setDoc, updateDoc, mutateDoc, deleteDoc, countDocs, exportAll, importAll,
   kvGet, kvSet, kvClaim, getMember, upsertMember, touchMember, listMembers, removeMemberByUsername,
   setInvite, takeInvite, listInvites, removeInvite,
   createLoginCode, useLoginCode, getState, setState, putFile, getFile,

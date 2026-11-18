@@ -42,9 +42,13 @@ test.before(async () => {
     const raw = await body(req);
     aiSrv.last = { headers: req.headers, body: JSON.parse(raw.toString('utf8')) };
     if (aiMode === 'badkey') { res.statusCode = 401; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } })); }
+    if (!aiSrv.last.body.stream) {
+      res.setHeader('content-type', 'application/json');
+      return res.end(JSON.stringify({ id: 'msg_2', type: 'message', role: 'assistant', model: aiSrv.last.body.model, content: [{ type: 'text', text: 'На этой неделе главное: пилот блога.' }], stop_reason: 'end_turn', usage: { input_tokens: 1200, output_tokens: 80 } }));
+    }
     res.setHeader('content-type', 'text/event-stream');
     const ev = (name, data) => res.write('event: ' + name + '\ndata: ' + JSON.stringify(data) + '\n\n');
-    ev('message_start', { type: 'message_start', message: { id: 'msg_1', role: 'assistant', content: [] } });
+    ev('message_start', { type: 'message_start', message: { id: 'msg_1', role: 'assistant', content: [], usage: { input_tokens: 100, output_tokens: 1 } } });
     ev('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
     ev('ping', { type: 'ping' });
     ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'skip me' } });
@@ -419,6 +423,101 @@ test('Claude answers through the server', async () => {
   assert.equal(bad.status, 502); assert.equal(bad.json.error, 'not_granted');
   assert.equal((await call('POST', '/api/ai', { token: ownerToken, json: { input: '' } })).status, 400);
   assert.equal((await call('POST', '/api/ai', { json: { input: 'x' } })).status, 401);
+});
+
+test('Claude usage is counted per day, with a cost estimate', async () => {
+  await new Promise((r) => setTimeout(r, 150));
+  const days = (await call('GET', '/api/db/usage', { token: ownerToken })).json.docs;
+  assert.equal(days.length, 1);
+  const u = days[0].data;
+  assert.ok(u.n >= 1 && u.by.page.n === u.n, 'page requests are counted');
+  assert.equal(u.in, 100 * u.n); assert.ok(u.out >= u.n);
+  assert.ok(Math.abs(u.cost - (u.in * 2 + u.out * 10) / 1e6) < 1e-9, 'cost by the price list of the model');
+  assert.equal(u.models['claude-sonnet-5-5'], u.n);
+});
+
+test('the bot answers a question with the dashboard in view', async () => {
+  aiMode = 'ok';
+  await call('PUT', '/api/db/projects/p-ask', { token: ownerToken, json: { data: { name: 'Проект для вопроса', status: 'active', order: 1 } } });
+  await update(msg(OWNER, { text: '/ask Что у меня на этой неделе?' }));
+  assert.equal(lastSay().params.text, 'На этой неделе главное: пилот блога.');
+  const sent = aiSrv.last.body;
+  assert.equal(sent.stream, undefined);
+  assert.match(sent.system, /ДАННЫЕ ДЭШБОРДА[\s\S]*Проект для вопроса/);
+  assert.equal(sent.messages[sent.messages.length - 1].content, 'Что у меня на этой неделе?');
+  // the next question carries the short history
+  await update(msg(OWNER, { text: '/ask А потом?' }));
+  assert.equal(aiSrv.last.body.messages.length, 3);
+  await new Promise((r) => setTimeout(r, 150));
+  const u = (await call('GET', '/api/db/usage', { token: ownerToken })).json.docs[0].data;
+  assert.equal(u.by.bot.n, 2); assert.equal(u.by.bot.in, 2400);
+  await update(msg(OWNER, { text: '/usage' }));
+  assert.match(lastSay().params.text, /запросов \d+[\s\S]*\$/);
+  // «/ask» without a question waits for the next message
+  await update(msg(OWNER, { text: '/ask' }));
+  assert.match(lastSay().params.text, /Напиши вопрос/);
+  await update(msg(OWNER, { text: 'Сколько открытых задач?' }));
+  assert.equal(aiSrv.last.body.messages[aiSrv.last.body.messages.length - 1].content, 'Сколько открытых задач?');
+  // a bad key is explained, not hidden
+  aiMode = 'badkey';
+  await update(msg(OWNER, { text: '/ask ещё вопрос' }));
+  assert.match(lastSay().params.text, /не принял ключ/);
+  aiMode = 'ok';
+});
+
+test('connector for Claude: address from the bot, tools, review rule, merge', async () => {
+  await update(msg(EVE, { text: '/connect' }));
+  assert.match(lastSay().params.text, /только владельцу/);
+  await update(msg(OWNER, { text: '/connect' }));
+  const url = /<code>(https:\/\/prooloog\.test\/mcp\/[A-Za-z0-9_-]{20,})<\/code>/.exec(lastSay().params.text);
+  assert.ok(url, 'the owner gets the address');
+  const pathOf = (u) => u.replace('https://prooloog.test', '');
+  const rpc = (p, method, params, id = 1) => call('POST', p, { json: { jsonrpc: '2.0', id, method, params }, headers: { accept: 'application/json, text/event-stream' } });
+  const mp = pathOf(url[1]);
+  assert.equal((await rpc('/mcp/wrong-token-wrong-token-wrong', 'tools/list')).status, 404);
+  assert.equal((await call('GET', mp)).status, 405);
+  const init = await rpc(mp, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+  assert.equal(init.json.result.protocolVersion, '2025-06-18');
+  assert.ok(init.json.result.capabilities.tools);
+  assert.equal((await rpc(mp, 'initialize', { protocolVersion: '2099-01-01' })).json.result.protocolVersion, '2025-06-18');
+  assert.equal((await call('POST', mp, { json: { jsonrpc: '2.0', method: 'notifications/initialized' } })).status, 202);
+  const tools = (await rpc(mp, 'tools/list')).json.result.tools.map((t) => t.name);
+  assert.deepEqual(tools, ['status', 'list', 'get', 'write', 'add_message', 'sync']);
+  const tool = async (name, args) => { const r = await rpc(mp, 'tools/call', { name, arguments: args }); return { err: !!r.json.result.isError, v: r.json.result.isError ? r.json.result.content[0].text : JSON.parse(r.json.result.content[0].text) }; };
+  const st = await tool('status', {});
+  assert.ok(st.v.records.projects >= 1 && /^\d{4}-\d{2}-\d{2}$/.test(st.v.today));
+  assert.ok((await tool('list', { collection: 'projects' })).v.records.some((r) => r.id === 'p-ask'));
+  assert.equal((await tool('list', { collection: 'nope' })).err, true);
+  // direct changes: set, merge, delete with a mark
+  const w = await tool('write', { ops: [{ op: 'set', collection: 'tasks', id: 't-mcp', data: { title: 'Из Claude', project: 'p-ask', status: 'todo' } }, { op: 'merge', collection: 'tasks', id: 't-mcp', data: { due: '2026-11-20' } }] });
+  assert.equal(w.err, false);
+  const got = await tool('get', { collection: 'tasks', id: 't-mcp' });
+  assert.equal(got.v.data.title, 'Из Claude'); assert.equal(got.v.data.due, '2026-11-20'); assert.ok(got.v.data.u);
+  await tool('write', { ops: [{ op: 'delete', collection: 'tasks', id: 't-mcp' }] });
+  assert.equal((await tool('get', { collection: 'tasks', id: 't-mcp' })).v.missing, true);
+  assert.ok((await tool('get', { collection: 'gone', id: 'tasks-t-mcp' })).v.data.at);
+  // a client message waits for review, the project stays as it was
+  const before = (await tool('get', { collection: 'projects', id: 'p-ask' })).v.data;
+  const am = await tool('add_message', { project: 'p-ask', from: 'Наташа', text: 'Давайте созвонимся завтра', items: [{ t: 'next', to: 'Созвон с Наташей' }, { bad: 1 }] });
+  const m = (await tool('get', { collection: 'messages', id: am.v.saved.id })).v.data;
+  assert.equal(m.review, 'pending'); assert.equal(m.proposal.items.length, 1); assert.equal(m.src, 'claude');
+  assert.deepEqual((await tool('get', { collection: 'projects', id: 'p-ask' })).v.data, before);
+  assert.equal((await tool('add_message', { project: 'p-none', text: 'x' })).err, true);
+  // merge: the fresher record wins, a deletion mark deletes, an older copy changes nothing
+  await tool('write', { ops: [{ op: 'set', collection: 'tasks', id: 't-old', data: { title: 'Здесь свежее', project: 'p-ask' } }, { op: 'set', collection: 'tasks', id: 't-del', data: { title: 'Удалят с той стороны', project: 'p-ask' } }] });
+  const sy = await tool('sync', { docs: {
+    tasks: { 't-new': { title: 'Новая с той стороны', project: 'p-ask', u: '2026-11-18T10:00:00.000Z' }, 't-old': { title: 'Там старее', project: 'p-ask', u: '2020-01-01T00:00:00.000Z' }, 'bad id!': { title: 'x' } },
+    gone: { 'tasks-t-del': { c: 'tasks', i: 't-del', at: '2099-01-01T00:00:00.000Z', u: '2099-01-01T00:00:00.000Z' } },
+    nope: { a: { b: 1 } },
+  } });
+  assert.deepEqual(sy.v.changedHere, { added: 1, updated: 0, deleted: 1, kept: 1 });
+  assert.equal(sy.v.docs.tasks['t-new'].title, 'Новая с той стороны');
+  assert.equal(sy.v.docs.tasks['t-old'].title, 'Здесь свежее');
+  assert.equal(sy.v.docs.tasks['t-del'], undefined);
+  assert.ok(sy.v.docs.gone['tasks-t-del']);
+  // a new address switches the old one off
+  await update(msg(OWNER, { text: '/connect new' }));
+  assert.equal((await rpc(mp, 'tools/list')).status, 404);
 });
 
 test('the bot dates messages by the time zone chosen in the dashboard', async () => {

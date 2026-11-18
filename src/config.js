@@ -33,9 +33,18 @@ const cfg = {
   aiApiVersion: env.AI_API_VERSION || '2026-10-21',
 };
 
+// Prices in US dollars per million tokens, for the cost estimate in the dashboard. List prices as of November 2026;
+// AI_PRICE_IN / AI_PRICE_OUT override them for the configured model.
+cfg.aiPrices = {
+  'claude-sonnet-5-5': { in: 2, out: 10, cr: 0.1, cw: 2.5 },
+  'claude-opus-5-5': { in: 4, out: 20, cr: 0.2, cw: 5 },
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cr: 0.01, cw: 0.125 },
+};
+if (+env.AI_PRICE_IN > 0 && +env.AI_PRICE_OUT > 0) cfg.aiPrices[cfg.aiModel] = { in: +env.AI_PRICE_IN, out: +env.AI_PRICE_OUT, cr: +env.AI_PRICE_IN / 10, cw: +env.AI_PRICE_IN * 1.25 };
+
 // Collections the dashboard page uses. Anything else is refused.
-cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'gone', 'settings'];
+cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'gone', 'settings'];
 // Money, people and client messages are for the owner only.
-cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'gone']);
+cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'gone']);
 
 module.exports = cfg;

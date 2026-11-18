@@ -5,6 +5,10 @@ const db = require('./db');
 const auth = require('./auth');
 const hub = require('./realtime');
 const T = require('./telegram');
+const clock = require('./clock');
+const ai = require('./ai');
+const mcp = require('./mcp');
+const usage = require('./usage');
 
 let botName = '';
 
@@ -12,19 +16,7 @@ const https = () => /^https:\/\//.test(cfg.baseUrl);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const now = () => Math.floor(Date.now() / 1000);
 const day = (unix, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz || cfg.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date((unix || now()) * 1000));
-// The dashboard can follow a time zone of its own (Настройки → Часовой пояс). The bot dates messages by the same clock.
-let tzSeen = { at: 0, tz: '' };
-async function appTz() {
-  if (Date.now() - tzSeen.at < 30000) return tzSeen.tz;
-  let tz = cfg.tz;
-  try {
-    const d = await db.getDoc('settings', 'main');
-    const z = d && d.data && d.data.tz;
-    if (z && typeof z === 'string') { new Intl.DateTimeFormat('en-CA', { timeZone: z }); tz = z; }
-  } catch (e) { /* unknown zone or no settings yet: keep the default */ }
-  tzSeen = { at: Date.now(), tz };
-  return tz;
-}
+const appTz = clock.appTz;
 const kb = (rows) => ({ inline_keyboard: rows });
 const openBtn = (text, path) => (https() ? [{ text, web_app: { url: cfg.baseUrl + (path || '/') } }] : null);
 const say = (chat, html, markup) => T.tg('sendMessage', { chat_id: chat, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup });
@@ -161,9 +153,11 @@ async function route(m, draft, headerText) {
     return say(chat, (draft.from ? 'От: <b>' + esc(draft.from) + '</b>\n' : '') + 'В какой проект сохранить?', projectKb(list, []));
   }
   await db.setState(uid, { draft, want: 'kind' });
-  return say(chat, 'Что сделать с этим текстом?', kb([[{ text: 'Ответ клиента', callback_data: 'k:m' }, { text: 'Во входящие', callback_data: 'k:i' }], [{ text: 'Отмена', callback_data: 'x' }]]));
+  return say(chat, 'Что сделать с этим текстом?', kb([[{ text: 'Ответ клиента', callback_data: 'k:m' }, { text: 'Во входящие', callback_data: 'k:i' }]].concat(ai.enabled() ? [[{ text: 'Спросить Claude', callback_data: 'k:a' }]] : [], [[{ text: 'Отмена', callback_data: 'x' }]])));
 }
 async function intake(m) {
+  const st0 = await db.getState(m.from.id);
+  if (st0.want === 'ask' && st0.until > now() && m.text && !m.forward_origin) { await db.setState(m.from.id, {}); return askClaude(m.chat.id, m.from.id, m.text); }
   const draft = draftFrom(m, await appTz());
   if (!draft.text && !draft.file) return say(m.chat.id, UNSUPPORTED);
   return route(m, draft, draft.fwd ? '' : draft.text);
@@ -223,6 +217,44 @@ async function maybeBackup() {
   } catch (e) { console.error('[bot] backup failed:', e.message); } finally { backupBusy = false; }
 }
 
+/* ---------- a question to Claude, with the dashboard in view ---------- */
+async function briefing() {
+  const docs = await db.exportAll(), tz = await appTz(), now = clock.parts(Date.now(), tz), L = [];
+  const P = docs.projects || {}, name = (id) => (P[id] && P[id].name) || 'без проекта';
+  const ST = { active: 'в работе', idea: 'идея', paused: 'на паузе', done: 'завершён' };
+  L.push('Сегодня ' + now.d + ', ' + now.t + ' (' + tz + ').');
+  L.push('Часов в неделю на проекты: ' + ((docs.settings && docs.settings.main && docs.settings.main.capacity) || 40) + '.');
+  L.push('\nПРОЕКТЫ');
+  Object.keys(P).sort((a, b) => (+P[a].order || 0) - (+P[b].order || 0)).forEach((id) => {
+    const p = P[id];
+    L.push('- ' + p.name + ' [' + (ST[p.status] || p.status || '') + (p.area ? ', ' + p.area : '') + (+p.hours ? ', ' + p.hours + ' ч/нед' : '') + ']' + (p.next ? ' дальше: ' + p.next : ''));
+  });
+  const tasks = Object.values(docs.tasks || {}).filter((t) => t.status !== 'done').sort((a, b) => String(a.due || '9999').localeCompare(String(b.due || '9999'))).slice(0, 60);
+  if (tasks.length) { L.push('\nОТКРЫТЫЕ ЗАДАЧИ'); tasks.forEach((t) => L.push('- ' + t.title + ' (' + name(t.project) + (t.due ? ', срок ' + t.due + (t.time ? ' ' + t.time : '') : '') + (t.status === 'doing' ? ', в работе' : '') + ')')); }
+  const ms = Object.values(docs.milestones || {}).filter((m) => !m.done).sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999'))).slice(0, 30);
+  if (ms.length) { L.push('\nМАЙЛСТОУНЫ'); ms.forEach((m) => L.push('- ' + m.title + ' (' + name(m.project) + (m.date ? ', ' + m.date : ', без даты') + ')')); }
+  const ev = Object.values(docs.events || {}).filter((e) => e.repeat || String(e.date || '') >= now.d).sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))).slice(0, 30);
+  if (ev.length) { L.push('\nСОБЫТИЯ'); ev.forEach((e) => L.push('- ' + e.title + ' (' + (e.date || '') + (e.time ? ' ' + e.time : '') + (e.repeat === 'daily' ? ', каждый день' : e.repeat === 'weekly' ? ', каждую неделю' : '') + ', ' + name(e.project) + ')')); }
+  const inbox = Object.values(docs.inbox || {}).slice(0, 20);
+  if (inbox.length) { L.push('\nВХОДЯЩИЕ'); inbox.forEach((x) => L.push('- ' + String(x.text || '').slice(0, 200))); }
+  const wait = Object.values(docs.messages || {}).filter((m) => m.review === 'pending').slice(0, 15);
+  if (wait.length) { L.push('\nСООБЩЕНИЯ, ЖДУТ РЕВЬЮ'); wait.forEach((m) => L.push('- от ' + (m.from || 'кого-то') + ' (' + name(m.project) + ', ' + (m.date || '') + '): ' + String(m.summary || m.text || '').slice(0, 240))); }
+  return L.join('\n').slice(0, 24000);
+}
+async function askClaude(chat, uid, question) {
+  if (!ai.enabled()) return say(chat, 'Claude на сервере пока не подключён. Нужен ключ API: в настройках сервера добавь переменную ANTHROPIC_API_KEY.');
+  const q = String(question || '').trim();
+  if (!q) { await db.setState(uid, { want: 'ask', until: now() + 600 }); return say(chat, 'Что спросить у Claude? Напиши вопрос следующим сообщением.'); }
+  T.tg('sendChatAction', { chat_id: chat, action: 'typing' }).catch(() => {});
+  const st = await db.getState(uid), hist = Array.isArray(st.chat) && st.chatAt > now() - 3600 ? st.chat.slice(-6) : [];
+  const system = 'Ты ассистент владельца в его дэшборде проектов ' + cfg.appName + ' и отвечаешь ему в Telegram. Отвечай по-русски, коротко и по делу, обычным текстом без разметки. ' +
+    'Опирайся на данные ниже; если их не хватает, скажи об этом прямо и ничего не выдумывай. Менять данные ты не можешь: предложи, что записать, а владелец сделает это сам.\n\nДАННЫЕ ДЭШБОРДА\n' + (await briefing());
+  const r = await ai.ask(system, hist.concat([{ role: 'user', content: q.slice(0, 4000) }]), 1500);
+  if (r.error) return say(chat, { not_granted: 'Claude не принял ключ API. Проверь ANTHROPIC_API_KEY в настройках сервера.', rate_limited: 'Claude сейчас перегружен запросами. Попробуй через минуту.', refused: 'Claude отказался отвечать на этот вопрос.' }[r.error] || 'Не получилось получить ответ от Claude. Попробуй ещё раз.');
+  await db.setState(uid, { chat: hist.concat([{ role: 'user', content: q.slice(0, 2000) }, { role: 'assistant', content: r.text.slice(0, 3000) }]).slice(-6), chatAt: now() });
+  for (let i = 0; i < r.text.length && i < 12000; i += 3900) await T.tg('sendMessage', { chat_id: chat, text: r.text.slice(i, i + 3900), link_preview_options: { is_disabled: true } });
+}
+
 /* ---------- commands ---------- */
 function closedText(from) {
   return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ даёт владелец.' +
@@ -240,7 +272,9 @@ function helpText(role) {
     '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
     '• Заметка: любой текст можно отправить во входящие.\n' +
     '• /login — ссылка для входа в обычном браузере.\n' +
+    '• /ask вопрос — спросить Claude, он видит проекты, задачи и события.\n' +
     '• /backup — копия всех данных файлом.\n' +
+    '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
     '• /invite @имя editor или viewer — дать доступ, /members — кто в команде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
 }
@@ -260,6 +294,19 @@ async function onCommand(m, role, cmd, arg) {
   }
   if (cmd === 'cancel') { await db.setState(uid, {}); return say(chat, 'Отменил.'); }
   if (!owner) return say(chat, 'Эта команда доступна только владельцу.');
+  if (cmd === 'ask') return askClaude(chat, uid, arg);
+  if (cmd === 'connect') {
+    if (!https()) return say(chat, 'У сервера пока нет публичного адреса, коннектор выдать не могу.');
+    const t = await mcp.token(/^(new|новый)$/i.test(arg));
+    return say(chat, '<b>Коннектор для Claude</b>\n\nАдрес, никому его не пересылай: по нему открываются все данные дэшборда.\n<code>' + esc(cfg.baseUrl + '/mcp/' + t) + '</code>\n\n' +
+      'В Claude: Customize → Connectors → Add custom connector. Название: <b>Prooloog</b>, адрес: строка выше, вход: No sign-in.\n\nЗаменить адрес и отключить старый: /connect new');
+  }
+  if (cmd === 'usage') {
+    const tz = await appTz(), m = clock.parts(Date.now(), tz).d.slice(0, 7), u = await usage.month(m);
+    return say(chat, !ai.enabled() ? 'Claude на сервере не подключён: в настройках сервера нет ключа ANTHROPIC_API_KEY.'
+      : u.n ? 'Claude API за ' + m + ': запросов ' + u.n + ', токенов на вход ' + u.in + ', на выход ' + u.out + ', примерно ' + u.cost.toFixed(2) + ' $.\nЭто оценка по прайсу, точная сумма в консоли Anthropic.'
+        : 'В этом месяце запросов к Claude с сервера ещё не было.');
+  }
   if (cmd === 'backup') return sendBackup(chat, true);
   if (cmd === 'restore') return say(chat, 'Пришли файл копии (prooloog-backup-….json) с подписью /restore.');
   if (cmd === 'invite') {
@@ -319,6 +366,13 @@ async function onCallback(cq) {
     await ack('Добавил');
     return edit(chat, 'Добавил во входящие.');
   }
+  if (data === 'k:a') {
+    if (!st.draft || !st.draft.text) return stale();
+    await db.setState(uid, {});
+    await ack('Спрашиваю');
+    await edit(chat, 'Спрашиваю Claude…');
+    return askClaude(chat, uid, st.draft.text);
+  }
   if (data === 'k:m') {
     if (!st.draft) return stale();
     await db.setState(uid, { draft: st.draft, want: 'project' });
@@ -372,6 +426,7 @@ async function setup() {
     await T.tg('setMyCommands', { commands: [
       { command: 'start', description: 'Открыть ' + cfg.appName },
       { command: 'login', description: 'Ссылка для входа в браузере' },
+      { command: 'ask', description: 'Спросить Claude о проектах' },
       { command: 'backup', description: 'Копия данных файлом' },
       { command: 'help', description: 'Что умеет бот' },
     ] });
@@ -382,4 +437,4 @@ async function setup() {
   } catch (e) { console.error('[bot] setup failed:', e.message); return false; }
 }
 
-module.exports = { setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, forgetTz: () => { tzSeen = { at: 0, tz: '' }; } };
+module.exports = { setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, forgetTz: clock.forget };

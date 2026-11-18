@@ -3,6 +3,7 @@
 // Works only when ANTHROPIC_API_KEY is set. Request shape and stream format follow
 // https://platform.claude.com/docs/en/api/messages/create and .../build-with-claude/streaming
 const cfg = require('./config');
+const usage = require('./usage');
 
 const MAX_CHARS = 400000;
 
@@ -59,10 +60,14 @@ async function handle(req, res) {
   const line = (o) => res.write(JSON.stringify(o) + '\n');
   const dec = new TextDecoder();
   let buf = '', stop = '', failed = '';
+  const used = {};
   const eat = (block) => {
     const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('');
     if (!data) return;
     let ev; try { ev = JSON.parse(data); } catch (e) { return; }
+    // message_start carries the input side of the usage, message_delta the running output count
+    if (ev.type === 'message_start' && ev.message && ev.message.usage) Object.assign(used, ev.message.usage);
+    if (ev.type === 'message_delta' && ev.usage) Object.assign(used, ev.usage);
     if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta' && ev.delta.text) line({ d: ev.delta.text });
     else if (ev.type === 'message_delta' && ev.delta && ev.delta.stop_reason) stop = ev.delta.stop_reason;
     else if (ev.type === 'error') failed = codeFor(0, ev.error && ev.error.type, ev.error && ev.error.message);
@@ -82,6 +87,31 @@ async function handle(req, res) {
     if (!ac.signal.aborted) line({ error: 'upstream' });
   }
   res.end();
+  if (used.input_tokens || used.output_tokens) usage.record(cfg.aiModel, used, 'page').catch((e) => console.error('[ai] usage not saved:', e.message));
 }
 
-module.exports = { handle, enabled: () => !!cfg.anthropicKey, toMessages };
+// One complete answer, for the bot. Returns { text } or { error }.
+async function ask(system, messages, maxTokens) {
+  if (!cfg.anthropicKey) return { error: 'not_declared' };
+  let up;
+  try {
+    up = await fetch(cfg.aiApiRoot + '/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'anthropic-version': cfg.aiApiVersion, authorization: 'Bearer ' + cfg.anthropicKey },
+      body: JSON.stringify({ model: cfg.aiModel, max_tokens: maxTokens || 1500, system, messages }),
+      signal: AbortSignal.timeout(90000),
+    });
+  } catch (e) { return { error: 'upstream' }; }
+  const j = await up.json().catch(() => null);
+  if (!up.ok || !j) {
+    const err = (j && j.error) || {};
+    console.error('[ai] upstream refused:', up.status, err.type || '', String(err.message || '').slice(0, 200));
+    return { error: codeFor(up.status, err.type, err.message) };
+  }
+  if (j.usage) usage.record(cfg.aiModel, j.usage, 'bot').catch((e) => console.error('[ai] usage not saved:', e.message));
+  if (j.stop_reason === 'refusal') return { error: 'refused' };
+  const text = (Array.isArray(j.content) ? j.content : []).filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('').trim();
+  return text ? { text, truncated: j.stop_reason === 'max_tokens' } : { error: 'upstream' };
+}
+
+module.exports = { handle, ask, enabled: () => !!cfg.anthropicKey, toMessages };
