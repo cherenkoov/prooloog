@@ -84,6 +84,8 @@ async function call(name, a) {
       const d = o.op === 'set' ? await db.setDoc(o.collection, o.id, data) : await db.updateDoc(o.collection, o.id, data);
       if (!d) throw fail('Nothing to merge into: ' + o.collection + '/' + o.id + ' does not exist. Changes before it were saved.');
       hub.publish(o.collection, d.id, d.data, d.version, '', old && old.data);
+      // a chat that gets a project, or is kept more fully than before, is told so by the bot
+      if (o.collection === 'chats') await require('./groups').onSettings(old && old.data, d).catch(() => {});
       done.push({ op: o.op, collection: o.collection, id: o.id, version: d.version });
     }
     return { done };

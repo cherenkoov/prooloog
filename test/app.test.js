@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 
 const PORT = 18080, BOT = '123456:TESTTOKEN', BASE = 'http://127.0.0.1:' + PORT;
-const tgCalls = [], tgFiles = {};
+const tgCalls = [], tgFiles = {}, tgMember = {};
 let aiMode = 'ok';
 
 function listen(handler) { return new Promise((res) => { const s = http.createServer(handler); s.listen(0, '127.0.0.1', () => res(s)); }); }
@@ -32,6 +32,11 @@ test.before(async () => {
     tgCalls.push({ method, params });
     let result = true;
     if (method === 'getMe') result = { id: 1, is_bot: true, username: 'prooloog_test_bot' };
+    if (method === 'getChatMember') {
+      const st = tgMember[String(params.user_id)];
+      if (st === 'error') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ ok: false, error_code: 400, description: 'Bad Request: member list is inaccessible' })); }
+      result = { status: st || 'member', user: { id: params.user_id } };
+    }
     if (method === 'sendMessage' || method === 'editMessageText' || method === 'sendDocument') result = { message_id: 1000 + tgCalls.length };
     if (method === 'getFile') result = { file_id: params.file_id, file_path: 'files/' + params.file_id, file_size: (tgFiles['files/' + params.file_id] || Buffer.alloc(0)).length };
     res.setHeader('content-type', 'application/json');
@@ -64,7 +69,7 @@ test.before(async () => {
     BOT_TOKEN: BOT, TG_API_ROOT: 'http://127.0.0.1:' + tgSrv.address().port, APP_URL: 'https://prooloog.test',
     OWNER_USERNAME: 'Alex_Owner', SESSION_SECRET: 'test-session-secret', WEBHOOK_SECRET: 'test-hook+secret/=',
     ANTHROPIC_API_KEY: 'sk-test', AI_API_ROOT: 'http://127.0.0.1:' + aiSrv.address().port, BACKUP_DAYS: '7',
-    SEED_FILE: path.join(__dirname, 'fixture-seed.json'),
+    SEED_FILE: path.join(__dirname, 'fixture-seed.json'), GROUP_ASK_MS: '0',
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
@@ -668,6 +673,256 @@ test('invite link: access to chosen projects at a chosen level', async () => {
   assert.equal((await call('DELETE', '/api/share/links/' + l2.json.token, { token: ownerToken })).json.ok, true);
   await update(msg(DAN, { text: '/start inv_' + l2.json.token }));
   assert.match(lastSay().params.text, /уже использована или устарела/);
+});
+
+test('work chat: tied to a project, collects for review, answers on buttons, lets members look', async () => {
+  const remind = require('../src/remind'), clock = require('../src/clock');
+  const GID = -1001234500001, CH = 'g1001234500001', chat = { id: GID, type: 'supergroup', title: 'Команда EcoChakra' };
+  const NAT = { id: 777101, first_name: 'Наташа', username: 'natakhas_t' }, PETR = { id: 777102, first_name: 'Пётр' };
+  const sec = () => Math.floor(Date.now() / 1000);
+  const gmsg = (from, extra, c) => ({ update_id: ++mid, message: Object.assign({ message_id: ++mid, date: sec(), chat: c || chat, from }, extra) });
+  const gtap = (from, data, c) => ({ update_id: ++mid, callback_query: { id: 'cq' + (++mid), from, data, message: { message_id: 7000, chat: c || chat } } });
+  const member = (c, from, status) => ({ update_id: ++mid, my_chat_member: { chat: c, from, date: sec(), old_chat_member: { status: 'left', user: { id: 1, is_bot: true } }, new_chat_member: { status, user: { id: 1, is_bot: true } } } });
+  const said = (n, chatId) => sinceMark(n).filter((c) => (c.method === 'sendMessage' || c.method === 'editMessageText') && String(c.params.chat_id) === String(chatId));
+  const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  const patch = (path, data) => call('PATCH', '/api/db/' + path, { token: ownerToken, json: { data } });
+  const docs = async (coll) => (await call('GET', '/api/db/' + coll, { token: ownerToken })).json.docs;
+  const kept = async (prefix) => (await docs('messages')).filter((d) => d.data.src === 'chat' && d.id.startsWith(prefix)).sort((a, b) => a.id.localeCompare(b.id));
+  const cbs = (c) => c.params.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
+  await put('projects/p-eco', { name: 'EcoChakra', status: 'active', order: 60, next: 'Созвон с Наташей' });
+  await put('tasks/t-eco-1', { title: 'Карта участников', project: 'p-eco', status: 'doing', due: '2031-01-15', order: 1 });
+  await put('tasks/t-eco-2', { title: 'Анкета в Google Forms', project: 'p-eco', status: 'todo', order: 2 });
+  await put('tasks/t-eco-3', { title: 'Готовая задача', project: 'p-eco', status: 'done', order: 3 });
+  await put('milestones/m-eco-1', { title: 'Запуск бота сообщества', project: 'p-eco', date: '2031-02-10', done: false, order: 1 });
+  const tasksBefore = (await docs('tasks')).length;
+
+  // someone adds the bot: nothing in the chat, a question to the owner
+  let n = tgCalls.length;
+  await update(member(chat, NAT, 'member'));
+  assert.equal(said(n, GID).length, 0);
+  const ask = said(n, OWNER.id)[0];
+  assert.match(ask.params.text, /Меня добавили в чат <b>Команда EcoChakra<\/b> \(добавил Наташа\)[\s\S]*молчу и ничего не сохраняю/);
+  assert.ok(cbs(ask).includes('gl:' + CH + ':p-eco') && cbs(ask).includes('gl:' + CH + ':-'));
+  // not tied to a project: neither saved nor answered
+  await update(gmsg(NAT, { text: 'Всем привет' }));
+  await update(gmsg(NAT, { text: '/project' }));
+  assert.equal(said(n, GID).length, 0);
+  assert.equal((await kept('g')).length, 0);
+  // only the owner ties a chat to a project
+  await update(tap(NAT, 'gl:' + CH + ':p-eco'));
+  assert.equal((await docs('chats')).find((d) => d.id === CH).data.project, '');
+  n = tgCalls.length;
+  await update(tap(OWNER, 'gl:' + CH + ':p-eco'));
+  const hello = said(n, GID)[0];
+  assert.match(hello.params.text, /помогаю вести проект <b>EcoChakra<\/b>[\s\S]*то, что адресовано мне[\s\S]*видит только Alex[\s\S]*\/project[\s\S]*\/task/, 'says honestly what it keeps and for whom');
+  assert.deepEqual(cbs(hello), ['gp:new', 'gp:sug']);
+  assert.ok(said(n, OWNER.id).some((c) => /сделай меня администратором/.test(c.params.text)), 'the owner learns how to let it see everything');
+  let ch = (await docs('chats')).find((d) => d.id === CH).data;
+  assert.deepEqual([ch.project, ch.collect, ch.read, ch.app, ch.remind, ch.on, ch.tg], ['p-eco', 'all', true, false, false, true, String(GID)]);
+  assert.equal((await call('GET', '/api/db/chats', { token: bobToken })).status, 403, 'chats are the owner\'s');
+  // made an administrator: it now sees everything and says so
+  n = tgCalls.length;
+  await update(member(chat, OWNER, 'administrator'));
+  assert.match(said(n, GID)[0].params.text, /Теперь я вижу все сообщения этого чата/);
+
+  // what is said is kept in one record per day, waiting for review; nothing is answered, the project is untouched
+  n = tgCalls.length;
+  await update(gmsg(NAT, { text: 'Давайте созвонимся в четверг' }));
+  await update(gmsg(PETR, { text: 'Я за', reply_to_message: { message_id: 1, from: NAT, text: 'Давайте созвонимся в четверг' } }));
+  await update(gmsg(NAT, { voice: { file_id: 'voice-1', duration: 42 } }));
+  await update(gmsg({ id: 5, is_bot: true, first_name: 'OtherBot' }, { text: 'реклама' }));
+  let dg = await kept('gc');
+  assert.equal(dg.length, 1);
+  const d0 = dg[0].data, lines = d0.text.split('\n');
+  assert.deepEqual([d0.project, d0.review, d0.proposal, d0.count, d0.from, d0.chat], ['p-eco', 'pending', null, 3, 'Чат «Команда EcoChakra»', CH]);
+  assert.match(lines[0], /^\[\d\d:\d\d\] Наташа: Давайте созвонимся в четверг$/);
+  assert.match(lines[1], /^\[\d\d:\d\d\] Пётр: ↪ Наташа: Я за$/);
+  assert.match(lines[2], /^\[\d\d:\d\d\] Наташа: \[голосовое 0:42\]$/);
+  const voice = (await kept('gv'))[0].data;
+  assert.deepEqual([voice.file.tg, voice.file.kind, voice.file.dur, voice.from, voice.review, voice.project], ['voice-1', 'audio', 42, 'Наташа', 'pending', 'p-eco'], 'a voice message can be played in the dashboard');
+  assert.deepEqual(d0.people, ['Наташа', 'Пётр']);
+  assert.equal(said(n, GID).length, 0, 'collecting is silent');
+  assert.equal((await docs('projects')).find((x) => x.id === 'p-eco').data.next, 'Созвон с Наташей');
+  // a part the owner has reviewed is closed: later messages start the next one
+  await patch('messages/' + dg[0].id, { review: 'done' });
+  await update(gmsg(PETR, { text: 'После ревью' }));
+  dg = await kept('gc');
+  assert.deepEqual(dg.map((d) => d.id), [dg[0].id, dg[0].id + '-2']);
+  assert.equal(dg[0].data.count, 3);
+  assert.match(dg[1].data.text, /^\[\d\d:\d\d\] Пётр: После ревью$/);
+  assert.equal(dg[1].data.from, 'Чат «Команда EcoChakra», часть 2');
+  assert.equal((await docs('chats')).find((d) => d.id === CH).data.n, 4);
+
+  // /project: the state of the project, for anyone in the chat
+  n = tgCalls.length;
+  await update(gmsg(PETR, { text: '/project@prooloog_test_bot' }));
+  const card = said(n, GID)[0];
+  assert.equal(card.params.text, '<b>EcoChakra</b> · в работе\nСледующий шаг: Созвон с Наташей\nБлижайший майлстоун: 10 фев — Запуск бота сообщества\nЗадач в работе: 1, в очереди: 1');
+  assert.deepEqual(cbs(card), ['gp:tasks', 'gp:ms', 'gp:ev', 'gp:sug']);
+  n = tgCalls.length;
+  await update(gmsg(PETR, { text: '/project@some_other_bot' }));
+  assert.equal(said(n, GID).length, 0, 'a command for another bot');
+  n = tgCalls.length;
+  await update(gtap(PETR, 'gp:tasks'));
+  const ed = sinceMark(n, 'editMessageText')[0];
+  assert.equal(ed.params.text, '<b>EcoChakra</b> · задачи\n\n• 15 янв — Карта участников <i>в работе</i>\n• Анкета в Google Forms');
+  assert.deepEqual(cbs(ed), ['gp:card']);
+  n = tgCalls.length;
+  await update(gtap(PETR, 'gp:ms'));
+  assert.match(sinceMark(n, 'editMessageText')[0].params.text, /майлстоуны\n\n• 10 фев — Запуск бота сообщества$/);
+
+  // suggestions wait for the owner like any client reply
+  n = tgCalls.length;
+  await update(gmsg(NAT, { text: '/task Собрать список участников' }));
+  let sug = await kept('gs');
+  assert.equal(sug.length, 1);
+  assert.deepEqual(sug[0].data.proposal.items, [{ t: 'task', title: 'Собрать список участников', due: '' }]);
+  assert.deepEqual([sug[0].data.review, sug[0].data.from, sug[0].data.project, sug[0].data.proposal.by], ['pending', 'Наташа (@natakhas_t)', 'p-eco', 'bot']);
+  assert.match(said(n, GID)[0].params.text, /^Записал задачу\. В проекте она появится, когда Alex подтвердит\.$/);
+  assert.equal((await docs('tasks')).length, tasksBefore, 'no task appears by itself');
+  // the button asks for the task in a reply, and the reply is taken
+  n = tgCalls.length;
+  await update(gtap(PETR, 'gp:sug'));
+  const pr = said(n, GID)[0];
+  assert.match(pr.params.text, /^✍️ Задача для проекта «EcoChakra»\.\n<a href="tg:\/\/user\?id=777102">Пётр<\/a>, напиши её ответом/);
+  assert.deepEqual([pr.params.reply_markup.force_reply, pr.params.reply_markup.selective], [true, true]);
+  await update(gmsg(PETR, { text: 'Снять видео для анонса', reply_to_message: { message_id: 1, from: { id: 1, is_bot: true }, text: '✍️ Задача для проекта «EcoChakra».\nПётр, напиши её ответом на это сообщение.' } }));
+  await update(gmsg(PETR, { text: '/note', reply_to_message: { message_id: 2, from: NAT, text: 'Бюджет до 500 долларов' } }));
+  sug = await kept('gs');
+  assert.deepEqual(sug.map((d) => d.data.proposal.items[0]).slice(1), [{ t: 'task', title: 'Снять видео для анонса', due: '' }, { t: 'cm', text: 'Наташа: Бюджет до 500 долларов', tag: 'insight' }]);
+  assert.equal((await kept('gc')).reduce((a, d) => a + d.data.count, 0), 4, 'commands and answers to the bot are not chat talk');
+
+  // the project in the app: closed until the owner opens it for this chat
+  const login = (u) => call('POST', '/api/auth/telegram', { json: { initData: initData(u) } });
+  n = tgCalls.length;
+  await update(gtap(NAT, 'gp:app'));
+  assert.match(sinceMark(n, 'answerCallbackQuery')[0].params.text, /не открыт/);
+  assert.equal((await login(NAT)).status, 403);
+  await patch('chats/' + CH, { app: true });
+  n = tgCalls.length;
+  await update(gmsg(PETR, { text: '/project' }));
+  assert.deepEqual(cbs(said(n, GID)[0]), ['gp:tasks', 'gp:ms', 'gp:ev', 'gp:sug', 'gp:app']);
+  // someone who is no longer in the chat
+  tgMember[String(PETR.id)] = 'left';
+  n = tgCalls.length;
+  await update(gtap(PETR, 'gp:app'));
+  assert.match(sinceMark(n, 'answerCallbackQuery')[0].params.text, /только участникам/);
+  assert.equal((await login(PETR)).status, 403);
+  // a member: looks only, this project only; the owner is told
+  n = tgCalls.length;
+  await update(gtap(NAT, 'gp:app'));
+  assert.equal(sinceMark(n, 'answerCallbackQuery')[0].params.url, 'https://t.me/prooloog_test_bot?start=open');
+  assert.match(said(n, OWNER.id)[0].params.text, /Наташа \(@natakhas_t\) открыл проект <b>EcoChakra<\/b> из чата «Команда EcoChakra»: доступ «смотреть»/);
+  const nat = await login(NAT);
+  assert.equal(nat.json.role, 'viewer'); assert.deepEqual(nat.json.projects, ['p-eco']);
+  const natGet = (coll) => call('GET', '/api/db/' + coll, { token: nat.json.token });
+  assert.deepEqual((await natGet('projects')).json.docs.map((d) => d.id), ['p-eco']);
+  assert.equal((await natGet('messages')).status, 403);
+  assert.equal((await natGet('chats')).status, 403);
+  n = tgCalls.length;
+  await update(gtap(NAT, 'gp:app'));
+  assert.equal(said(n, OWNER.id).length, 0, 'the owner is told once');
+  // a public chat where Telegram will not say who is a member: no access by the button
+  await patch('chats/' + CH, { pub: true });
+  tgMember[String(PETR.id)] = 'error';
+  await update(gtap(PETR, 'gp:app'));
+  assert.equal((await login(PETR)).status, 403);
+  await patch('chats/' + CH, { pub: false });
+
+  // the owner writes to the chat from the dashboard
+  n = tgCalls.length;
+  assert.equal((await call('POST', '/api/chats/' + CH + '/post', { token: ownerToken, json: { text: 'Созвон <завтра> в 18:00', buttons: true } })).status, 200);
+  assert.equal(said(n, GID)[0].params.text, 'Созвон &lt;завтра&gt; в 18:00');
+  assert.deepEqual(cbs(said(n, GID)[0]), ['gp:new', 'gp:sug', 'gp:app']);
+  assert.equal((await call('POST', '/api/chats/' + CH + '/post', { token: nat.json.token, json: { text: 'x' } })).status, 403);
+  assert.equal((await call('POST', '/api/chats/' + CH + '/post', { token: ownerToken, json: { text: '  ' } })).status, 400);
+  assert.equal((await call('POST', '/api/chats/g999/post', { token: ownerToken, json: { text: 'x' } })).status, 404);
+
+  // reminders of the project's events come to the chat when the owner turns them on
+  await put('events/e-eco', { title: 'Общий созвон', project: 'p-eco', date: '2031-03-05', time: '12:00', rem: [15], link: 'https://meet.google.com/abc', share: 'ecosharetoken123' });
+  const tz = await clock.appTz(), start = clock.wallToMs('2031-03-05', '12:00', tz);
+  n = tgCalls.length;
+  await remind.tick(start - 15 * 60000 + 1000);
+  assert.equal(said(n, GID).length, 0, 'off until asked');
+  await patch('chats/' + CH, { remind: true });
+  await put('events/e-eco', { title: 'Общий созвон', project: 'p-eco', date: '2031-03-06', time: '12:00', rem: [15], link: 'https://meet.google.com/abc', share: 'ecosharetoken123' });
+  const start2 = clock.wallToMs('2031-03-06', '12:00', tz);
+  n = tgCalls.length;
+  await remind.tick(start2 - 15 * 60000 + 1000);
+  const rm = said(n, GID)[0];
+  assert.match(rm.params.text, /Через 15 минут: <b>Общий созвон<\/b>/);
+  assert.equal(rm.params.reply_markup.inline_keyboard[0][0].url, 'https://t.me/prooloog_test_bot?start=ev_ecosharetoken123');
+  n = tgCalls.length;
+  await remind.tick(start2 - 5 * 60000 + 1000);
+  assert.match(said(n, GID)[0].params.text, /Через 5 минут[\s\S]*Ссылка: https:\/\/meet\.google\.com\/abc/);
+
+  // «only what is addressed to the bot»
+  await patch('chats/' + CH, { collect: 'ask' });
+  const total = async () => (await kept('gc')).reduce((a, d) => a + d.data.count, 0);
+  const t0 = await total();
+  await update(gmsg(PETR, { text: 'Это мимо бота' }));
+  assert.equal(await total(), t0);
+  await update(gmsg(PETR, { text: '@prooloog_test_bot запомни: площадка свободна с 10 утра' }));
+  assert.equal(await total(), t0 + 1);
+  n = tgCalls.length;
+  await update(gmsg(PETR, { text: '@prooloog_test_bot' }));
+  assert.match(said(n, GID)[0].params.text, /^<b>EcoChakra<\/b> · в работе/, 'the name alone is a question');
+  await patch('chats/' + CH, { collect: 'off', read: false });
+  const t1 = await total();
+  n = tgCalls.length;
+  await update(gmsg(PETR, { text: '@prooloog_test_bot ещё одно' }));
+  await update(gtap(PETR, 'gp:tasks'));
+  assert.equal(await total(), t1);
+  assert.equal(said(n, GID).length, 0);
+  assert.match(sinceMark(n, 'answerCallbackQuery')[0].params.text, /не открывал проект/);
+  // the bot starts to keep more than before: the chat is told at once
+  n = tgCalls.length;
+  await patch('chats/' + CH, { collect: 'all', read: true });
+  assert.match(said(n, GID)[0].params.text, /Сохраняю сообщения этого чата в переписку проекта\. Их видит только Alex/);
+  n = tgCalls.length;
+  await patch('chats/' + CH, { collect: 'ask', remind: false });
+  assert.equal(said(n, GID).length, 0, 'keeping less needs no announcement');
+  // a deleted project: the chat falls silent and lets go of it
+  await put('projects/p-tmp', { name: 'Временный', status: 'active', order: 70 });
+  n = tgCalls.length;
+  await patch('chats/' + CH, { project: 'p-tmp', collect: 'all' });
+  assert.match(said(n, GID)[0].params.text, /помогаю вести проект <b>Временный<\/b>/, 'tied from the dashboard: the chat is told too');
+  await call('DELETE', '/api/db/projects/p-tmp', { token: ownerToken });
+  n = tgCalls.length;
+  await update(gmsg(PETR, { text: 'Кто-нибудь тут?' }));
+  await update(gmsg(PETR, { text: '/project' }));
+  assert.equal(said(n, GID).length, 0);
+  assert.equal((await docs('chats')).find((d) => d.id === CH).data.project, '');
+  assert.equal((await kept('gc')).filter((d) => d.data.project === 'p-tmp').length, 0);
+  await patch('chats/' + CH, { project: 'p-eco' });
+
+  // the group became a supergroup: same settings under the new id
+  await update(gmsg(OWNER, { migrate_to_chat_id: -1009990000002 }));
+  const after = await docs('chats');
+  assert.ok(!after.some((d) => d.id === CH));
+  const moved = after.find((d) => d.id === 'g1009990000002').data;
+  assert.deepEqual([moved.project, moved.app, moved.tg], ['p-eco', true, '-1009990000002']);
+  // the bot is removed: the record stays, nothing can be sent
+  await update(member({ id: -1009990000002, type: 'supergroup', title: 'Команда EcoChakra' }, OWNER, 'left'));
+  assert.equal((await docs('chats')).find((d) => d.id === 'g1009990000002').data.on, false);
+  assert.equal((await call('POST', '/api/chats/g1009990000002/post', { token: ownerToken, json: { text: 'x' } })).status, 404);
+
+  // the «add to a chat» link of a project: the chat is tied at once, without questions
+  const G2 = { id: -1005550000003, type: 'supergroup', title: 'Блог: съёмки' };
+  n = tgCalls.length;
+  await update(gmsg(EVE, { text: '/start@prooloog_test_bot p_p-eco' }, G2));
+  assert.equal(said(n, G2.id).length, 0, 'a stranger cannot tie a chat');
+  await update(gmsg(OWNER, { text: '/start@prooloog_test_bot p_p-eco' }, G2));
+  assert.match(said(n, G2.id)[0].params.text, /помогаю вести проект <b>EcoChakra<\/b>/);
+  await update(member(G2, OWNER, 'member'));
+  assert.equal(said(n, OWNER.id).filter((c) => /К какому проекту/.test(c.params.text)).length, 0);
+  assert.equal((await docs('chats')).find((d) => d.id === 'g1005550000003').data.project, 'p-eco');
+  // the owner takes the bot out from the dashboard
+  n = tgCalls.length;
+  assert.equal((await call('POST', '/api/chats/g1005550000003/leave', { token: ownerToken })).status, 200);
+  assert.ok(sinceMark(n, 'leaveChat').some((c) => String(c.params.chat_id) === String(G2.id)));
+  assert.equal((await docs('chats')).find((d) => d.id === 'g1005550000003').data.on, false);
+  await call('DELETE', '/api/share/members/' + NAT.id, { token: ownerToken });
 });
 
 test('the bot dates messages by the time zone chosen in the dashboard', async () => {

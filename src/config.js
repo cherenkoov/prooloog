@@ -43,8 +43,8 @@ cfg.aiPrices = {
 if (+env.AI_PRICE_IN > 0 && +env.AI_PRICE_OUT > 0) cfg.aiPrices[cfg.aiModel] = { in: +env.AI_PRICE_IN, out: +env.AI_PRICE_OUT, cr: +env.AI_PRICE_IN / 10, cw: +env.AI_PRICE_IN * 1.25 };
 
 // Collections the dashboard page uses. Anything else is refused.
-cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'gone', 'settings'];
+cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'gone', 'settings'];
 // Money, people and client messages are for the owner only.
-cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'gone']);
+cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'gone']);
 
 module.exports = cfg;

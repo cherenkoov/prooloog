@@ -56,6 +56,7 @@ async function tick(nowMs) {
   const events = await db.listDocs('events');
   if (!events.length) return 0;
   const subs = await db.listDocs('evsubs'), projects = {};
+  const chats = (await db.listDocs('chats')).filter((c) => c.data.on !== false && c.data.remind && c.data.project && /^-?\d{1,20}$/.test(String(c.data.tg || '')));
   for (const p of await db.listDocs('projects')) projects[p.id] = p.data.name;
   let sent = 0;
   for (const row of events) {
@@ -63,6 +64,7 @@ async function tick(nowMs) {
     const to = [];
     if (owner) to.push({ chat: owner, rem: rules(e.rem), guest: false });
     for (const s of subs) if (s.data.event === row.id && /^\d{1,20}$/.test(String(s.data.tg || '')) && String(s.data.tg) !== String(owner)) to.push({ chat: String(s.data.tg), rem: rules(s.data.rem), guest: true });
+    for (const c of chats) if (c.data.project === e.project) to.push({ chat: String(c.data.tg), rem: rules(e.rem), guest: true, group: true });
     if (!to.some((r) => r.rem.length) && !link) continue;
     for (const s of starts(e, tz, now)) {
       if (!isFinite(s.ms)) continue;
@@ -73,7 +75,10 @@ async function tick(nowMs) {
           if (at > now || now - at >= GRACE || now >= s.ms + GRACE) continue;
           if (!(await claim(row.id + '|' + s.ms + '|' + m + '|' + r.chat))) continue;
           try {
-            await T.tg('sendMessage', { chat_id: r.chat, text: text(e, s, m, tz, projects[e.project], r.guest), parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+            // in a chat everyone can ask for a reminder of their own, if the owner made a link for participants
+            const own = r.group && botName() && /^[A-Za-z0-9_-]{8,60}$/.test(String(e.share || ''))
+              ? { inline_keyboard: [[{ text: 'Напоминать мне лично', url: 'https://t.me/' + botName() + '?start=ev_' + e.share }]] } : undefined;
+            await T.tg('sendMessage', { chat_id: r.chat, text: text(e, s, m, tz, projects[e.project], r.guest), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: own });
             sent++;
           } catch (err) { console.error('[remind] not delivered to ' + r.chat + ':', err.message); }
         }
@@ -83,6 +88,8 @@ async function tick(nowMs) {
   return sent;
 }
 let timer = null, busy = false, pruned = 0;
+let botName = () => '';
+const use = (o) => { if (o && typeof o.bot === 'function') botName = o.bot; };
 function start() {
   if (timer || !cfg.botToken) return;
   timer = setInterval(async () => {
@@ -96,4 +103,4 @@ function start() {
   timer.unref();
 }
 function stop() { if (timer) { clearInterval(timer); timer = null; } }
-module.exports = { tick, start, stop, rules, before, starts, offsetLabel, dayLabel, okLink };
+module.exports = { tick, start, stop, use, rules, before, starts, occurs, offsetLabel, dayLabel, okLink };

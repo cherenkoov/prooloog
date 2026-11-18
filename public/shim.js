@@ -33,6 +33,13 @@
     }, function () { throw fail('network'); });
   }
 
+  // Inside Telegram a t.me link (the invite, «add the bot to a chat») opens in Telegram itself, not in a browser tab.
+  document.addEventListener('click', function (ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest('a[href^="https://t.me/"]') : null;
+    if (!a || !inTg || typeof tg.openTelegramLink !== 'function') return;
+    try { tg.openTelegramLink(a.href); ev.preventDefault(); } catch (e) { /* the link opens the usual way */ }
+  });
+
   /* ---------- sign-in ---------- */
   function signIn() {
     function ok(j) { token = j.token; keep(token); me = j; return j; }
@@ -255,6 +262,13 @@
     // true for a member who sees only some of the projects
     scoped: function () { return Promise.resolve(!!me && Array.isArray(me.projects)); }
   };
+  // Work chats the bot sits in: write there through the bot, or take the bot out. For the owner only.
+  var chatNs = {
+    post: function (id, text, buttons) { return api('POST', '/chats/' + encodeURIComponent(id) + '/post', { text: text, buttons: !!buttons }); },
+    leave: function (id) { return api('POST', '/chats/' + encodeURIComponent(id) + '/leave'); },
+    bot: function () { return (me && me.app && me.app.bot) || ''; },
+    readsAll: function () { return !!(me && me.app && me.app.readsAll); }
+  };
   // Who has access and invite links; for the owner only.
   var shareNs = {
     list: function () { return api('GET', '/share'); },
@@ -285,6 +299,7 @@
         if (name === 'files') return filesNs;
         if (name === 'downloads') return downloadsNs;
         if (name === 'share') return me && me.role === 'owner' ? shareNs : null;
+        if (name === 'chat') return me && me.role === 'owner' ? chatNs : null;
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;
         return null;
       }, function () { return never; });

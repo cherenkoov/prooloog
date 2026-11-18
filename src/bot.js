@@ -6,12 +6,13 @@ const auth = require('./auth');
 const hub = require('./realtime');
 const T = require('./telegram');
 const clock = require('./clock');
+const groups = require('./groups');
 const ai = require('./ai');
 const mcp = require('./mcp');
 const usage = require('./usage');
 const remind = require('./remind');
 
-let botName = '';
+let botName = '', botId = 0, botReadsAll = false;
 
 const https = () => /^https:\/\//.test(cfg.baseUrl);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -333,6 +334,7 @@ function helpText(role) {
     '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
     '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
     '• Заметка: любой текст можно отправить во входящие.\n' +
+    '• Рабочий чат: добавь меня в группу и выбери проект. Буду сохранять переписку на ревью, отвечать участникам по кнопкам и принимать от них задачи.\n' +
     '• /login — ссылка для входа в обычном браузере.\n' +
     '• /ask вопрос — спросить Claude, он видит проекты, задачи и события.\n' +
     '• /backup — копия всех данных файлом.\n' +
@@ -397,7 +399,9 @@ async function onCommand(m, role, cmd, arg) {
 }
 
 /* ---------- updates ---------- */
+groups.init({ say, kb, esc, projects, pname, me: () => ({ id: botId, name: botName, readsAll: botReadsAll }) });
 async function onMessage(m) {
+  if (groups.isGroup(m.chat)) return groups.onMessage(m);
   if (!m.chat || m.chat.type !== 'private' || !m.from || m.from.is_bot) return;
   const role = await auth.roleOf(m.from);
   const cmd = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(String(m.text || '').trim());
@@ -417,6 +421,7 @@ async function onMessage(m) {
 async function onCallback(cq) {
   const uid = cq.from.id, msg = cq.message, chat = msg && msg.chat && msg.chat.id, data = String(cq.data || '');
   const ack = (text) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: text || undefined }).catch(() => {});
+  if (/^g[lp]:/.test(data)) return groups.onCallback(cq);
   const edit = (c, html, markup) => (msg && msg.message_id
     ? T.tg('editMessageText', { chat_id: c, message_id: msg.message_id, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup }).catch(() => say(c, html, markup))
     : say(c, html, markup));
@@ -478,9 +483,12 @@ async function handleUpdate(u) {
   try {
     if (u && u.message) await onMessage(u.message);
     else if (u && u.callback_query) await onCallback(u.callback_query);
+    else if (u && u.my_chat_member) await groups.onMember(u.my_chat_member);
   } catch (e) {
     console.error('[bot] update failed:', e.message);
-    const chat = (u.message && u.message.chat && u.message.chat.id) || (u.callback_query && u.callback_query.from && u.callback_query.from.id);
+    // a work chat is not the place for the bot's troubles: only a private chat hears about them
+    const inGroup = (u.message && groups.isGroup(u.message.chat)) || (u.callback_query && u.callback_query.message && groups.isGroup(u.callback_query.message.chat)) || !!u.my_chat_member;
+    const chat = inGroup ? 0 : (u.message && u.message.chat && u.message.chat.id) || (u.callback_query && u.callback_query.from && u.callback_query.from.id);
     if (chat) { try { await say(chat, 'Не получилось обработать сообщение. Попробуй ещё раз чуть позже.'); } catch (_) { /* nothing more to do */ } }
   }
   maybeBackup();
@@ -491,9 +499,9 @@ async function setup() {
   if (!cfg.botToken) { console.warn('[bot] BOT_TOKEN is not set: the bot and Telegram sign-in are off'); return false; }
   try {
     const me = await T.tg('getMe');
-    botName = me.username || '';
+    botName = me.username || ''; botId = +me.id || 0; botReadsAll = !!me.can_read_all_group_messages;
     if (!https()) { console.warn('[bot] no public https address: the webhook is not set'); return false; }
-    await T.tg('setWebhook', { url: cfg.baseUrl + '/tg/' + cfg.webhookPath, secret_token: cfg.webhookSecret, allowed_updates: ['message', 'callback_query'] });
+    await T.tg('setWebhook', { url: cfg.baseUrl + '/tg/' + cfg.webhookPath, secret_token: cfg.webhookSecret, allowed_updates: ['message', 'callback_query', 'my_chat_member'] });
     await T.tg('setMyCommands', { commands: [
       { command: 'start', description: 'Открыть ' + cfg.appName },
       { command: 'login', description: 'Ссылка для входа в браузере' },
@@ -501,6 +509,11 @@ async function setup() {
       { command: 'backup', description: 'Копия данных файлом' },
       { command: 'help', description: 'Что умеет бот' },
     ] });
+    await T.tg('setMyCommands', { scope: { type: 'all_group_chats' }, commands: [
+      { command: 'project', description: 'Что сейчас по проекту' },
+      { command: 'task', description: 'Предложить задачу' },
+      { command: 'note', description: 'Оставить заметку' },
+    ] }).catch((e) => console.warn('[bot] group commands are not set:', e.message));
     const owner = await auth.ownerId();
     if (owner) await setMenu(owner);
     console.log('[bot] @' + botName + ' is listening');
@@ -508,4 +521,4 @@ async function setup() {
   } catch (e) { console.error('[bot] setup failed:', e.message); return false; }
 }
 
-module.exports = { setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, forgetTz: clock.forget };
+module.exports = { setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, readsAll: () => botReadsAll, forgetTz: clock.forget };

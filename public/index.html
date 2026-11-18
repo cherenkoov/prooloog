@@ -392,6 +392,12 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* work chats */
+.cl-row>.row{border-top:0}
+.cl-row+.cl-row{border-top:1px solid var(--line)}
+#chats-p .cl-row>.row{text-align:left}
+#chats-p a.btn{color:var(--ink);text-decoration:none}
+#chats-p .row-d{font-size:12px;color:var(--mute);white-space:nowrap}
 /* sharing */
 .side-data .btn.ic svg{display:block}
 .pinfo-h .btn+.btn{margin-left:0}
@@ -758,8 +764,8 @@ button.pl-d:hover b{color:var(--accent)}
 'use strict';
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
-var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','activity','gone']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],activity:[],gone:[],settings:{capacity:40}};
+var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','chats','activity','gone']);
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],chats:[],activity:[],gone:[],settings:{capacity:40}};
 var loaded={};
 var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
@@ -1047,7 +1053,7 @@ function drawOverviewOne(p){
   }).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
   h+='</section></div>';
   h+=cyclePanel(p,true);
-  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+subsPanel(p);
+  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+subsPanel(p);
   return h+notesPanel(p);
 }
 
@@ -2195,6 +2201,64 @@ function dataSync(t){
   });
 }
 
+/* ---------- work chats: the bot sits in a Telegram group that is tied to a project ---------- */
+var chatNs=null;
+var CHC={all:'Все сообщения',ask:'Только обращённое к боту: ответы ему и упоминания',off:'Ничего не сохранять'};
+function chatList(pid){return S.chats.filter(function(x){return x.project===pid&&x.on!==false}).sort(function(a,b){return String(a.title||'').localeCompare(String(b.title||''))})}
+function chatLoose(){return S.chats.filter(function(x){return x.on!==false&&!P(x.project)})}
+function chatSees(x){return !!x.admin||!!(chatNs&&chatNs.readsAll())}
+function chatLine(x){
+  var a=[x.collect==='off'?'ничего не сохраняет':x.collect==='ask'?'сохраняет обращённое к боту':chatSees(x)?'сохраняет все сообщения':'видит только команды и ответы боту'];
+  if(x.read!==false)a.push(x.app?'участники смотрят проект в чате и в приложении':'участники смотрят проект в чате');
+  if(x.remind)a.push('напоминает о событиях');
+  return a.join(' · ');
+}
+function chatAddUrl(pid){var b=chatNs?chatNs.bot():'';return b&&/^[A-Za-z0-9_-]{1,60}$/.test(pid)?'https://t.me/'+b+'?startgroup=p_'+pid:''}
+function chatRow(x,here){
+  var kept=S.messages.filter(function(m){return m.chat===x.id&&m.review==='pending'}).length;
+  return '<div class="cl-row"><button type="button" class="row" data-act="chat-open" data-id="'+esc(x.id)+'"><i class="dot" aria-hidden="true"></i><span class="row-t"><span>'+esc(x.title||'Чат без названия')+'</span><span class="row-p">'+esc(here?'бот в чате, проект не выбран':chatLine(x))+'</span></span><span class="row-d">'+(kept?kept+' на ревью':'')+'</span></button>'+
+    (here?'<button type="button" class="btn sm" data-act="chat-link" data-id="'+esc(x.id)+'" data-project="'+esc(here)+'">Привязать сюда</button>':'<button type="button" class="btn sm" data-act="chat-open" data-id="'+esc(x.id)+'">Настроить</button>')+'</div>';
+}
+function chatsPanel(p){
+  if(!ui.owner)return '';
+  var its=chatList(p.id),loose=chatNs?chatLoose():[];
+  if(!chatNs&&!its.length)return '';
+  var url=chatAddUrl(p.id);
+  var h='<section class="panel" id="chats-p"><div class="ph"><h2>Рабочие чаты</h2>'+(url?'<span class="pbtn"><a class="btn sm w" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">+ Добавить бота в чат</a></span>':'')+'</div>';
+  if(its.length)h+='<div class="rows">'+its.map(function(x){return chatRow(x,'')}).join('')+'</div>';
+  else h+='<p class="mute">Добавь бота в рабочий чат проекта в Telegram. Он сохранит переписку в сообщения проекта на ревью, покажет участникам задачи и события по кнопкам и примет от них задачи.</p>';
+  if(loose.length)h+='<p class="sg-out" style="margin-top:10px">Бот уже добавлен, проект не выбран:</p><div class="rows">'+loose.map(function(x){return chatRow(x,p.id)}).join('')+'</div>';
+  return h+'</section>';
+}
+function formChat(id){
+  var x=byId(S.chats,id);if(!x||!ui.owner)return;
+  if(!chatNs){
+    // inside Claude there is no bot: the record came with a sync, and the chat is run from the server version
+    var pj=P(x.project);
+    openSheet(x.title||'Чат','<p>'+(pj?'Чат привязан к проекту «'+esc(pj.name)+'».':'Чат не привязан к проекту.')+'</p><p class="mute" style="margin-top:8px">'+esc(chatLine(x))+'</p><p class="sg-out" style="margin-top:12px">Настройки чата и сообщения от бота работают в Prooloog на сервере: открой его в Telegram и нажми там «Настроить».</p>');
+    return;
+  }
+  var blind=x.collect!=='off'&&!chatSees(x);
+  var h='<form class="form" data-form="chat" data-id="'+esc(id)+'">'+
+    fld('Проект',sel('project',[['','Не привязан: бот молчит и ничего не сохраняет']].concat(projOpts()),P(x.project)?x.project:''))+
+    fld('Что сохранять в сообщения проекта',sel('collect',Object.keys(CHC).map(function(k){return [k,CHC[k]]}),CHC[x.collect]?x.collect:'all'))+
+    (blind?'<p class="sg-out">Сейчас бот видит в этом чате только команды и ответы на свои сообщения: так Telegram защищает переписку в группах. Чтобы он сохранял все сообщения, сделай его администратором чата, права можно не давать.</p>':'')+
+    '<div class="ckl" style="max-height:none"><label><input type="checkbox" name="read"'+(x.read!==false?' checked':'')+'><span>Участники видят в чате задачи, майлстоуны и события проекта: кнопки под сообщением бота и команда /project</span></label>'+
+    '<label><input type="checkbox" name="app"'+(x.app?' checked':'')+'><span>Участники могут открыть проект в приложении, только просмотр</span></label>'+
+    '<label><input type="checkbox" name="remind"'+(x.remind?' checked':'')+'><span>Напоминать в чате о событиях проекта, ссылка на созвон приходит за 5 минут</span></label></div>'+
+    '<p class="sg-out">Переписка и предложения участников попадают в «Сообщения» проекта и ждут твоего ревью. Сам проект бот не меняет. Бюджет, контакты и переписку участники не видят.</p>'+
+    (chatNs&&x.on!==false?'<div class="chat-h"><h2>Написать в чат от бота</h2></div><textarea id="chat-txt" rows="3" maxlength="3800" placeholder="Например: созвон переносим на пятницу, 18:00" aria-label="Сообщение в чат"></textarea><div class="ckl" style="max-height:none;border:0;padding:0;margin-top:8px"><label><input type="checkbox" id="chat-btns" checked><span>Добавить кнопки проекта под сообщением</span></label></div><div class="acts" style="margin-top:8px"><button type="button" class="btn" data-act="chat-post" data-id="'+esc(id)+'">Отправить в чат</button></div><p class="sg-out" id="chat-out" role="status"></p>':'')+
+    '<div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button>'+(chatNs&&x.on!==false?'<button type="button" class="btn dng" data-act="chat-leave" data-id="'+esc(id)+'">Убрать бота из чата</button>':'')+'</div></form>';
+  openSheet(x.title||'Чат',h);
+}
+function chatPost(t,id){
+  var i=$('#chat-txt'),out=$('#chat-out'),txt=i?i.value.trim():'';if(!chatNs||!out)return;
+  if(!txt){out.textContent='Напиши текст сообщения.';return}
+  t.disabled=true;out.textContent='Отправляю…';
+  Promise.resolve(chatNs.post(id,txt,!!($('#chat-btns')||{}).checked)).then(function(){t.disabled=false;i.value='';out.textContent='Отправлено в чат.'},
+    function(e){t.disabled=false;out.textContent=e&&e.code==='no_chat'?'Бота в этом чате уже нет.':'Не получилось отправить. Проверь, что бот может писать в этот чат.'});
+}
+
 /* ---------- sharing: who has access, invite links to chosen projects ---------- */
 var shareNs=null,shState=null,shEdit=null;
 function shNames(list){
@@ -2665,7 +2729,7 @@ function formActivity(){
 }
 
 /* ---------- data: what is stored, export to a file, import from a file ---------- */
-var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',usage:'Расход Claude',evsubs:'Подписки участников встреч',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',chats:'Рабочие чаты',usage:'Расход Claude',evsubs:'Подписки участников встреч',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
 var dlNs=null,dataIn=null;
 function dataDump(){
   var docs={},n=0;
@@ -3604,6 +3668,9 @@ function save(kind,id,v,form){
     var tzv=v.tzx?(tzOk(v.tzx)?v.tzx:null):(tzOk(v.tz)?v.tz:'');
     if(tzv===null){var tn=$('#tz-now');if(tn)tn.textContent='Не знаю такую зону. Проверь название, например Asia/Tokyo.';return}
     saveSettings({capacity:Math.max(1,Math.min(120,Math.round(+v.capacity||40))),tz:tzv});
+  }else if(kind==='chat'){
+    if(!byId(S.chats,id))return;
+    patch('chats',id,{project:P(v.project)?v.project:'',collect:CHC[v.collect]?v.collect:'all',read:!!v.read,app:!!v.app,remind:!!v.remind});
   }
   closeSheet();
 }
@@ -3616,6 +3683,7 @@ function removeEntity(kind,id){
     S.posts.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('posts',x.id,{project:''})})});
     S.subs.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('subs',x.id,{project:''})})});
     S.clients.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('clients',x.id,{project:''})})});
+    S.chats.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('chats',x.id,{project:''})})});
     S.contacts.filter(function(x){return cProjects(x).indexOf(id)>=0}).forEach(function(x){chain=chain.then(function(){return patch('contacts',x.id,{projects:cProjects(x).filter(function(q){return q!==id})})})});
     if(ui.project===id)setProject('all',true);
   }
@@ -3734,6 +3802,13 @@ document.addEventListener('click',function(e){
     case 'pop-undo':popUndo();break;
     case 'data':formData();break;
     case 'usage':formUsage();break;
+    case 'chat-open':formChat(d.id);break;
+    case 'chat-link':if(byId(S.chats,d.id)&&P(d.project))patch('chats',d.id,{project:d.project});break;
+    case 'chat-post':chatPost(t,d.id);break;
+    case 'chat-leave':
+      if(!chatNs)break;
+      if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно убрать?';break}
+      Promise.resolve(chatNs.leave(d.id)).then(closeSheet,function(){var q=$('#chat-out');if(q)q.textContent='Не получилось убрать бота. Его можно удалить из чата в самом Telegram.'});break;
     case 'share':formShare(d.id||'');break;
     case 'sh-make':shMake(t);break;
     case 'sh-copy':copyText(d.url||'',$('#sh-url')||t).then(function(ok){var q=$('#sh-out');if(q)q.textContent=ok?'Ссылка скопирована.':'Не получилось скопировать: выдели ссылку в поле и скопируй вручную.'});break;
@@ -3838,6 +3913,7 @@ function start(){
   Promise.resolve(c.use('files')).then(function(f){if(f&&typeof f.upload==='function')filesNs=f}).catch(function(){});
   Promise.resolve(c.use('downloads')).then(function(x){if(x&&typeof x.save==='function')dlNs=x}).catch(function(){});
   Promise.resolve(c.use('share')).then(function(x){if(x&&typeof x.list==='function')shareNs=x}).catch(function(){});
+  Promise.resolve(c.use('chat')).then(function(x){if(x&&typeof x.post==='function'){chatNs=x;render()}}).catch(function(){});
 }
 start();
 })();

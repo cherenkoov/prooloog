@@ -11,6 +11,7 @@ const bot = require('./bot');
 const ai = require('./ai');
 const mcp = require('./mcp');
 const remind = require('./remind');
+const groups = require('./groups');
 const T = require('./telegram');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -91,7 +92,7 @@ function build() {
 
   const session = async (user, role) => ({
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
-    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name() }, ownerOnly: [...cfg.ownerOnly],
+    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll() }, ownerOnly: [...cfg.ownerOnly],
     projects: role === 'owner' ? null : await auth.scopeOf(user.id),
   });
   api.post('/auth/telegram', authLimit, json, async (req, res) => {
@@ -111,7 +112,7 @@ function build() {
     res.json(await session({ id }, role));
   });
   api.get('/me', auth.guard(), async (req, res) => {
-    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
+    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
     bot.maybeBackup();
   });
 
@@ -138,6 +139,7 @@ function build() {
     if (!mayWrite(req, res, coll, req.params.id, cur, req.body.data)) return;
     const d = await db.setDoc(coll, req.params.id, req.body.data);
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
+    if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
     res.json({ ok: true, version: d.version });
   });
   api.patch('/db/:coll/:id', auth.guard('write'), json, async (req, res) => {
@@ -148,6 +150,7 @@ function build() {
     const d = await db.updateDoc(coll, req.params.id, req.body.data);
     if (!d) return res.status(404).json({ error: 'not_found' });
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
+    if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
     res.json({ ok: true, version: d.version });
   });
   api.delete('/db/:coll/:id', auth.guard('write'), async (req, res) => {
@@ -211,6 +214,19 @@ function build() {
   });
 
   // Pictures for service cards. Stored in the database: the server's own disk is wiped on every deploy.
+  /* ---------- work chats: the owner writes through the bot, or takes the bot out ---------- */
+  const chatCall = (fn) => async (req, res) => {
+    if (!/^g\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    try { await fn(req); res.json({ ok: true }); } catch (e) {
+      if (e.code === 'no_chat') return res.status(404).json({ error: 'no_chat' });
+      if (e.code === 'bad_request') return res.status(400).json({ error: 'bad_request' });
+      console.error('[chats]', e.message);
+      res.status(502).json({ error: 'not_sent' });
+    }
+  };
+  api.post('/chats/:id/post', auth.guard('owner'), authLimit, json, chatCall((req) => groups.post(req.params.id, req.body && req.body.text, !!(req.body && req.body.buttons))));
+  api.post('/chats/:id/leave', auth.guard('owner'), authLimit, chatCall((req) => groups.leave(req.params.id)));
+
   api.post('/files', auth.guard('write'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
     if (!Buffer.isBuffer(req.body) || !req.body.length || !['image/jpeg', 'image/png', 'image/webp'].includes(type)) return res.status(400).json({ error: 'bad_request' });
@@ -291,6 +307,7 @@ async function start() {
   const server = await new Promise((resolve) => { const s = app.listen(cfg.port, '0.0.0.0', () => resolve(s)); });
   console.log('[http] ' + cfg.appName + ' is on port ' + cfg.port + (cfg.baseUrl ? ', public address ' + cfg.baseUrl : ''));
   bot.setup();
+  remind.use({ bot: () => bot.name() });
   if (process.env.REMINDERS !== '0') remind.start();
   const stop = async () => { remind.stop(); hub.closeAll(); server.close(); await db.close(); };
   return { app, server, stop };
