@@ -1,0 +1,40 @@
+# Prooloog on Render: one web service and one Postgres database.
+#
+# Both start on free plans. Before other people use the app, switch the web
+# service to plan "0.5c-512mb" and the database to "0.1c-256mb": a free service
+# falls asleep after 15 minutes without traffic, and a free database expires
+# 30 days after it is created.
+databases:
+  - name: prooloog-db
+    plan: free
+    region: frankfurt
+    databaseName: prooloog
+    user: prooloog
+
+services:
+  - type: web
+    name: prooloog
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/server.js
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: prooloog-db
+          property: connectionString
+      # The token from @BotFather. Asked for once, when the Blueprint is created.
+      - key: BOT_TOKEN
+        sync: false
+      # The Telegram username that becomes the owner on the first /start.
+      - key: OWNER_USERNAME
+        value: cherenkov_alex
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: APP_TZ
+        value: Asia/Tbilisi

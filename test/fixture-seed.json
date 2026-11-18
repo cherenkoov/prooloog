@@ -1,0 +1,9 @@
+{"app":"prooloog","version":1,"exportedAt":"2026-11-18T15:00:00.000Z","docs":{
+ "projects":{
+  "p-india":{"name":"Кастинги в Индии","area":"Шоу-бизнес","status":"active","order":7,"next":"Домонтировать видеовизитку"},
+  "p-blog":{"name":"Личный блог","area":"Бренд и соцсети","status":"active","order":3},
+  "p-hub":{"name":"Хаб услуг: канал, бот, мини-приложение","area":"Продукты","status":"idea","order":4}
+ },
+ "contacts":{"c-ravi":{"name":"Ravi Kumar","tg":"@ravi_cast","projects":["p-india"]}},
+ "settings":{"main":{"capacity":40}}
+}}
