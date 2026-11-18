@@ -1345,6 +1345,128 @@ test('call links: a Zoom link appears by itself when a meeting is made', async (
   for (const id of ['e-z1', 'e-g1', 'e-o1', 'e-n1', 'e-z2', 'e-z3', 'e-z4']) await call('DELETE', '/api/db/events/' + id, { token: ownerToken });
 });
 
+test('Google Meet: the owner signs in once, a Meet call gets a room, the team gets the link', async () => {
+  const put = async (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  const ev = async (id) => (await call('GET', '/api/db/events', { token: ownerToken })).json.docs.find((d) => d.id === id).data;
+  const google = require('../src/google'), db = require('../src/db');
+  const FAY = { id: 777010, first_name: 'Fay', last_name: 'Mason', username: 'fay_hub' };
+  const seen = []; let rooms = 0, grant = 'ok', withRefresh = true;
+  const g = http.createServer(async (req, res) => {
+    const body = Buffer.concat(await req.toArray()).toString('utf8');
+    seen.push({ url: req.url, auth: req.headers.authorization || '', body });
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/token') {
+      const b = new URLSearchParams(body);
+      if (b.get('grant_type') === 'authorization_code') {
+        if (b.get('code') !== 'good-code') { res.statusCode = 400; return res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Bad code' })); }
+        return res.end(JSON.stringify(Object.assign({ access_token: 'acc-1', expires_in: 3600, scope: google.SCOPE }, withRefresh ? { refresh_token: 'ref-1' } : {})));
+      }
+      if (grant !== 'ok') { res.statusCode = 400; return res.end(JSON.stringify({ error: 'invalid_grant' })); }
+      return res.end(JSON.stringify({ access_token: 'acc-2', expires_in: 3600 }));
+    }
+    if (req.url === '/v2/spaces' && req.method === 'POST') { rooms++; return res.end(JSON.stringify({ name: 'spaces/s' + rooms, meetingUri: 'https://meet.google.com/abc-' + rooms, meetingCode: 'abc-' + rooms })); }
+    res.statusCode = 404; res.end('{}');
+  }).listen(0);
+  const root = 'http://127.0.0.1:' + g.address().port;
+  try {
+    // without keys: the bot explains the setup and names the address Google must return to
+    assert.equal((await call('GET', '/api/me', { token: ownerToken })).json.app.meet, false);
+    await update(msg(OWNER, { text: '/google' }));
+    assert.match(lastSay().params.text, /Google Meet REST API[\s\S]*https:\/\/prooloog\.test\/api\/google\/callback[\s\S]*GOOGLE_CLIENT_ID/);
+    assert.match((await call('GET', '/api/google/callback?code=x&state=y')).text, /Google не настроен/);
+    Object.assign(process.env, { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsec', GOOGLE_AUTH_URL: root + '/auth', GOOGLE_TOKEN_URL: root + '/token', GOOGLE_MEET_ROOT: root + '/v2' });
+    // not connected yet: a Meet call takes the owner's standing link, as before
+    await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { meet: 'https://meet.google.com/standing' } } } });
+    await put('events/e-g0', { title: 'До входа', date: '2031-08-01', time: '10:00', call: 'meet' });
+    assert.equal((await ev('e-g0')).link, 'https://meet.google.com/standing');
+    await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { meet: '', zoom: '' } } } });
+    await put('events/e-g1', { title: 'Ждёт ссылку', date: '2031-08-02', time: '11:00', call: 'meet', project: 'p-net' });
+    assert.equal((await ev('e-g1')).link || '', '');
+    // only the owner gets the sign-in button; the link asks Google for one narrow permission, offline
+    await update(msg(FAY, { text: '/google' }));
+    assert.doesNotMatch(lastSay().params.text, /Войди в Google/);
+    await update(msg(OWNER, { text: '/google' }));
+    const u = new URL(lastSay().params.reply_markup.inline_keyboard[0][0].url), state = u.searchParams.get('state');
+    assert.deepEqual([u.origin + u.pathname, u.searchParams.get('client_id'), u.searchParams.get('redirect_uri'), u.searchParams.get('scope'), u.searchParams.get('access_type'), u.searchParams.get('prompt'), u.searchParams.get('response_type')],
+      [root + '/auth', 'gid', 'https://prooloog.test/api/google/callback', google.SCOPE, 'offline', 'consent', 'code']);
+    // a wrong state, a refusal and a bad code connect nothing
+    assert.match((await call('GET', '/api/google/callback?code=good-code&state=wrong')).text, /устарела/);
+    assert.match((await call('GET', '/api/google/callback?error=access_denied&state=' + state)).text, /Вход отменён/);
+    assert.match((await call('GET', '/api/google/callback?code=bad&state=' + state)).text, /Bad code/);
+    assert.equal((await google.status()).connected, false);
+    // the state is good for one try: a new link, and this time Google gives the keys
+    await update(msg(OWNER, { text: '/google' }));
+    const state2 = new URL(lastSay().params.reply_markup.inline_keyboard[0][0].url).searchParams.get('state');
+    assert.notEqual(state2, state);
+    let n = tgCalls.length;
+    const okPage = await call('GET', '/api/google/callback?code=good-code&state=' + state2);
+    assert.match(okPage.text, /Google подключён/);
+    const tokenCall = seen.filter((x) => x.url === '/token').pop(), tb = new URLSearchParams(tokenCall.body);
+    assert.deepEqual([tb.get('client_id'), tb.get('client_secret'), tb.get('code'), tb.get('grant_type'), tb.get('redirect_uri')], ['gid', 'gsec', 'good-code', 'authorization_code', 'https://prooloog.test/api/google/callback']);
+    assert.equal((await db.kvGet('google.oauth')).refresh, 'ref-1');
+    assert.equal((await call('GET', '/api/me', { token: ownerToken })).json.app.meet, true);
+    // the meeting that was waiting got its room at once; the bot says so and offers to tell the team
+    const g1 = await ev('e-g1');
+    assert.deepEqual([g1.link, g1.meetId], ['https://meet.google.com/abc-1', 'spaces/s1']);
+    const told = sinceMark(n, 'sendMessage').find((c) => String(c.params.chat_id) === String(OWNER.id));
+    assert.match(told.params.text, /Google подключён[\s\S]*Ждёт ссылку: https:\/\/meet\.google\.com\/abc-1/);
+    assert.equal(told.params.reply_markup.inline_keyboard[0][0].callback_data, 'an:e-g1');
+    assert.equal((await call('GET', '/api/google/callback?code=good-code&state=' + state2)).text.includes('устарела'), true);
+    // a new Meet call gets a room of its own; a call that has a link keeps it; other kinds are left alone
+    await put('events/e-g2', { title: 'Своя комната', date: '2031-08-03', time: '12:00', call: 'meet' });
+    assert.equal((await ev('e-g2')).link, 'https://meet.google.com/abc-2');
+    assert.equal(seen.filter((x) => x.url === '/v2/spaces').pop().auth, 'Bearer acc-1');
+    await put('events/e-g2', Object.assign(await ev('e-g2'), { time: '13:00' }));
+    await put('events/e-g3', { title: 'Со своей ссылкой', date: '2031-08-03', call: 'meet', link: 'https://meet.google.com/mine' });
+    await put('events/e-g4', { title: 'Без созвона', date: '2031-08-03' });
+    assert.deepEqual([(await ev('e-g2')).link, (await ev('e-g3')).link, (await ev('e-g4')).link || '', rooms], ['https://meet.google.com/abc-2', 'https://meet.google.com/mine', '', 2]);
+    assert.equal((await ev('e-g0')).link, 'https://meet.google.com/standing');
+    // the team of the project gets the meeting with its link; only the owner can send it
+    n = tgCalls.length;
+    await update(tap(FAY, 'an:e-g1'));
+    assert.equal(sinceMark(n, 'sendMessage').length, 0);
+    await update(tap(OWNER, 'an:e-g1'));
+    const out = sinceMark(n, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text]);
+    const team = (await require('../src/join').teamOf('p-net')).map((d) => d.data.tg).sort();
+    assert.ok(team.includes(String(FAY.id)) && !team.includes(String(OWNER.id)));
+    assert.deepEqual(out.filter((x) => /Ждёт ссылку/.test(x[1]) && x[0] !== String(OWNER.id)).map((x) => x[0]).sort(), team);
+    assert.match(out.find((x) => x[0] === String(FAY.id))[1], /<b>Ждёт ссылку<\/b>\n2 августа, 11:00 \(UTC[+−][\d:]+\)\nGoogle Meet: https:\/\/meet\.google\.com\/abc-1\n\nПроект «Сеть мастеров»/);
+    assert.match(out.find((x) => x[0] === String(OWNER.id))[1], new RegExp('получили ' + team.length + ' из ' + team.length));
+    await update(tap(OWNER, 'an:e-g4'));
+    assert.match(lastSay().params.text, /рассылать некому|нет ссылки/);
+    await update(msg(OWNER, { text: '/announce' }));
+    assert.ok(lastSay().params.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'an:e-g1'));
+    // the access token is renewed with the stored key; when Google refuses the key, the owner is told once and the standing link is used
+    await put('events/e-g5', { title: 'Свежий ключ', date: '2031-08-04', call: 'meet' });
+    assert.equal((await ev('e-g5')).link, 'https://meet.google.com/abc-3');
+    google.forgetAccess();
+    await put('events/e-g6', { title: 'Обновление ключа', date: '2031-08-04', call: 'meet' });
+    const refresh = new URLSearchParams(seen.filter((x) => x.url === '/token').pop().body);
+    assert.deepEqual([refresh.get('grant_type'), refresh.get('refresh_token'), (await ev('e-g6')).link], ['refresh_token', 'ref-1', 'https://meet.google.com/abc-4']);
+    assert.equal(seen.filter((x) => x.url === '/v2/spaces').pop().auth, 'Bearer acc-2');
+    grant = 'gone'; google.forgetAccess(); n = tgCalls.length;
+    await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { meet: 'https://meet.google.com/standing' } } } });
+    await put('events/e-g7', { title: 'Ключ отозван', date: '2031-08-05', call: 'meet' });
+    await put('events/e-g8', { title: 'Ключ отозван 2', date: '2031-08-05', call: 'meet' });
+    assert.deepEqual([(await ev('e-g7')).link, (await ev('e-g8')).link], ['https://meet.google.com/standing', 'https://meet.google.com/standing']);
+    assert.equal(sinceMark(n, 'sendMessage').filter((c) => /войди заново/.test(c.params.text)).length, 1);
+    assert.deepEqual([(await google.status()).connected, (await google.status()).broken], [false, true]);
+    await update(msg(OWNER, { text: '/google' }));
+    assert.match(lastSay().params.text, /перестал принимать прежний вход/);
+    // Google gave no long-lived key: nothing is stored; switching off forgets the key
+    withRefresh = false;
+    const state3 = new URL(lastSay().params.reply_markup.inline_keyboard[0][0].url).searchParams.get('state');
+    assert.match((await call('GET', '/api/google/callback?code=good-code&state=' + state3)).text, /не выдал долгий ключ/);
+    await update(msg(OWNER, { text: '/google off' }));
+    assert.match(lastSay().params.text, /Google отключён/);
+    assert.equal((await db.kvGet('google.oauth')).refresh, undefined);
+  } finally {
+    ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_AUTH_URL', 'GOOGLE_TOKEN_URL', 'GOOGLE_MEET_ROOT'].forEach((k) => { delete process.env[k]; });
+    await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { meet: '', zoom: '' } } } });
+    g.close();
+  }
+});
+
 test('journal: who did what with the data, kept by the server, outside copies', async () => {
   const journal = require('../src/journal');
   const put = (path, data, token = ownerToken) => call('PUT', '/api/db/' + path, { token, json: { data } });

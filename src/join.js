@@ -110,8 +110,9 @@ async function syncEvents(f, link) {
     if (owner) {
       const lead = time.opts.find((o) => o.t === time.lead), zoneTime = time.lead + (p.zone ? ' ' + p.zone : '');
       const inCal = ruDay(wall.d) + ', ' + wall.t, same = wall.d === p.date && wall.t === time.lead;
+      const team = d.data.link ? await teamOf(d.data.project) : [];
       await say(owner, '<b>' + esc(p.event.title) + '</b>\nБольшинство за ' + esc(zoneTime) + ': голосов ' + lead.n + ' из ' + time.voters + '.' + (where ? '\nПлощадка: ' + esc(where) + '.' : '') +
-        '\nВ календаре проекта встреча стоит на ' + esc(inCal) + (same ? '' : ' по часовому поясу приложения') + '.' + (d.data.link ? '' : call ? '\nСсылки на созвон у встречи пока нет.' : '')).catch(() => {});
+        '\nВ календаре проекта встреча стоит на ' + esc(inCal) + (same ? '' : ' по часовому поясу приложения') + '.' + (d.data.link ? '\nСсылка: ' + esc(d.data.link) : call ? '\nСсылки на созвон у встречи пока нет.' : ''), team.length ? announceKb(d.id, team.length) : undefined).catch(() => {});
     }
   }
 }
@@ -240,6 +241,56 @@ async function welcome(c, a) {
   }
 }
 
+/* ---------- telling the team about a meeting ---------- */
+const PLAT = { zoom: 'Zoom', meet: 'Google Meet' };
+// the people of the project's team: those who went through its form, without the owner
+async function teamOf(project) {
+  const owner = await auth.ownerId();
+  return (await db.listDocs('joins')).filter((d) => d.data.project === project && d.data.core && d.data.tg && d.data.tg !== owner);
+}
+const announceKb = (eventId, n) => ({ inline_keyboard: [[{ text: 'Разослать команде (' + n + ')', callback_data: 'an:' + eventId }]] });
+// When the meeting is, in words. A meeting set by a poll is told in the poll's own zone, any other in the app's zone.
+async function whenText(e) {
+  const tz = await clock.appTz(), timed = /^\d{2}:\d{2}$/.test(e.time || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date || '')) return '';
+  if (!timed) return ruDay(e.date);
+  const ms = clock.wallToMs(e.date, e.time, tz);
+  return ruDay(e.date) + ', ' + e.time + ' (' + require('./remind').offsetLabel(ms, tz) + ')';
+}
+async function pollWhen(id, e) {
+  for (const f of forms()) for (const p of f.polls || []) {
+    if (!p.event || p.event.id !== id || !/^[+-]\d{2}:\d{2}$/.test(p.offset || '') || !/^\d{2}:\d{2}$/.test(e.time || '')) continue;
+    const ms = clock.wallToMs(e.date, e.time, await clock.appTz()), sign = p.offset[0] === '-' ? -1 : 1, min = sign * (+p.offset.slice(1, 3) * 60 + +p.offset.slice(4, 6));
+    const w = new Date(ms + min * 60000).toISOString();
+    return ruDay(w.slice(0, 10)) + ', ' + w.slice(11, 16) + (p.zone ? ' ' + p.zone : '');
+  }
+  return whenText(e);
+}
+// Sends the meeting with its link to everyone in the team. Returns how many got it and how many could not be reached.
+async function announce(eventId) {
+  const doc = await db.getDoc('events', String(eventId));
+  if (!doc) return { error: 'Этой встречи уже нет.' };
+  const e = doc.data, team = await teamOf(e.project);
+  if (!team.length) return { error: 'В команде проекта пока никого нет: рассылать некому.' };
+  if (!calls.okLink(e.link)) return { error: 'У встречи пока нет ссылки на созвон.' };
+  const p = e.project ? await db.getDoc('projects', e.project) : null;
+  const text = '<b>' + esc(e.title || 'Встреча') + '</b>\n' + esc(await pollWhen(doc.id, e)) + '\n' + esc(PLAT[e.call] || 'Ссылка') + ': ' + esc(e.link) + (p ? '\n\nПроект «' + esc(String(p.data.name || '')) + '»' : '');
+  let sent = 0;
+  for (const d of team) { try { await say(d.data.tg, text); sent++; } catch (err) { /* blocked the bot or never opened it */ } }
+  return { sent, total: team.length, title: e.title || 'Встреча' };
+}
+// The meetings the team could be told about now: those of projects with a team, not yet past.
+async function announceable() {
+  const today = clock.parts(Date.now(), await clock.appTz()).d, out = [];
+  for (const d of await db.listDocs('events')) {
+    const e = d.data;
+    if (!e.project || !calls.okLink(e.link) || (!e.repeat && String(e.date || '') < today)) continue;
+    const n = (await teamOf(e.project)).length;
+    if (n) out.push({ id: d.id, title: e.title || 'Встреча', when: await pollWhen(d.id, e), n });
+  }
+  return out;
+}
+
 /* ---------- the bot's side ---------- */
 // «/start join_<token>»: anyone may come in by this link.
 async function start(m, token) {
@@ -311,4 +362,4 @@ async function overview(project, botName) {
   return out;
 }
 
-module.exports = { router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview };
+module.exports = { router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

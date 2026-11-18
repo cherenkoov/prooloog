@@ -2,11 +2,15 @@
 // Call links for meetings. An event saved as a Zoom call without a link gets one by itself:
 // a room of its own through the Zoom API when its keys are set (ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID,
 // ZOOM_CLIENT_SECRET of a Server-to-Server OAuth app), otherwise the owner's permanent Zoom link from the settings.
-// For Google Meet only the permanent link is used: a room there needs the owner's Google sign-in.
+// A Google Meet call gets a room of its own once the owner has signed in to Google (src/google.js),
+// otherwise the owner's permanent Meet link from the settings.
 const db = require('./db');
 const hub = require('./realtime');
 const clock = require('./clock');
 const journal = require('./journal');
+const google = require('./google');
+const auth = require('./auth');
+const T = require('./telegram');
 
 const okLink = (s) => typeof s === 'string' && /^https?:\/\/\S+$/i.test(s);
 const env = () => ({
@@ -55,6 +59,13 @@ async function ensure(id) {
   if (e.call === 'zoom' && zoomOn()) {
     try { const r = await zoomRoom(e, await clock.appTz()); patch = { link: r.link, zoomId: r.id }; } catch (err) { console.error('[calls] zoom:', err.message); }
   }
+  if (e.call === 'meet' && await google.on()) {
+    try { const r = await google.room(); patch = { link: r.link, meetId: r.id }; } catch (err) {
+      console.error('[calls] meet:', err.message);
+      // the stored sign-in stopped working: say it once, the flag in google.js keeps it from repeating
+      if (err.expired) { const owner = await auth.ownerId(); if (owner) T.tg('sendMessage', { chat_id: owner, text: 'Google больше не принимает сохранённый вход, комнаты Meet не создаются. Напиши /google и войди заново.' }).catch(() => {}); }
+    }
+  }
   if (!patch) {
     const st = await db.getDoc('settings', 'main'), meet = (st && st.data && st.data.meet) || {};
     if (okLink(meet[e.call])) patch = { link: meet[e.call] };
@@ -63,8 +74,21 @@ async function ensure(id) {
   const d = await db.updateDoc('events', doc.id, Object.assign(patch, { u: new Date().toISOString() }));
   if (!d) return null;
   hub.publish('events', d.id, d.data, d.version, '', e);
-  journal.note('upd', 'events', d.id, d.data, e, patch.zoomId ? 'Zoom' : 'сервер');
+  journal.note('upd', 'events', d.id, d.data, e, patch.zoomId ? 'Zoom' : patch.meetId ? 'Google Meet' : 'сервер');
   return d;
 }
 
-module.exports = { ensure, zoomOn, okLink };
+// Every coming call that still has no link gets one. Used right after a platform is connected.
+async function fill() {
+  const today = clock.parts(Date.now(), await clock.appTz()).d, out = [];
+  for (const d of await db.listDocs('events')) {
+    const e = d.data;
+    if ((e.call !== 'zoom' && e.call !== 'meet') || okLink(e.link)) continue;
+    if (!e.repeat && String(e.date || '') < today) continue;
+    const r = await ensure(d.id).catch(() => null);
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+module.exports = { ensure, fill, zoomOn, okLink };

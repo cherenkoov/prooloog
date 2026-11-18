@@ -15,6 +15,8 @@ const mcp = require('./mcp');
 const usage = require('./usage');
 const remind = require('./remind');
 const join = require('./join');
+const google = require('./google');
+const calls = require('./calls');
 
 let botName = '', botId = 0, botReadsAll = false;
 
@@ -363,6 +365,37 @@ async function forget(chat, arg) {
   return say(chat, 'Стёр память Claude: записей ' + docs.length + '.');
 }
 
+/* ---------- Google Meet: the owner's sign-in ---------- */
+async function googleCmd(chat, arg) {
+  const st = await google.status();
+  if (!st.configured) {
+    return say(chat, 'Чтобы комнаты Google Meet создавались сами, серверу нужны ключи Google. Один раз, минут на десять:\n\n' +
+      '1. console.cloud.google.com → создать проект.\n' +
+      '2. «APIs & Services» → «Library» → включить <b>Google Meet REST API</b>.\n' +
+      '3. «OAuth consent screen»: тип External, добавить разрешение <code>' + google.SCOPE + '</code>, затем «Publish app» (в режиме Testing вход слетает каждые 7 дней).\n' +
+      '4. «Credentials» → «Create credentials» → «OAuth client ID», тип Web application, в «Authorized redirect URIs» вставить:\n<code>' + esc(st.redirect) + '</code>\n' +
+      '5. Client ID и Client secret записать в Render: сервис → Environment → <code>GOOGLE_CLIENT_ID</code> и <code>GOOGLE_CLIENT_SECRET</code>.\n\n' +
+      'Когда сервер перезапустится, напиши /google ещё раз: пришлю кнопку входа.');
+  }
+  if (/^(off|выкл|стоп)$/i.test(arg)) {
+    await google.disconnect();
+    return say(chat, 'Google отключён: ключ входа с сервера удалён. Уже созданные ссылки Meet продолжают работать. Доступ приложения целиком отзывается на myaccount.google.com/permissions.');
+  }
+  if (st.connected) return say(chat, 'Google подключён' + (st.at ? ' ' + esc(st.at.slice(0, 10)) : '') + ': у встречи с созвоном Google Meet без ссылки комната создаётся сама.\nОтключить: /google off');
+  if (!/^https:\/\//.test(cfg.baseUrl)) return say(chat, 'У сервера нет публичного адреса https, Google на него не вернётся.');
+  return say(chat, (st.broken ? 'Google перестал принимать прежний вход. ' : '') + 'Войди в Google тем аккаунтом, от имени которого будут создаваться встречи. Сервер получит одно разрешение: создавать встречи Meet и видеть те, что создал сам. Ссылка действует 15 минут.',
+    { inline_keyboard: [[{ text: 'Войти в Google', url: await google.startUrl() }]] });
+}
+// Called when Google has sent the owner back with the access: fills in the links that were waiting.
+async function googleConnected() {
+  const owner = await auth.ownerId();
+  if (!owner) return;
+  const got = await calls.fill(), list = await join.announceable(), rows = [];
+  got.forEach((d) => { const a = list.find((x) => x.id === d.id); if (a && Buffer.byteLength('an:' + d.id) <= 64) rows.push([{ text: 'Разослать команде: ' + String(d.data.title || 'Встреча').slice(0, 30) + ' (' + a.n + ')', callback_data: 'an:' + d.id }]); });
+  await say(owner, 'Google подключён: комнаты Meet теперь создаются сами.' + (got.length ? '\n\nСсылки получили встречи:\n' + got.map((d) => '• ' + esc(d.data.title || 'Встреча') + ': ' + esc(d.data.link)).join('\n') : '\n\nВстреч Google Meet без ссылки сейчас нет.'),
+    rows.length ? { inline_keyboard: rows } : undefined);
+}
+
 /* ---------- onboarding: one link for a whole chat ---------- */
 // «/onboard проект» gives the link, «/onboard off проект» switches it off, «/onboard» lists the live ones.
 async function onboard(chat, arg) {
@@ -421,6 +454,7 @@ function helpText(role) {
     '• /ask — сессия с Claude: пишешь как в обычном чате, он видит проекты, назначает встречи, ставит и закрывает задачи. Завершается кнопкой под ответом, командой /end или после 30 минут тишины; главное сохраняется в память (/memory).\n' +
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
+    '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу со ссылкой команде проекта.\n' +
     '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей, /votes — голоса.\n' +
     '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
@@ -461,6 +495,12 @@ async function onCommand(m, role, cmd, arg) {
         : 'В этом месяце запросов к Claude с сервера ещё не было.');
   }
   if (cmd === 'onboard') return onboard(chat, arg);
+  if (cmd === 'google') return googleCmd(chat, arg);
+  if (cmd === 'announce') {
+    const list = await join.announceable();
+    if (!list.length) return say(chat, 'Рассылать пока нечего: нужна предстоящая встреча со ссылкой на созвон в проекте, где есть команда.');
+    return say(chat, 'Какую встречу разослать команде?', { inline_keyboard: list.slice(0, 8).map((x) => [{ text: (x.title + ' · ' + x.when).slice(0, 60), callback_data: 'an:' + x.id }]).filter((r) => Buffer.byteLength(r[0].callback_data) <= 64) });
+  }
   if (cmd === 'votes') return say(chat, await join.votesText());
   if (cmd === 'answers') {
     let sent = 0;
@@ -571,6 +611,12 @@ async function onCallback(cq) {
     await ack();
     return edit(chat, 'В какой проект сохранить?', projectKb(await projects(), []));
   }
+  if (data.startsWith('an:')) {
+    await ack();
+    const r = await join.announce(data.slice(3));
+    if (r.error) return say(chat, esc(r.error));
+    return say(chat, 'Разослал «' + esc(r.title) + '»: получили ' + r.sent + ' из ' + r.total + '.' + (r.sent < r.total ? ' Остальные не открывали бота или остановили его.' : ''));
+  }
   if (data.startsWith('ob:')) {
     const p = (await projects()).find((x) => x.id === data.slice(3));
     await ack();
@@ -645,4 +691,4 @@ async function setup() {
   } catch (e) { console.error('[bot] setup failed:', e.message); return false; }
 }
 
-module.exports = { setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, readsAll: () => botReadsAll, forgetTz: clock.forget };
+module.exports = { googleConnected, setup, handleUpdate, maybeBackup, sendBackup, parseHeader, matchProject, name: () => botName, readsAll: () => botReadsAll, forgetTz: clock.forget };

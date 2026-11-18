@@ -15,6 +15,7 @@ const groups = require('./groups');
 const journal = require('./journal');
 const asks = require('./session');
 const calls = require('./calls');
+const google = require('./google');
 const T = require('./telegram');
 const join = require('./join');
 
@@ -100,7 +101,7 @@ function build() {
 
   const session = async (user, role) => ({
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
-    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn() }, ownerOnly: [...cfg.ownerOnly],
+    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly],
     projects: role === 'owner' ? null : await auth.scopeOf(user.id),
   });
   api.post('/auth/telegram', authLimit, json, async (req, res) => {
@@ -120,7 +121,7 @@ function build() {
     res.json(await session({ id }, role));
   });
   api.get('/me', auth.guard(), async (req, res) => {
-    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
+    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
     bot.maybeBackup();
   });
 
@@ -306,6 +307,19 @@ function build() {
   api.post('/ai', auth.guard('write'), json, (req, res) => ai.handle(req, res));
 
   api.use('/join', limiter(120, 60000), json, join.router(() => bot.name()));
+
+  // Google sends the owner back here after the sign-in that /google started. The one-time state in the link
+  // is the proof that it is the owner; the page only says how it went, the rest is told by the bot.
+  api.get('/google/callback', limiter(20, 60000), async (req, res) => {
+    const page = (title, text) => res.status(200).type('html').send('<!DOCTYPE html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>' + title + '</title>' +
+      '<body style="font:16px/1.5 system-ui,sans-serif;max-width:420px;margin:18vh auto;padding:0 20px;color:#14161c"><h1 style="font-size:22px">' + title + '</h1><p>' + text + '</p></body></html>');
+    if (!google.configured()) return page('Google не настроен', 'На сервере нет ключей Google.');
+    if (req.query.error) return page('Вход отменён', 'Google не дал доступ. Напишите боту /google и попробуйте ещё раз.');
+    const bad = await google.finish(String(req.query.code || ''), String(req.query.state || ''));
+    if (bad) return page('Не получилось', bad.replace(/[&<>]/g, ''));
+    await bot.googleConnected().catch((e) => console.error('[google]', e.message));
+    page('Google подключён', 'Комнаты Google Meet теперь создаются сами. Это окно можно закрыть: подробности прислал бот.');
+  });
 
   /* ---------- onboarding of a project: the owner's view in the dashboard ---------- */
   const obProject = async (req, res) => {
