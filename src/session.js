@@ -94,7 +94,7 @@ async function systemText() {
     'ДАННЫЕ. Даты ГГГГ-ММ-ДД, время ЧЧ:ММ по часовому поясу приложения (' + tz + '). Сейчас ' + now.d + ', ' + now.t + '.',
     '- projects: name, area, status (idea | active | paused | done), next, why, hours, notes',
     '- tasks: project (id), title, status (todo | doing | done), due, time, milestone (id), contact (id), notes',
-    '- milestones: project, title, date, done',
+    '- milestones (в интерфейсе и в разговоре по-русски это «верста», мн. «вёрсты»; по-английски milestone): project, title, date, done',
     '- events (встречи и события): project (id или ""), title, date, time, repeat ("" | daily | weekly), until, contact (id), call (zoom | meet | other), link, rem (за сколько минут напомнить, список чисел), lang (язык для участника: "" | ru | en)',
     '- inbox: text. log (комментарии проекта): project, text, tag (insight | idea | decision | question | meeting | risk), at',
     '- contacts: name, role, rel, tg, phone, email, projects [id], notes',

@@ -893,7 +893,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   n = tgCalls.length;
   await update(gmsg(PETR, { text: '/project@prooloog_test_bot' }));
   const card = said(n, GID)[0];
-  assert.equal(card.params.text, '<b>EcoChakra</b> · в работе\nСледующий шаг: Созвон с Наташей\nБлижайший майлстоун: 10 фев — Запуск бота сообщества\nЗадач в работе: 1, в очереди: 1');
+  assert.equal(card.params.text, '<b>EcoChakra</b> · в работе\nСледующий шаг: Созвон с Наташей\nБлижайшая верста: 10 фев — Запуск бота сообщества\nЗадач в работе: 1, в очереди: 1');
   assert.deepEqual(cbs(card), ['gp:tasks', 'gp:ms', 'gp:ev', 'gp:sug']);
   n = tgCalls.length;
   await update(gmsg(PETR, { text: '/project@some_other_bot' }));
@@ -905,7 +905,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   assert.deepEqual(cbs(ed), ['gp:card']);
   n = tgCalls.length;
   await update(gtap(PETR, 'gp:ms'));
-  assert.match(sinceMark(n, 'editMessageText')[0].params.text, /майлстоуны\n\n• 10 фев — Запуск бота сообщества$/);
+  assert.match(sinceMark(n, 'editMessageText')[0].params.text, /вёрсты\n\n• 10 фев — Запуск бота сообщества$/);
 
   // suggestions wait for the owner like any client reply
   n = tgCalls.length;

@@ -232,7 +232,7 @@ async function welcome(c, a) {
   const name = auth.fullName(c.user) || 'Участник', pn = String(c.p.data.name || 'проект');
   if (!c.owner) {
     if (https()) await T.tg('setChatMenuButton', { chat_id: c.user.id, menu_button: { type: 'web_app', text: cfg.appName, web_app: { url: cfg.baseUrl + '/' } } }).catch(() => {});
-    await say(c.user.id, 'Анкета принята, вы в проекте <b>' + esc(pn) + '</b>. Проект открывается кнопкой ниже: там задачи, майлстоуны и комментарии команды.', appBtn('Открыть ' + cfg.appName, '/')).catch(() => {});
+    await say(c.user.id, 'Анкета принята, вы в проекте <b>' + esc(pn) + '</b>. Проект открывается кнопкой ниже: там задачи, вёрсты и комментарии команды.', appBtn('Открыть ' + cfg.appName, '/')).catch(() => {});
   }
   const owner = await auth.ownerId();
   if (owner && !c.owner) {

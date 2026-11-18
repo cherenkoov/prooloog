@@ -51,7 +51,7 @@ const send = (ch, html, markup, extra) => T.tg('sendMessage', Object.assign({ ch
 function cardKb(ch, fresh) {
   if (!ch.read) return undefined;
   const rows = fresh ? [[{ text: 'Что по проекту', callback_data: 'gp:new' }]]
-    : [[{ text: 'Задачи', callback_data: 'gp:tasks' }, { text: 'Майлстоуны', callback_data: 'gp:ms' }, { text: 'События', callback_data: 'gp:ev' }]];
+    : [[{ text: 'Задачи', callback_data: 'gp:tasks' }, { text: 'Вёрсты', callback_data: 'gp:ms' }, { text: 'События', callback_data: 'gp:ev' }]];
   const last = [{ text: 'Предложить задачу', callback_data: 'gp:sug' }];
   if (ch.app && B.me().name) last.push({ text: 'Открыть в ' + cfg.appName, callback_data: 'gp:app' });
   rows.push(last);
@@ -84,7 +84,7 @@ async function view(kind, ch) {
   if (kind === 'ms') {
     const lines = open.slice(0, 12).map((x) => '• ' + (dl(x.data.date) ? dl(x.data.date) + ' — ' : '') + e(one(x.data.title, 120) || 'Без названия'));
     const done = ms.length - open.length;
-    return head + ' · майлстоуны\n\n' + (lines.length ? lines.join('\n') : 'Впереди майлстоунов нет.') + (done ? '\n\nПройдено: ' + done : '');
+    return head + ' · вёрсты\n\n' + (lines.length ? lines.join('\n') : 'Впереди вёрст нет.') + (done ? '\n\nПройдено: ' + done : '');
   }
   if (kind === 'ev') {
     const lines = evs.slice(0, 12).map((x) => '• ' + dl(x.d) + (x.t ? ', ' + x.t : '') + ' — ' + e(one(x.title, 120) || 'Событие'));
@@ -92,7 +92,7 @@ async function view(kind, ch) {
   }
   const doing = tasks.filter((x) => x.data.status === 'doing').length, lines = [head + ' · ' + (STATUS[p.data.status] || 'в работе')];
   if (one(p.data.next, 1)) lines.push('Следующий шаг: ' + e(one(p.data.next, 300)));
-  if (open.length) lines.push('Ближайший майлстоун: ' + (dl(open[0].data.date) ? dl(open[0].data.date) + ' — ' : '') + e(one(open[0].data.title, 120)));
+  if (open.length) lines.push('Ближайшая верста: ' + (dl(open[0].data.date) ? dl(open[0].data.date) + ' — ' : '') + e(one(open[0].data.title, 120)));
   if (evs.length) lines.push('Ближайшее событие: ' + dl(evs[0].d) + (evs[0].t ? ', ' + evs[0].t : '') + ' — ' + e(one(evs[0].title, 120)));
   lines.push(tasks.length ? 'Задач в работе: ' + doing + ', в очереди: ' + (tasks.length - doing) : 'Открытых задач нет.');
   return lines.join('\n');
@@ -104,7 +104,7 @@ async function aboutText(ch, p) {
     : '• Сохраняю в переписку проекта то, что адресовано мне: команды и ответы на мои сообщения. Это видит только ' + who + '.');
   else if (ch.collect === 'ask') lines.push('• Сохраняю в переписку проекта только то, что адресовано мне: ответы на мои сообщения' + (sees(ch) ? ' и упоминания' : '') + '. Это видит только ' + who + '.');
   else lines.push('• Переписку этого чата не сохраняю.');
-  if (ch.read) lines.push('• /project — что сейчас по проекту: задачи, майлстоуны, события.');
+  if (ch.read) lines.push('• /project — что сейчас по проекту: задачи, вёрсты, события.');
   lines.push('• /task текст — предложить задачу, /note текст — оставить заметку. В проект они попадут, когда ' + who + ' подтвердит.');
   return lines.join('\n');
 }
