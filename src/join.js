@@ -10,6 +10,9 @@ const db = require('./db');
 const auth = require('./auth');
 const hub = require('./realtime');
 const T = require('./telegram');
+const clock = require('./clock');
+const journal = require('./journal');
+const calls = require('./calls');
 
 const FORMS = path.join(__dirname, '..', 'forms');
 const TOKEN_RE = /^[A-Za-z0-9_-]{12,40}$/;
@@ -70,8 +73,47 @@ function tally(f, list, myId) {
       if (who.some((d) => d.data.tg === String(myId))) mine.push(o);
       return { t: o, n: who.length, who: who.map((d) => d.data.name || (d.data.username ? '@' + d.data.username : 'Участник')) };
     });
-    return { id: p.id, title: p.title, q: p.q, multi: !!p.multi, opts, mine, voters: list.filter((d) => ((d.data.votes || {})[p.id] || []).length).length };
+    // the choice of the majority: the most votes, the earlier option when equal
+    const top = opts.reduce((a, o) => (o.n > (a ? a.n : 0) ? o : a), null);
+    return { id: p.id, kind: p.kind || '', title: p.title, q: p.q, multi: !!p.multi, closed: !!p.closed, date: p.date || '', offset: p.offset || '', zone: p.zone || '', toEvent: !!p.event,
+      opts, mine, lead: top ? top.t : '', voters: list.filter((d) => ((d.data.votes || {})[p.id] || []).length).length };
   });
+}
+
+const CALL = { 'Zoom': 'zoom', 'Google Meet': 'meet', 'Discord': 'other' };
+const RU_MON = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const ruDay = (d) => +d.slice(8, 10) + ' ' + RU_MON[+d.slice(5, 7) - 1];
+// The time most people chose becomes the start of the meeting in the project's calendar, and the platform
+// most people chose becomes its kind of call. Runs after every vote and writes only when the answer moved.
+async function syncEvents(f, link) {
+  const res = tally(f, await entries(f), '');
+  for (const p of f.polls || []) {
+    if (!p.event || p.kind !== 'time') continue;
+    const time = res.find((x) => x.id === p.id), plat = res.find((x) => x.id === p.event.call);
+    if (!time || !time.lead) continue;
+    const tz = await clock.appTz(), ms = Date.parse(p.date + 'T' + time.lead + ':00' + (p.offset || 'Z'));
+    if (!isFinite(ms)) continue;
+    const wall = clock.parts(ms, tz), where = plat && plat.lead ? plat.lead : '', call = CALL[where] || '';
+    const cur = await db.getDoc('events', p.event.id), old = cur ? cur.data : null;
+    const title = p.event.title + (where && !['zoom', 'meet'].includes(call) ? ' · ' + where : '');
+    const ours = !old || !old.title || old.title.startsWith(p.event.title);
+    if (old && old.date === wall.d && old.time === wall.t && (old.call || '') === call && (!ours || old.title === title)) continue;
+    let d = await db.mutateDoc('events', p.event.id, (c) => Object.assign({ repeat: '', until: '', contact: '', rem: [] }, c, {
+      project: link.project, title: ours ? title : c.title, date: wall.d, time: wall.t, call,
+      link: (c.call || '') === call ? c.link || '' : '', u: new Date().toISOString(),
+    }));
+    hub.publish('events', d.id, d.data, d.version, '', old);
+    journal.note(old ? 'upd' : 'add', 'events', d.id, d.data, old, 'голосование');
+    // a call without a link gets one: a Zoom room of its own when the Zoom keys are set, otherwise the owner's standing link
+    d = (await calls.ensure(d.id).catch((e) => { console.error('[join] call link failed:', e.message); return null; })) || d;
+    const owner = await auth.ownerId();
+    if (owner) {
+      const lead = time.opts.find((o) => o.t === time.lead), zoneTime = time.lead + (p.zone ? ' ' + p.zone : '');
+      const inCal = ruDay(wall.d) + ', ' + wall.t, same = wall.d === p.date && wall.t === time.lead;
+      await say(owner, '<b>' + esc(p.event.title) + '</b>\nБольшинство за ' + esc(zoneTime) + ': голосов ' + lead.n + ' из ' + time.voters + '.' + (where ? '\nПлощадка: ' + esc(where) + '.' : '') +
+        '\nВ календаре проекта встреча стоит на ' + esc(inCal) + (same ? '' : ' по часовому поясу приложения') + '.' + (d.data.link ? '' : call ? '\nСсылки на созвон у встречи пока нет.' : '')).catch(() => {});
+    }
+  }
 }
 
 function summaryLines(f, a) {
@@ -168,6 +210,7 @@ function router(botName) {
     const c = await ctx(req, res, true); if (!c) return;
     const poll = (c.f.polls || []).find((p) => p.id === req.body.poll);
     if (!poll || !Array.isArray(req.body.picks)) return res.status(400).json({ error: 'bad_request' });
+    if (poll.closed) return res.status(409).json({ error: 'closed' });
     let picks = poll.opts.filter((o) => req.body.picks.includes(o));
     if (!poll.multi) picks = picks.slice(0, 1);
     const id = docId(c.f, c.user.id), had = await db.getDoc('joins', id);
@@ -177,6 +220,7 @@ function router(botName) {
     await db.mutateDoc('joins', id, (cur) => Object.assign({ form: c.f.id, project: c.link.project, tg: String(c.user.id), answers: {}, at: now }, cur, {
       username: c.user.username || '', name: auth.fullName(c.user), votes: Object.assign({}, cur.votes, { [poll.id]: picks }), u: now,
     }));
+    await syncEvents(c.f, c.link).catch((e) => console.error('[join] calendar failed:', e.message));
     res.json(Object.assign({ ok: true }, await state(c)));
   });
   return r;
@@ -202,9 +246,9 @@ async function start(m, token) {
   const link = TOKEN_RE.test(token) ? await db.getJoinLink(token) : null;
   const f = link && form(link.form), p = link && await db.getDoc('projects', link.project);
   if (!f || !p) return say(m.chat.id, 'Эта ссылка больше не действует. Попросите у организатора новую.');
-  const polls = (f.polls || []).map((x) => x.title).join(', ');
+  const polls = (f.polls || []).length ? f.pollsNote || 'проголосовать' : '';
   return say(m.chat.id, '<b>' + esc(f.title) + '</b>\n' + esc(f.kicker || 'Анкета') + '\n\nОсновная часть занимает ' + esc(f.coreTime || 'пару минут') + ': вопросы с вариантами ответа, прямо здесь, в Telegram. После неё вы сразу окажетесь в проекте «' + esc(String(p.data.name || '')) + '»' +
-    (polls ? ' и сможете проголосовать: ' + esc(polls) : '') + '.' + (https() ? '' : '\n\nУ сервера пока нет публичного адреса, анкету открыть нельзя.'), appBtn('Заполнить анкету', '/join/' + token));
+    (polls ? ' и сможете ' + esc(polls) : '') + '.' + (https() ? '' : '\n\nУ сервера пока нет публичного адреса, анкету открыть нельзя.'), appBtn('Заполнить анкету', '/join/' + token));
 }
 const url = (botName, token) => 'https://t.me/' + botName + '?start=join_' + token;
 // The owner's link for a project: the same one every time, until it is switched off.
@@ -217,8 +261,9 @@ async function votesText() {
   for (const f of forms()) {
     const list = await entries(f);
     tally(f, list, '').forEach((p) => {
-      out.push('<b>' + esc(p.title) + '</b> · проголосовали: ' + p.voters);
-      p.opts.forEach((o) => out.push(esc(o.t) + ' — ' + o.n + (o.who.length ? ': ' + esc(o.who.join(', ')) : '')));
+      out.push('<b>' + esc(p.title) + '</b> · проголосовали: ' + p.voters + (p.zone ? ' · время ' + esc(p.zone) : ''));
+      p.opts.filter((o) => o.n || p.opts.length <= 4).forEach((o) => out.push((o.t === p.lead ? '✅ ' : '') + esc(o.t) + ' — ' + o.n + (o.who.length ? ': ' + esc(o.who.join(', ')) : '')));
+      if (!p.voters && p.opts.length > 4) out.push('Пока никто не голосовал.');
       out.push('');
     });
   }
@@ -249,11 +294,12 @@ async function overview(project, botName) {
   if (link && botName) {
     const u = url(botName, link.token);
     out.link = { url: u, form: link.form, text: 'Коллеги, анкету «' + f.title + '» можно заполнить в Telegram: ' + (f.coreTime || 'пара минут') + ', вопросы с вариантами ответа.' +
-      ((f.polls || []).length ? ' Там же голосование: ' + f.polls.map((x) => x.title).join(', ') + ', и видно, кто за что проголосовал.' : '') + '\n\n' + u };
+      ((f.polls || []).length ? ' После анкеты можно ' + (f.pollsNote || 'проголосовать') + ': видно, кто за что проголосовал.' : '') + '\n\n' + u };
   }
   out.form = { id: f.id, title: f.title, questions: questions(f).map((q) => ({ id: q.id, label: q.label })) };
   out.people = list.map((d) => ({ id: d.id, tg: d.data.tg, name: d.data.name || '', username: d.data.username || '', at: d.data.at || '', core: !!d.data.core, more: !!d.data.more, summary: summaryLines(f, d.data.answers || {}), answers: d.data.answers || {} }));
-  out.polls = tally(f, list, '');
+  // a grid of hours is long: the dashboard gets only the hours somebody chose
+  out.polls = tally(f, list, '').map((x) => (x.kind === 'time' && x.voters ? Object.assign({}, x, { opts: x.opts.filter((o) => o.n) }) : x));
   // the answers side by side: for every question with choices, how many picked each one and who
   const name = (d) => d.data.name || (d.data.username ? '@' + d.data.username : 'Участник');
   out.stats = questions(f).filter((q) => (q.t === 'one' || q.t === 'many') && Array.isArray(q.opts)).map((q) => {

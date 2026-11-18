@@ -1070,6 +1070,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
 test('onboarding: a link for a chat, the form, access to one project, a poll', async () => {
   const FAY = { id: 777010, first_name: 'Fay', last_name: 'Mason', username: 'fay_hub' }, GUS = { id: 777011, first_name: 'Gus' };
   const post = (tok, path, json) => call('POST', '/api/join/' + tok + path, { json });
+  const said2 = (from) => sinceMark(from, 'sendMessage').filter((c) => String(c.params.chat_id) === String(OWNER.id)).map((c) => c.params.text);
   const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
   await put('projects/p-net', { name: 'Сеть мастеров', status: 'idea', order: 60 });
   await put('tasks/te-1', { title: 'Собрать анкеты', project: 'p-net' });
@@ -1078,7 +1079,7 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   assert.doesNotMatch(lastSay().params.text, /start=join_/);
   await update(msg(OWNER, { text: '/onboard сеть мастеров' }));
   const tok = /start=join_([A-Za-z0-9_-]{12,40})/.exec(lastSay().params.text)[1];
-  assert.match(lastSay().params.text, /Встреча 19 ноября/);
+  assert.match(lastSay().params.text, /выбрать время встречи 19 ноября/);
   await update(msg(OWNER, { text: '/onboard Сеть мастеров' }));
   assert.equal(/start=join_([A-Za-z0-9_-]+)/.exec(lastSay().params.text)[1], tok);
   // a name the bot cannot place: the project is picked from buttons, a stranger's tap does nothing
@@ -1106,7 +1107,7 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   const me0 = await post(tok, '/me', { initData: initData(FAY) });
   assert.equal(me0.json.joined, false); assert.equal(me0.json.user.name, 'Fay Mason'); assert.equal(me0.json.polls[0].voters, 0);
   // no vote and no extended part before the form
-  assert.equal((await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119', picks: ['Утро'] })).status, 409);
+  assert.equal((await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-time', picks: ['10:00'] })).status, 409);
   assert.equal((await post(tok, '/submit', { initData: initData(FAY), part: 'more', answers: { '8.2': '500' } })).status, 409);
   // required answers are checked on the server
   const core = {
@@ -1149,19 +1150,51 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   const more = await post(tok, '/submit', { initData: initData(FAY), part: 'more', answers: { '3.3': 'Да, по договорённости', '10.2': ['Генерирую идеи', 'Обучаю других'], '11.6': 'керамика' } });
   assert.equal(more.json.more, true); assert.equal(more.json.answers['1.1'], 'Fay Mason'); assert.deepEqual(more.json.answers['10.2'], ['Генерирую идеи', 'Обучаю других']);
   assert.equal((await post(tok, '/submit', { initData: initData(FAY), part: 'more', answers: { '10.2': ['Генерирую идеи', 'Обучаю других', 'Организую процессы'] } })).status, 400);
-  // the poll: several picks, names are shown, a vote can be changed; the owner votes without the form
-  const v1 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119', picks: ['Утро', 'Вечер', 'Ночь'] });
-  assert.deepEqual(v1.json.polls[0].mine, ['Утро', 'Вечер']);
-  const v2 = await post(tok, '/vote', { initData: initData(OWNER), poll: 'meet-1119', picks: ['Вечер'] });
+  // two polls after the form: the hour (several picks) and the platform (one pick); names are shown
+  const evs = async () => (await call('GET', '/api/db/events', { token: ownerToken })).json.docs.find((d) => d.id === 'ev-meet-1119');
+  const P = (r, id) => r.json.polls.find((x) => x.id === id), whoOf = (r, id) => Object.fromEntries(P(r, id).opts.filter((o) => o.n).map((o) => [o.t, o.who]));
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { tz: 'Asia/Tbilisi' } } }); require('../src/clock').forget();
+  assert.equal(await evs(), undefined);
+  n = tgCalls.length;
+  const v1 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-time', picks: ['18:00', '11:00', '03:00'] });
+  assert.deepEqual(P(v1, 'meet-1119-time').mine, ['11:00', '18:00']); assert.equal(P(v1, 'meet-1119-time').lead, '11:00');
+  // the choice of the majority is the start of the meeting in the project's calendar (the app lives by Tbilisi time here)
+  let ev = await evs();
+  assert.deepEqual([ev.data.project, ev.data.title, ev.data.date, ev.data.time, ev.data.call], ['p-net', 'Встреча команды «ЭкоЧакра»', '2026-11-19', '11:00', '']);
+  assert.match(said2(n)[0], /Большинство за 11:00 по Тбилиси \(UTC\+4\): голосов 1 из 1\.[\s\S]*стоит на 19 ноября, 11:00\./);
+  const v2 = await post(tok, '/vote', { initData: initData(OWNER), poll: 'meet-1119-time', picks: ['18:00'] });
   assert.equal(v2.json.owner, true); assert.equal(v2.json.joined, false); assert.equal(v2.json.people, 1);
-  const byT = (r) => Object.fromEntries(r.json.polls[0].opts.map((o) => [o.t, o.who]));
-  assert.deepEqual(byT(v2), { 'Утро': ['Fay Mason'], 'День': [], 'Вечер': ['Fay Mason', 'Alex Owner'] });
-  const v3 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119', picks: ['День'] });
-  assert.deepEqual(byT(v3), { 'Утро': [], 'День': ['Fay Mason'], 'Вечер': ['Alex Owner'] }); assert.equal(v3.json.polls[0].voters, 2);
-  assert.equal((await post(tok, '/vote', { initData: initData(GUS), poll: 'meet-1119', picks: ['День'] })).status, 409);
+  assert.deepEqual(whoOf(v2, 'meet-1119-time'), { '11:00': ['Fay Mason'], '18:00': ['Fay Mason', 'Alex Owner'] });
+  assert.equal(P(v2, 'meet-1119-time').lead, '18:00'); assert.equal((await evs()).data.time, '18:00');
+  // the platform: one pick; a known platform takes the owner's standing link, Discord goes into the title
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { zoom: 'https://zoom.us/j/111' } } } });
+  const c1 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-call', picks: ['Zoom', 'Discord'] });
+  assert.deepEqual(P(c1, 'meet-1119-call').mine, ['Zoom']);
+  ev = await evs(); assert.deepEqual([ev.data.call, ev.data.link, ev.data.title], ['zoom', 'https://zoom.us/j/111', 'Встреча команды «ЭкоЧакра»']);
+  await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-call', picks: ['Discord'] });
+  ev = await evs(); assert.deepEqual([ev.data.call, ev.data.link, ev.data.title], ['other', '', 'Встреча команды «ЭкоЧакра» · Discord']);
+  // a vote that does not move the majority writes nothing; a changed vote moves the meeting
+  const ver = ev.version; n = tgCalls.length;
+  await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-time', picks: ['18:00', '20:00'] });
+  assert.equal((await evs()).version, ver); assert.equal(said2(n).length, 0);
+  const v3 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-time', picks: ['14:00'] });
+  assert.deepEqual(whoOf(v3, 'meet-1119-time'), { '14:00': ['Fay Mason'], '18:00': ['Alex Owner'] }); assert.equal(P(v3, 'meet-1119-time').voters, 2);
+  assert.equal((await evs()).data.time, '14:00', 'equal votes: the earlier hour');
+  // the participant sees the meeting in the project; the owner's own title and link survive later votes
+  assert.ok((await ids('events')).includes('ev-meet-1119'));
+  await call('PATCH', '/api/db/events/ev-meet-1119', { token: ownerToken, json: { data: { title: 'Знакомство команды', link: 'https://discord.gg/abc' } } });
+  await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-time', picks: ['18:00'] });
+  ev = await evs(); assert.deepEqual([ev.data.title, ev.data.link, ev.data.time], ['Знакомство команды', 'https://discord.gg/abc', '18:00']);
+  // the calendar follows the app's own time zone
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { tz: 'Asia/Kolkata' } } }); require('../src/clock').forget();
+  await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119-time', picks: ['21:00'] });
+  await post(tok, '/vote', { initData: initData(OWNER), poll: 'meet-1119-time', picks: ['21:00'] });
+  ev = await evs(); assert.deepEqual([ev.data.date, ev.data.time], ['2026-11-19', '22:30']);
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { tz: 'Asia/Tbilisi' } } }); require('../src/clock').forget();
+  assert.equal((await post(tok, '/vote', { initData: initData(GUS), poll: 'meet-1119-time', picks: ['12:00'] })).status, 409);
   assert.equal((await post(tok, '/vote', { initData: initData(FAY), poll: 'nope', picks: [] })).status, 400);
   await update(msg(OWNER, { text: '/votes' }));
-  assert.match(lastSay().params.text, /Встреча 19 ноября<\/b> · проголосовали: 2[\s\S]*День — 1: Fay Mason[\s\S]*Вечер — 1: Alex Owner/);
+  assert.match(lastSay().params.text, /Встреча 19 ноября: во сколько\?<\/b> · проголосовали: 2 · время по Тбилиси[\s\S]*✅ 21:00 — 2: Fay Mason, Alex Owner[\s\S]*Где созваниваемся\?[\s\S]*✅ Discord — 1: Fay Mason/);
   await update(msg(FAY, { text: '/votes' }));
   assert.match(lastSay().params.text, /только владельцу/);
   // answers as a table, and in the backup; the owner's own access did not change
@@ -1170,7 +1203,7 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   const docs = sinceMark(n, 'sendDocument');
   assert.equal(docs.length, 1); assert.match(docs[0].params.caption, /ответов 2/);
   const tbl = await require('../src/join').csv(require('../src/join').form('ecochakra'));
-  assert.match(tbl.body.toString('utf8'), /"Fay Mason","@fay_hub","Fay Mason","\+995 555 12 34 56"[\s\S]*"Владелец пространства \/ хаба; Другое: гончар"[\s\S]*"День"/);
+  assert.match(tbl.body.toString('utf8'), /"Fay Mason","@fay_hub","Fay Mason","\+995 555 12 34 56"[\s\S]*"Владелец пространства \/ хаба; Другое: гончар"[\s\S]*"21:00","Discord"/);
   const exp = (await call('GET', '/api/export', { token: ownerToken })).json;
   assert.equal(exp.docs.joins['ecochakra-' + FAY.id].answers['2.2'], 'Керамика и чай');
   assert.equal((await call('GET', '/api/me', { token: ownerToken })).json.role, 'owner');
@@ -1198,14 +1231,14 @@ test('onboarding in the dashboard: the owner sees the link, the people, their an
   const FAY = { id: 777010 }, ob = (m, path, token = ownerToken) => call(m, '/api/onboard/' + path, { token, json: m === 'POST' ? {} : undefined });
   const v = (await ob('GET', 'p-net')).json;
   assert.match(v.link.url, /^https:\/\/t\.me\/prooloog_test_bot\?start=join_[A-Za-z0-9_-]{12,40}$/);
-  assert.match(v.link.text, /^Коллеги, анкету «ЭкоЧакра» можно заполнить в Telegram[\s\S]*Встреча 19 ноября[\s\S]*start=join_/);
+  assert.match(v.link.text, /^Коллеги, анкету «ЭкоЧакра» можно заполнить в Telegram[\s\S]*встречи 19 ноября[\s\S]*start=join_/);
   assert.deepEqual([v.form.id, v.form.title, v.forms.length >= 1], ['ecochakra', 'ЭкоЧакра', true]);
   assert.deepEqual(v.people.map((x) => x.name).sort(), ['Alex Owner', 'Bob', 'Fay Mason', 'Gus']);
   const fay = v.people.find((x) => x.tg === String(FAY.id));
   assert.deepEqual([fay.username, fay.core, fay.answers['2.2'], /^\d{4}-\d\d-\d\dT/.test(fay.at)], ['fay_hub', true, 'Керамика и чай', true]);
   assert.ok(fay.summary.length >= 3 && fay.summary.every((x) => typeof x === 'string' && x.includes(': ')), 'the short summary of the answers');
   assert.ok(v.form.questions.some((q) => q.id === '2.2' && q.label));
-  assert.deepEqual([v.polls[0].id, v.polls[0].opts.map((o) => o.t)], ['meet-1119', ['Утро', 'День', 'Вечер']]);
+  assert.deepEqual([v.polls.map((x) => x.id), v.polls[0].kind, v.polls[0].opts.every((o) => o.n > 0), v.polls[1].opts.map((o) => o.t)], [['meet-1119-time', 'meet-1119-call'], 'time', true, ['Zoom', 'Google Meet', 'Discord']]);
   // the answers side by side: who chose what
   const st = v.stats.find((q) => q.id === '3.2');
   const plan = st.opts.find((o) => o.t === 'Планирую создать');
@@ -1217,7 +1250,7 @@ test('onboarding in the dashboard: the owner sees the link, the people, their an
   // a project nobody came to: no link yet, nothing to show
   await call('PUT', '/api/db/projects/p-ob2', { token: ownerToken, json: { data: { name: 'Без онбординга', status: 'idea', order: 61 } } });
   const empty = (await ob('GET', 'p-ob2')).json;
-  assert.deepEqual([empty.link, empty.people, empty.polls.map((p) => p.voters)], [null, [], [0]]);
+  assert.deepEqual([empty.link, empty.people, empty.polls.map((p) => p.voters)], [null, [], [0, 0]]);
   // the link is made in the dashboard, the same one comes back, and it can be switched off
   const on = (await ob('POST', 'p-ob2')).json;
   assert.match(on.link.url, /start=join_/);

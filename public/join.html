@@ -104,6 +104,19 @@ textarea{min-height:110px;resize:vertical;line-height:1.4}
 .po-t{font-weight:600;display:block}
 .po-w{display:block;font-size:13px;color:var(--mute);overflow-wrap:anywhere}
 .po-n{font:600 17px/1 var(--display);font-variant-numeric:tabular-nums}
+.mk.rnd{border-radius:50%}
+.tg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tm{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;border-radius:14px;border:1px solid var(--line);background:var(--surface2);text-align:center}
+.tm-t{font-weight:600;font-variant-numeric:tabular-nums}
+.tm-n{font-size:12px;min-height:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.tm.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.tm.on .tm-n{color:inherit}
+.tm.lead{box-shadow:0 0 0 2px var(--accent)}
+.win{padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--accent) 12%,var(--surface));font-size:14px}
+.wl{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.wl div{display:grid;grid-template-columns:48px 1fr;gap:8px}
+.wl b{font-variant-numeric:tabular-nums}
+.wl span{color:var(--mute);overflow-wrap:anywhere}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -150,11 +163,11 @@ function gate(){
 }
 function hello(){
   var n=qCount('core'), first=me&&me.user.name?me.user.name.split(' ')[0]:'';
-  var polls=(F.polls||[]).map(function(p){return p.title}).join(', ');
+  var polls=(F.polls||[]).length?(F.pollsNote||'проголосовать'):'';
   return '<div class="body pad-b"><p class="kick">'+esc(F.kicker||'Анкета')+'</p><h1 class="h1">'+esc(F.title)+'</h1><p class="lead">'+(first?esc(first)+', здравствуйте! ':'')+esc(F.intro||'')+'</p>'+
     '<div class="facts"><div class="fact"><b>1</b><span>'+n+' '+plural(n,'вопрос','вопроса','вопросов')+', '+esc(F.coreTime||'пара минут')+'. Почти везде достаточно нажать на вариант.</span></div>'+
     '<div class="fact"><b>2</b><span>Сразу после отправки вы в проекте «'+esc(info.project)+'»: видите задачи команды и можете вести свои.</span></div>'+
-    (polls?'<div class="fact"><b>3</b><span>Там же голосование: '+esc(polls)+'.</span></div>':'')+'</div>'+
+    (polls?'<div class="fact"><b>3</b><span>В конце можно '+esc(polls)+'.</span></div>':'')+'</div>'+
     (me.owner?'<p class="small">Вы владелец: анкета сохранится как ваша, доступы не меняются.</p><button class="link" data-act="home">Посмотреть голоса без анкеты</button>':'')+
     '</div><div class="foot"><button class="btn pri" data-act="begin">Начать</button></div>';
 }
@@ -189,11 +202,24 @@ function home(){
   var nm=qCount('more'), h='<div class="body">'+(me.joined?'<div class="ok"><svg width="26" height="26" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>':'')+
     '<h1 class="h2">'+(me.joined?'Вы в проекте «'+esc(info.project)+'»':'Проект «'+esc(info.project)+'»')+'</h1><p class="lead">'+(me.joined?'Анкета принята. Участников в проекте: '+me.people+'.':'Анкету заполнили: '+me.people+'.')+'</p>';
   (me.polls||[]).forEach(function(p){
-    var max=Math.max.apply(null,p.opts.map(function(o){return o.n}).concat([1]));
-    h+='<div class="card"><h3>'+esc(p.title)+'</h3><p class="small">'+esc(p.q||'')+'</p><div class="pv">'+p.opts.map(function(o){
-      var on=p.mine.indexOf(o.t)>=0;
-      return '<button type="button" class="po'+(on?' on':'')+'" aria-pressed="'+on+'" data-act="vote" data-p="'+esc(p.id)+'" data-o="'+esc(o.t)+'"><i class="fill" style="width:'+(o.n/max*100).toFixed(0)+'%"></i><span class="mk">'+CHECK+'</span><span><span class="po-t">'+esc(o.t)+'</span><span class="po-w">'+(o.who.length?esc(o.who.join(', ')):'пока никто')+'</span></span><span class="po-n">'+o.n+'</span></button>';
-    }).join('')+'</div><p class="small" id="pn-'+esc(p.id)+'">'+(p.mine.length?'Ваш голос учтён. Его можно изменить.':'Нажмите на подходящие варианты.')+' Проголосовали: '+p.voters+'.</p></div>';
+    var max=Math.max.apply(null,p.opts.map(function(o){return o.n}).concat([1])), tail=(p.closed?'Голосование закрыто.':p.mine.length?'Ваш голос учтён. Его можно изменить.':p.multi?'Нажмите на все подходящие варианты.':'Нажмите на подходящий вариант.')+' Проголосовали: '+p.voters+'.';
+    h+='<div class="card"><h3>'+esc(p.title)+'</h3><p class="small">'+esc(p.q||'')+'</p>';
+    if(p.kind==='time'){
+      // a grid of hours: the count on each, the leader marked, names listed under the grid
+      h+='<p class="small">Время '+esc(p.zone||'')+'.'+localNote(p)+'</p><div class="tg">'+p.opts.map(function(o){
+        var on=p.mine.indexOf(o.t)>=0;
+        return '<button type="button" class="tm'+(on?' on':'')+(p.lead===o.t?' lead':'')+'" aria-pressed="'+on+'" aria-label="'+esc(o.t)+', голосов: '+o.n+'" data-act="vote" data-p="'+esc(p.id)+'" data-o="'+esc(o.t)+'"><span class="tm-t">'+esc(o.t)+'</span><span class="tm-n">'+(o.n||'')+'</span></button>';
+      }).join('')+'</div>';
+      if(p.lead)h+='<p class="win"><b>'+esc(p.lead)+'</b> — пока большинство'+(p.toEvent?'. На это время встреча стоит в календаре проекта.':'.')+'</p>';
+      var who=p.opts.filter(function(o){return o.n});
+      if(who.length)h+='<div class="wl">'+who.map(function(o){return '<div><b>'+esc(o.t)+'</b><span>'+esc(o.who.join(', '))+'</span></div>'}).join('')+'</div>';
+    }else{
+      h+='<div class="pv">'+p.opts.map(function(o){
+        var on=p.mine.indexOf(o.t)>=0;
+        return '<button type="button" class="po'+(on?' on':'')+'" aria-pressed="'+on+'" data-act="vote" data-p="'+esc(p.id)+'" data-o="'+esc(o.t)+'"><i class="fill" style="width:'+(o.n/max*100).toFixed(0)+'%"></i><span class="mk'+(p.multi?'':' rnd')+'">'+CHECK+'</span><span><span class="po-t">'+esc(o.t)+'</span><span class="po-w">'+(o.who.length?esc(o.who.join(', ')):'пока никто')+'</span></span><span class="po-n">'+o.n+'</span></button>';
+      }).join('')+'</div>';
+    }
+    h+='<p class="small" id="pn-'+esc(p.id)+'">'+tail+'</p></div>';
   });
   h+='<div class="hero"><a class="btn pri" style="flex:none" href="/">Открыть проект</a>';
   if(me.joined&&nm)h+='<div class="card"><h3>'+(me.more?'Расширенная анкета':'Расскажите о себе больше')+'</h3><p class="small">'+esc(F.moreIntro||'')+' '+nm+' '+plural(nm,'вопрос','вопроса','вопросов')+', '+esc(F.moreTime||'')+'.</p><button class="btn wide" data-act="more">'+(me.more?'Изменить ответы':'Дополнить анкету')+'</button></div>';
@@ -202,6 +228,14 @@ function home(){
 }
 
 /* ---------- answers ---------- */
+// the poll's hours are in one zone; a device in another zone gets a line with its own clock
+function localNote(p){
+  try{
+    var t0=p.opts[0].t, d=new Date(p.date+'T'+t0+':00'+p.offset), z=p.offset.split(':'), min=(+z[0])*60+(z[0].charAt(0)==='-'?-1:1)*(+z[1]||0);
+    if(isNaN(d)||-d.getTimezoneOffset()===min)return '';
+    return ' На вашем устройстве другой пояс: '+t0+' здесь — это '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+' у вас.';
+  }catch(e){return ''}
+}
 function pick(qid,o,el){
   var q=findQ(qid), v=A[qid];
   if(q.t==='one'){A[qid]=o==='Другое'&&q.other?(isOther(v)?v:'Другое'):o}
@@ -279,7 +313,7 @@ function vote(pid,o){
   busy=true;haptic();
   api('POST','/vote',{initData:initData,poll:pid,picks:picks}).then(function(j){busy=false;me=j;render()},function(e){
     busy=false;var n=document.getElementById('pn-'+pid);
-    if(n)n.textContent=e.code==='core_first'?'Голосование открывается после анкеты.':'Не получилось сохранить голос. Попробуйте ещё раз.';
+    if(n)n.textContent=e.code==='core_first'?'Голосование открывается после анкеты.':e.code==='closed'?'Голосование уже закрыто.':'Не получилось сохранить голос. Попробуйте ещё раз.';
   });
 }
 function begin(p){
