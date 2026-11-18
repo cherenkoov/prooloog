@@ -661,6 +661,8 @@ button.pl-d:hover b{color:var(--accent)}
 .relf{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .relf button{padding:4px 11px;border:1px solid var(--line);border-radius:999px;font-size:13px;background:var(--surface)}
 .relf button.on{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.tm-p{display:inline-flex;align-items:center;gap:8px;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;border-radius:6px}
+.tm-p:hover{color:var(--ink)}
 .who{font-size:12px;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:0 7px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .sub-off .row-t>span:first-child{color:var(--mute)}
 .sub-off .row-d{color:var(--mute)}
@@ -745,6 +747,19 @@ button.pl-d:hover b{color:var(--accent)}
 .lane.sel .dm-tip{display:block;position:absolute;top:0;transform:translateX(-50%);background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:600;line-height:20px;padding:0 8px;border-radius:6px;white-space:nowrap;font-variant-numeric:tabular-nums;pointer-events:none;z-index:3}
 .dragms,.dragms *{user-select:none;-webkit-user-select:none;cursor:grabbing!important}
 
+/* guided tour: a spotlight over one element at a time and a card that explains it */
+.btn.help{width:36px;height:36px;padding:0;border-radius:50%;font-weight:600;color:var(--mute)}
+#tour{position:fixed;inset:0;z-index:70;overflow:hidden;touch-action:none}
+.tr-hole{position:absolute;border-radius:12px;box-shadow:0 0 0 200vmax rgba(8,10,16,.62);outline:2px solid var(--accent);outline-offset:0;transition:left .22s ease,top .22s ease,width .22s ease,height .22s ease;pointer-events:none}
+.tr-hole.none{outline:0}
+.tr-card{position:absolute;width:min(350px,calc(100vw - 24px));background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:16px 16px 14px;box-shadow:0 20px 50px rgba(0,0,0,.34);display:flex;flex-direction:column;gap:8px;transition:left .22s ease,top .22s ease}
+.tr-n{font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:10px}
+.tr-bar{flex:1;height:4px;border-radius:2px;background:var(--surface2);overflow:hidden}
+.tr-bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .22s ease}
+.tr-card h2{font:600 16px/1.25 var(--display);letter-spacing:-.01em;text-wrap:balance;text-transform:none;color:var(--ink)}
+.tr-card p{font-size:14px;line-height:1.5}
+.tr-a{display:flex;align-items:center;gap:8px;margin-top:6px}
+.tr-a .tr-sk{margin-right:auto;font-size:13px;color:var(--mute);padding:6px 2px;text-decoration:underline;text-underline-offset:3px}
 @media (min-width:900px){.only-m{display:none!important}}
 @media (min-width:900px) and (max-width:1499px){#top{flex-wrap:wrap}.vt{order:3;flex:1 1 100%;overflow-x:auto}}
 @media (max-width:899px){
@@ -815,6 +830,7 @@ button.pl-d:hover b{color:var(--accent)}
   </div>
 </div>
 <div id="toast" role="alert" hidden></div>
+<div id="tour" hidden><div class="tr-hole"></div><div class="tr-card" role="dialog" aria-modal="true" aria-labelledby="tr-t"></div></div>
 
 <script>
 (function(){
@@ -828,8 +844,8 @@ var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active'
 var db=null;
 var ST={idea:'Идея',active:'В работе',paused:'Пауза',done:'Готово'},STO=['idea','active','paused','done'];
 var TS={todo:'Очередь',doing:'В работе',done:'Готово'},TSO=['todo','doing','done'];
-var VIEWS={overview:'Обзор',plan:'План',board:'Борда',calendar:'Календарь',milestones:'Майлстоуны',content:'Контент',services:'Услуги',budget:'Бюджет',contacts:'Контакты'};
-function views(){return Object.keys(VIEWS).filter(function(v){return ui.owner||(v!=='budget'&&v!=='contacts')})}
+var VIEWS={overview:'Обзор',plan:'План',board:'Борда',calendar:'Календарь',milestones:'Майлстоуны',content:'Контент',services:'Услуги',budget:'Бюджет',team:'Команда',contacts:'Контакты'};
+function views(){return Object.keys(VIEWS).filter(function(v){return ui.owner||(v!=='budget'&&v!=='contacts'&&v!=='team')})}
 var MON=['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
 var MONG=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 var MONP=['январе','феврале','марте','апреле','мае','июне','июле','августе','сентябре','октябре','ноябре','декабре'];
@@ -1039,6 +1055,7 @@ function drawTop(){
   var h='<button class="sw only-m" data-act="switch" aria-label="Выбрать проект"><i class="dot" style="--pc:'+(p?pc(p.id):'var(--ink)')+'"></i><span class="sw-n">'+esc(p?p.name:'Все проекты')+'</span>'+ICON.chev+'</button>';
   h+='<div class="ttl-w only-d"><h1 class="ttl">'+esc(p?p.name:'Все проекты')+'</h1><div class="sub">'+esc(p?((p.area||'Без группы')+' · '+(ST[p.status]||'')):(act+' в работе · '+S.projects.length+' всего'))+'</div></div>';
   h+='<div class="vt only-d" role="tablist">'+views().map(function(v){return '<button role="tab" aria-selected="'+(ui.view===v)+'" class="'+(ui.view===v?'on':'')+'" data-act="view" data-v="'+v+'">'+VIEWS[v]+'</button>'}).join('')+'</div>';
+  h+='<button class="btn help" data-act="tour" aria-label="Обучение: как пользоваться" title="Как пользоваться">?</button>';
   h+='<button class="btn pri add w" data-act="add" aria-label="Добавить">'+ICON.plus+'<span class="only-d">Добавить</span></button>';
   $('#top').innerHTML=h;
   var vsAll=views(),mainV=['overview','plan','board','calendar'].filter(function(v){return vsAll.indexOf(v)>=0}),restV=vsAll.filter(function(v){return mainV.indexOf(v)<0});
@@ -1115,7 +1132,7 @@ function drawOverviewOne(p){
   }).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
   h+='</section></div>';
   h+=cyclePanel(p,true);
-  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+obPanel(p)+subsPanel(p);
+  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+teamRow(p)+subsPanel(p);
   return h+notesPanel(p);
 }
 
@@ -1411,7 +1428,7 @@ function msgRow(m){
   var p=P(m.project);
   return '<button class="msgr" data-act="msg" data-id="'+esc(m.id)+'" style="--pc:'+pc(m.project)+'"><span class="msgr-h"><b>'+esc(who(m))+'</b><span>'+esc(fmt(m.date))+'</span><span>'+esc(CHAN[m.channel]||'')+'</span>'+(p&&ui.project==='all'?'<span class="chip">'+esc(p.name)+'</span>':'')+reviewBadge(m)+'</span><span class="msgr-t">'+esc(excerpt(m.summary||m.text,220))+'</span></button>';
 }
-function contactCard(c){
+function contactCard(c,extra){
   var tg=tgUser(c.tg),wa=waNum(c.phone),pj=cProjects(c).map(function(id){return P(id)}).filter(Boolean);
   var last=S.messages.filter(function(m){return m.contact===c.id}).sort(msgDesc)[0];
   var h='<div class="pc"><button class="pc-h" data-act="edit" data-kind="contact" data-id="'+esc(c.id)+'"><span class="pc-n">'+esc(c.name||'Без имени')+(cRel(c)?'<i class="rel">'+esc(cRel(c))+'</i>':'')+'</span>'+(c.role?'<span class="pc-r">'+esc(c.role)+'</span>':'')+'</button>';
@@ -1425,11 +1442,13 @@ function contactCard(c){
   var ts=cTasks(c),t0=today(),evs=S.events.filter(function(e){return e.contact===c.id&&(e.repeat||!validDate(e.date)||e.date>=t0)}).sort(function(a,b){return (a.date||'')<(b.date||'')?-1:1});
   if(evs.length)h+='<div class="pc-ts"><h4>Встречи: '+evs.length+'</h4>'+evs.slice(0,4).map(function(e){return '<button class="pc-t" data-act="edit" data-kind="event" data-id="'+esc(e.id)+'" style="--pc:'+pc(e.project)+'"><span class="mk mk-e" aria-hidden="true"></span><span class="tt">'+esc(e.title)+'</span><span class="due">'+esc(fmt(e.date))+(e.time?' · '+esc(e.time):'')+'</span></button>'}).join('')+'</div>';
   if(ts.length)h+='<div class="pc-ts"><h4>Задачи: '+ts.length+'</h4>'+ts.slice(0,5).map(function(t){var tp=P(t.project),late=validDate(t.due)&&t.due<t0;return '<button class="pc-t" data-act="edit" data-kind="task" data-id="'+esc(t.id)+'" style="--pc:'+pc(t.project)+'"><span class="mk mk-t" aria-hidden="true"></span><span class="tt">'+esc(t.title)+(tp&&pj.length!==1?' <small class="mute">· '+esc(tp.name)+'</small>':'')+'</span>'+(validDate(t.due)?'<span class="due'+(late?' late':'')+'">'+esc(fmt(t.due))+'</span>':'')+'</button>'}).join('')+(ts.length>5?'<span class="mute" style="font-size:12px">и ещё '+(ts.length-5)+'</span>':'')+'</div>';
+  if(typeof extra==='string')h+=extra;
   if(last)h+='<div class="pc-m">'+esc(fmt(last.date))+': '+esc(excerpt(last.summary||last.text,120))+'</div>';
   return h+'<div class="w sp" style="margin-left:0"><button class="btn sm" data-act="new" data-kind="task" data-contact="'+esc(c.id)+'" data-project="'+esc(pj.length?pj[0].id:'')+'">+ Задача</button><button class="btn sm" data-act="new" data-kind="event" data-contact="'+esc(c.id)+'" data-project="'+esc(pj.length?pj[0].id:'')+'">+ Встреча</button><button class="btn sm" data-act="new" data-kind="message" data-contact="'+esc(c.id)+'">+ Сообщение</button></div></div>';
 }
 function drawContacts(){
-  var csAll=S.contacts.filter(function(c){return ui.project==='all'||cProjects(c).indexOf(ui.project)>=0}).sort(byName);
+  if(obNs&&ui.project!=='all'&&P(ui.project))obLoad(ui.project);
+  var csAll=S.contacts.filter(function(c){return ui.project==='all'?!teamAny(c):cProjects(c).indexOf(ui.project)>=0&&!inTeam(c,ui.project)}).sort(byName);
   var rels={},relk=[];csAll.forEach(function(c){var r=cRel(c)||'—';if(!rels[r]){rels[r]=0;relk.push(r)}rels[r]++});
   relk.sort(function(a,b){return a==='—'?1:b==='—'?-1:a.localeCompare(b,'ru')});
   if(ui.relf&&!rels[ui.relf])ui.relf='';
@@ -1437,18 +1456,85 @@ function drawContacts(){
   var relBar=relk.length>1?'<div class="relf" role="group" aria-label="Роль в отношениях"><button class="'+(ui.relf?'':'on')+'" data-act="relf" data-v="">Все '+csAll.length+'</button>'+relk.map(function(r){return '<button class="'+(ui.relf===r?'on':'')+'" data-act="relf" data-v="'+esc(r)+'">'+esc(r==='—'?'Без роли':r)+' '+rels[r]+'</button>'}).join('')+'</div>':'';
   var ms=S.messages.filter(function(m){return ui.project==='all'||m.project===ui.project}).sort(msgDesc);
   var h='<div class="b-top"><div class="seg only-m" role="group" aria-label="Что показывать"><button class="'+(ui.pshow==='people'?'on':'')+'" data-act="pshow" data-v="people">Люди <b>'+cs.length+'</b></button><button class="'+(ui.pshow==='msgs'?'on':'')+'" data-act="pshow" data-v="msgs">Сообщения <b>'+ms.length+'</b></button></div><div class="sp w"><button class="btn sm" data-act="new" data-kind="contact">+ Контакт</button><button class="btn sm" data-act="new" data-kind="message">+ Сообщение</button></div></div>';
-  h+='<div class="ppl" data-show="'+ui.pshow+'"><section class="s-people">'+relBar+(cs.length?'<div class="pcs">'+cs.map(contactCard).join('')+'</div>':'<div class="panel"><p>Контактов пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Добавь людей, с которыми ведёшь проекты: агентов, клиентов, партнёров. Контакт можно привязать к одному или нескольким проектам.</p></div>')+'</section>';
+  h+='<div class="ppl" data-show="'+ui.pshow+'"><section class="s-people">'+relBar+(cs.length?'<div class="pcs">'+cs.map(function(c){return contactCard(c)}).join('')+'</div>':'<div class="panel"><p>Контактов пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Сохраняй здесь полезные контакты для связи: агентов, клиентов, партнёров. Контакт можно привязать к одному или нескольким проектам. Те, кто прошёл онбординг проекта, собраны в разделе «Команда».</p></div>')+'</section>';
   h+='<section class="s-msgs"><div class="panel"><div class="ph"><h2>Сообщения</h2></div>'+(ms.length?'<div class="msgs">'+ms.slice(0,80).map(msgRow).join('')+'</div>':'<p class="mute">Сообщений пока нет. Добавь ответ клиента текстом или файлом: он сохранится в истории проекта, а изменения в проект попадут только после твоего ревью.</p>')+'</div></section></div>';
   return h;
 }
 function peoplePanel(p){
-  var cs=S.contacts.filter(function(c){return cProjects(c).indexOf(p.id)>=0}).sort(byName);
+  var cs=S.contacts.filter(function(c){return cProjects(c).indexOf(p.id)>=0&&!inTeam(c,p.id)}).sort(byName);
   var ms=S.messages.filter(function(m){return m.project===p.id}).sort(msgDesc).slice(0,4);
-  var h='<section class="panel"><div class="ph"><h2>Люди и переписка</h2><span class="pbtn w"><button class="btn sm" data-act="new" data-kind="message" data-project="'+esc(p.id)+'">+ Сообщение</button><button class="btn sm" data-act="new" data-kind="contact" data-project="'+esc(p.id)+'">+ Контакт</button></span></div>';
+  var h='<section class="panel"><div class="ph"><h2>Контакты и переписка</h2><span class="pbtn w"><button class="btn sm" data-act="new" data-kind="message" data-project="'+esc(p.id)+'">+ Сообщение</button><button class="btn sm" data-act="new" data-kind="contact" data-project="'+esc(p.id)+'">+ Контакт</button></span></div>';
   if(cs.length)h+='<div class="chips">'+cs.map(function(c){return '<button class="lnk" data-act="edit" data-kind="contact" data-id="'+esc(c.id)+'">'+esc(c.name||'Без имени')+(c.role?' · '+esc(c.role):'')+'</button>'}).join('')+'</div>';
   if(ms.length)h+='<div class="msgs" style="margin-top:8px">'+ms.map(msgRow).join('')+'</div>';
-  if(!cs.length&&!ms.length)h+='<p class="mute">Пока никого. Добавь контакт или ответ клиента: он привяжется к проекту.</p>';
+  if(!cs.length&&!ms.length)h+='<p class="mute">Пока пусто. Добавь полезный контакт или ответ клиента: он привяжется к проекту.</p>';
   return h+'</section>';
+}
+
+/* ---------- team: the people who passed the onboarding of a project. Contacts are everyone else worth keeping in touch with ---------- */
+function obPeople(pid){var x=ob[pid],d=x&&x.d;return d&&Array.isArray(d.people)?d.people.filter(function(u){return u&&u.core}):[]}
+function obUid(u){return String((u&&(u.tg||u.id))||'').replace(/\D/g,'')}
+function obUn(s){return tgUser(s).toLowerCase()}
+function obFor(c,pid){
+  var un=obUn(c.tg);
+  return obPeople(pid).filter(function(u){var i=obUid(u);return (i&&c.id==='jn-'+i)||(un&&obUn(u.username)===un)})[0]||null;
+}
+function cTeam(c){return Array.isArray(c.team)?c.team:[]}
+function inTeam(c,pid){return (/^jn-\d+$/.test(c.id)&&cProjects(c).indexOf(pid)>=0)||cTeam(c).indexOf(pid)>=0||!!obFor(c,pid)}
+// a contact that existed before the form was filled in keeps its own id: remember on the contact that it is in the team,
+// so the split holds on every screen and in the copy inside Claude
+function obMark(pid){
+  if(!ui.owner||ui.ro||!P(pid))return;
+  S.contacts.forEach(function(c){if(!/^jn-\d+$/.test(c.id)&&cTeam(c).indexOf(pid)<0&&obFor(c,pid))patch('contacts',c.id,{team:cTeam(c).concat(pid)})});
+}
+function teamAny(c){
+  if(/^jn-\d+$/.test(c.id)&&cProjects(c).length)return true;
+  if(cTeam(c).some(function(q){return !!P(q)}))return true;
+  return Object.keys(ob).some(function(pid){return !!obFor(c,pid)});
+}
+function teamOf(pid){
+  var out=[],seen=[];
+  S.contacts.forEach(function(c){if(inTeam(c,pid)){var u=obFor(c,pid);if(u)seen.push(u);out.push({c:c,u:u,name:c.name||''})}});
+  obPeople(pid).forEach(function(u){if(seen.indexOf(u)<0)out.push({c:null,u:u,name:u.name||''})});
+  return out.sort(byName);
+}
+function teamNote(m,pid){
+  var u=m.u,a=[],sum=u&&Array.isArray(u.summary)?u.summary.slice(0,4).join(' · '):'';
+  if(u){var d=fmt(String(u.at||'').slice(0,10));a.push('Анкета'+(d?' от '+d:'')+(u.more?', с расширенной частью':''))}
+  var txt=sum||(m.c?excerpt(m.c.notes,200):'');
+  if(!a.length&&!txt)return '';
+  return '<div class="pc-m">'+esc(a.join(' · '))+(a.length&&txt?': ':'')+esc(txt)+(obNs?' <button type="button" class="tlink" data-act="ob-open" data-id="'+esc(pid)+'">Ответы</button>':'')+'</div>';
+}
+function teamCard(m,pid){
+  if(m.c)return contactCard(m.c,teamNote(m,pid));
+  var u=m.u,b=shChatBtn(u.username,obUid(u),'Написать');
+  return '<div class="pc"><div class="pc-h"><span class="pc-n">'+esc(u.name||'Без имени')+'</span>'+(u.username?'<span class="pc-r">@'+esc(u.username)+'</span>':'')+'</div>'+teamNote(m,pid)+(b?'<div class="sp" style="margin-left:0">'+b+'</div>':'')+'</div>';
+}
+function teamHow(){return 'Команда — это люди, которые прошли онбординг проекта: заполнили анкету по ссылке и получили доступ к проекту. '+(obNs?'':'Онбординг работает в Prooloog на сервере: участники появятся здесь после синхронизации. ')+'Полезные контакты для связи лежат отдельно, в разделе «Контакты».'}
+function drawTeam(){
+  var one=ui.project==='all'?null:P(ui.project),h='';
+  if(one){
+    if(obNs)obLoad(one.id);
+    var tm=teamOf(one.id),wait=obNs&&!(ob[one.id]&&ob[one.id].d)&&!tm.length;
+    h='<section><h2 class="area-h">В команде: '+(wait?'…':tm.length)+'</h2>'+(tm.length?'<div class="pcs">'+tm.map(function(m){return teamCard(m,one.id)}).join('')+'</div>':
+      '<div class="panel"><p>'+(wait?'Загружаю…':'В команде пока никого.')+'</p><p class="mute" style="margin-top:6px;max-width:65ch">'+teamHow()+(obNs?' Ссылка онбординга ниже: отправь её в командный чат.':'')+'</p></div>')+'</section>';
+    return h+obPanel(one);
+  }
+  sorted(S.projects).forEach(function(p){
+    var tm=teamOf(p.id);if(!tm.length)return;
+    h+='<section style="--pc:'+pc(p.id)+'"><h2 class="area-h"><button type="button" class="tm-p" data-act="proj" data-id="'+esc(p.id)+'"><i class="dot" aria-hidden="true"></i>'+esc(p.name)+' · '+tm.length+'</button></h2><div class="pcs">'+tm.map(function(m){return teamCard(m,p.id)}).join('')+'</div></section>';
+  });
+  return h||'<section class="panel"><p>Ни в одном проекте пока нет команды.</p><p class="mute" style="margin-top:6px;max-width:65ch">'+teamHow()+(obNs?' Открой проект и создай ссылку онбординга.':'')+'</p></section>';
+}
+function teamPanel(p){
+  if(!ui.owner)return '';
+  var tm=teamOf(p.id);
+  if(!obNs&&!tm.length)return '';
+  return '<section class="panel" id="tm-p" data-id="'+esc(p.id)+'"><div class="ph"><h2>Команда'+(tm.length?': '+tm.length:'')+'</h2><span class="pbtn"><button type="button" class="btn sm" data-act="view" data-v="team">Открыть</button></span></div>'+
+    (tm.length?'<div class="chips">'+tm.map(function(m){return m.c?'<button class="lnk" data-act="edit" data-kind="contact" data-id="'+esc(m.c.id)+'">'+esc(m.c.name||'Без имени')+'</button>':'<span class="lnk">'+esc(m.u.name||'Без имени')+'</span>'}).join('')+'</div>':'<p class="mute">Пока никого. В команду попадают те, кто прошёл онбординг проекта.</p>')+'</section>';
+}
+function teamRow(p){
+  var a=teamPanel(p),b=obPanel(p);
+  return a&&b?'<div class="two">'+a+b+'</div>':a+b;
 }
 
 /* ---------- comments with tags ---------- */
@@ -2277,6 +2363,10 @@ function obPaint(pid){
   var p=P(pid),el=$('#ob-p'),sh=$('#ob-sheet');
   if(el&&el.dataset.id===pid&&p)el.innerHTML=obInner(p);
   if(sh&&sh.dataset.id===pid)sh.innerHTML=obSheet(pid);
+  if(ob[pid]&&ob[pid].st==='ok')obMark(pid);
+  var tp=$('#tm-p');
+  if(tp&&tp.dataset.id===pid&&p)tp.outerHTML=teamPanel(p);
+  if(ob[pid]&&ob[pid].st==='ok'&&(ui.view==='team'||ui.view==='contacts')&&$('#sheet').hidden)render();
 }
 function obPanel(p){
   if(!ui.owner||!obNs)return '';
@@ -3248,7 +3338,7 @@ function render(){if(pending)return;pending=setTimeout(function(){pending=0;draw
 function draw(){
   if(ui.dragging){ui.needDraw=true;return}
   mnCache=null;
-  if(!ui.owner&&(ui.view==='budget'||ui.view==='contacts'))ui.view='overview';
+  if(!ui.owner&&(ui.view==='budget'||ui.view==='contacts'||ui.view==='team'))ui.view='overview';
   if(ui.mode==='ready'&&ui.project!=='all'&&!P(ui.project))ui.project='all';
   var keep={},a=document.activeElement,aid=a&&a.classList&&a.classList.contains('keep')?a.id:null,s0,s1;
   Array.prototype.forEach.call(document.querySelectorAll('#view .keep'),function(el){keep[el.id]=el.value});
@@ -3262,6 +3352,7 @@ function draw(){
   else if(ui.view==='content')h=drawContent();
   else if(ui.view==='services')h=drawServices();
   else if(ui.view==='budget')h=drawBudget();
+  else if(ui.view==='team')h=drawTeam();
   else if(ui.view==='contacts')h=drawContacts();
   else h=p?drawOverviewOne(p):drawOverviewAll();
   var v=$('#view');
@@ -3273,6 +3364,7 @@ function draw(){
   initSort();
   if(pop){if(ui.view==='calendar')popPlace();else popClose()}
   selHide();selEnhance(document);
+  if(tr.on)trPlace();else trAuto();
 }
 
 /* ---------- sheet & forms ---------- */
@@ -4226,6 +4318,10 @@ document.addEventListener('click',function(e){
     case 'data-load':dataLoad(t);break;
     case 'data-merge':dataMerge(t);break;
     case 'rv-parse':reAnalyze(d.id);break;
+    case 'tour':trStart();break;
+    case 'tr-next':trGo(1);break;
+    case 'tr-prev':trGo(-1);break;
+    case 'tr-skip':trEnd();break;
   }
 });
 document.addEventListener('keydown',function(e){if(mnKey(e))e.stopImmediatePropagation()},true);
@@ -4266,6 +4362,137 @@ document.addEventListener('pointercancel',function(e){msUp(e,true)});
 document.addEventListener('focusin',function(e){var el=e.target&&e.target.closest?e.target.closest('.dm[data-id]'):null;if(el&&!msDrag&&ui.msSel!==el.dataset.id)selectMs(el)});
 var mq=window.matchMedia('(min-width:900px)');
 if(mq.addEventListener)mq.addEventListener('change',function(){initSort()});
+
+/* ---------- guided tour ----------
+   Teaches the interface in place: each step lights one real element and says what it is for.
+   Steps depend on the role (owner, editor, viewer) and on the width (sidebar or bottom tabs).
+   «Seen» is remembered per browser; the «?» button in the top bar starts it again. */
+var tr={on:false,i:0,steps:[],back:null,auto:false,dir:1};
+var TR_KEY='dash.tour';
+function trSeen(){try{return localStorage.getItem(TR_KEY)==='1'}catch(e){return !!tr.mem}}
+function trMark(){tr.mem=true;try{localStorage.setItem(TR_KEY,'1')}catch(e){}}
+function trFirst(){var a=S.projects.filter(function(p){return p.status==='active'});return (a[0]||S.projects[0]||{}).id||''}
+function trSteps(){
+  var w=wide(),has=S.projects.length>0,L=[];
+  L.push({t:'Как тут всё устроено',x:'Проведу по главным местам: проекты, разделы, добавление, план и календарь. Это около минуты.'+(w?' Листать можно кнопками или стрелками на клавиатуре.':'')});
+  if(w)L.push({s:'#side .side-list',t:'Проекты',x:'Слева все проекты по группам. Нажми на проект, и каждый раздел покажет только его. «Все проекты» над списком возвращает общую картину.'});
+  else L.push({s:'#top .sw',t:'Переключатель проектов',x:'Здесь выбирается проект. Выбрал, и каждый раздел показывает только его. «Все проекты» возвращает общую картину.'});
+  L.push({s:w?'#top .vt':'#tabs',t:'Разделы',x:'Разделы показывают одни и те же данные с разных сторон. Обзор: что происходит. План: что делать сегодня и на неделе. Борда: задачи по стадиям. Календарь: всё, у чего есть дата.'+(w?'':' Остальные разделы открывает «Ещё».')});
+  if(!ui.ro)L.push({s:'#top .add',t:'Добавить',x:'Отсюда создаётся всё: задача, майлстоун, событие, проект, пост. Кнопка остаётся на месте в любом разделе.'});
+  if(has){
+    L.push({v:'overview',p:'all',s:'#view .now',t:'Ближайшее и загрузка недели',x:'«Ближайшее» собирает сроки и встречи на подходе. «Загрузка недели» сравнивает часы проектов в работе с тем, сколько часов в неделю ты готов им отдавать.'});
+    if(!ui.ro)L.push({v:'overview',p:'all',s:'#inbox-f',t:'Входящие',x:'Мысль пришла не вовремя? Запиши её сюда одной строкой. Позже кнопка «В задачу» превратит запись в задачу нужного проекта.'});
+    L.push({v:'overview',p:'all',s:'#view .card',t:'Карточка проекта',x:'На карточке видно следующий шаг, ближайший майлстоун и сколько задач сделано. Нажми на неё, и откроется страница проекта.'});
+    L.push({v:'overview',p:'first',s:'#view .pinfo',t:'Страница проекта',x:'Здесь всё по одному проекту: зачем он, следующий шаг, майлстоуны, задачи и комментарии ниже.'+(ui.ro?'':' «Изменить» правит карточку.')+(ui.owner?' «Поделиться» открывает проект другому человеку.':'')});
+  }else if(!ui.ro){
+    L.push({v:'overview',p:'all',s:'#view .ag-add',t:'Первый проект',x:'Проектов пока нет. Начни с одного: название, зачем он и следующий шаг. Задачи и майлстоуны добавляются уже внутри проекта.'});
+  }
+  L.push({v:'plan',p:'all',s:'#view .b-top',t:'План',x:'Переключатель горизонта: день, неделя или месяц. Задачи со сроком попадают в план сами, а задачу без срока можно взять в нужный день.'+(w?' Между колонками задачи перетаскиваются.':'')});
+  L.push({v:'board',p:'all',s:'#view .b-top',t:'Борда',x:'Задачи по стадиям: очередь, в работе, готово.'+(w?' Перетащи карточку в другую колонку, и стадия сменится.':' Колонка выбирается кнопками сверху.')+' Тот же переключатель показывает по стадиям сами проекты.'});
+  L.push({v:'calendar',p:'all',s:'#view .cal',t:'Календарь',x:'Всё с датами по дням. Форма подсказывает, что это: ромб — майлстоун, кольцо — задача, квадрат — событие. Нажми на день, чтобы увидеть его список.'});
+  if(ui.owner)L.push({v:w?null:'overview',p:w?null:'all',s:'.side-data',t:'Данные и доступ',x:'«Данные» показывает, сколько чего хранится, и делает копию. Значок рядом открывает доступ: кого пригласить и в какие проекты.'});
+  if(!ui.ro)L.push({v:w?null:'overview',p:w?null:'all',s:'[data-act="settings"]',t:'Настройки',x:'Сколько часов в неделю ты готов отдавать проектам и по какому часовому поясу приложение считает «сегодня».'});
+  L.push({s:'#top .help',t:'Готово',x:'Напоследок: знак @ в любом тексте отмечает проект, задачу, человека или событие. Пройти обучение ещё раз можно этой кнопкой.',last:true});
+  return L;
+}
+function trEl(sel){
+  if(!sel)return null;
+  var a=document.querySelectorAll(sel);
+  for(var i=0;i<a.length;i++){if(a[i].closest('#tour'))continue;var r=a[i].getBoundingClientRect();if(r.width>0&&r.height>0)return a[i]}
+  return null;
+}
+function trStart(){
+  if(tr.on)return;
+  if(!$('#sheet').hidden)closeSheet();
+  if(lg.full)logFull(false);
+  if(pop)popClose();
+  selHide();mnHide();
+  tr.steps=trSteps();tr.i=0;tr.dir=1;tr.on=true;tr.auto=true;
+  tr.back={view:ui.view,project:ui.project};
+  tr.focus=document.activeElement;
+  $('#tour').hidden=false;
+  trShow();
+}
+function trEnd(){
+  if(!tr.on)return;
+  tr.on=false;trMark();
+  $('#tour').hidden=true;
+  var b=tr.back;tr.back=null;
+  if(b){ui.project=b.project;if(ui.view!==b.view)setView(b.view);else render()}
+  var h=$('#top .help');if(h)setTimeout(function(){var q=$('#top .help');if(q)q.focus()},30);
+}
+function trGo(n){
+  if(!tr.on)return;
+  var j=tr.i+n;
+  if(j<0)return;
+  if(j>=tr.steps.length){trEnd();return}
+  tr.i=j;tr.dir=n<0?-1:1;trShow();
+}
+function trShow(){
+  var st=tr.steps[tr.i];if(!st)return trEnd();
+  var ch=false;
+  if(st.p){var pid=st.p==='first'?trFirst():'all';if(st.p==='first'&&!pid)pid='all';if(ui.project!==pid){ui.project=pid;ch=true}}
+  if(st.v&&ui.view!==st.v){ui.view=st.v;ui.msSel=null;try{if(location.hash!=='#'+st.v)location.hash=st.v}catch(e){}ch=true}
+  if(ch){if(pending){clearTimeout(pending);pending=0}tr.quiet=true;draw();tr.quiet=false}
+  var el=trEl(st.s);
+  /* A step whose element is not on this screen is passed over in the direction of travel. */
+  if(st.s&&!el){var j=tr.i+tr.dir;if(j>=0&&j<tr.steps.length){tr.i=j;return trShow()}if(tr.dir<0){tr.dir=1;tr.i++;return trShow()}}
+  if(el){
+    var vh=window.innerHeight,r=el.getBoundingClientRect();
+    if(r.top<8||r.bottom>vh-8){try{el.scrollIntoView({block:r.height>vh*.55?'start':'center',inline:'nearest'})}catch(e){}}
+  }
+  var n=tr.steps.length,c=$('#tour .tr-card'),first=tr.i===0;
+  c.innerHTML='<div class="tr-n"><span>'+(tr.i+1)+' из '+n+'</span><span class="tr-bar"><i style="width:'+Math.round((tr.i+1)/n*100)+'%"></i></span></div>'+
+    '<h2 id="tr-t">'+esc(st.t)+'</h2><p>'+esc(st.x)+'</p>'+
+    '<div class="tr-a">'+(st.last?'<span class="tr-sk" style="text-decoration:none"></span>':'<button class="tr-sk" data-act="tr-skip">Пропустить</button>')+(first?'':'<button class="btn sm" data-act="tr-prev">Назад</button>')+'<button class="btn sm pri" data-act="tr-next">'+(st.last?'Понятно':first?'Начать':'Дальше')+'</button></div>';
+  trPlace();
+  var nb=c.querySelector('[data-act="tr-next"]');if(nb){try{nb.focus({preventScroll:true})}catch(e){nb.focus()}}
+}
+function trPlace(){
+  if(!tr.on||tr.quiet)return;
+  var st=tr.steps[tr.i];if(!st)return;
+  var hole=$('#tour .tr-hole'),c=$('#tour .tr-card'),vw=window.innerWidth,vh=window.innerHeight,el=trEl(st.s),m=12;
+  var cw=c.offsetWidth,chh=c.offsetHeight,x,y;
+  if(!el){
+    hole.classList.add('none');hole.style.left=Math.round(vw/2)+'px';hole.style.top=Math.round(vh/2)+'px';hole.style.width='0px';hole.style.height='0px';
+    x=(vw-cw)/2;y=(vh-chh)/2;
+  }else{
+    var r=el.getBoundingClientRect(),pd=6;
+    var l=Math.max(4,r.left-pd),t=Math.max(4,r.top-pd),rt=Math.min(vw-4,r.right+pd),bt=Math.min(vh-4,r.bottom+pd);
+    hole.classList.remove('none');hole.style.left=l+'px';hole.style.top=t+'px';hole.style.width=Math.max(0,rt-l)+'px';hole.style.height=Math.max(0,bt-t)+'px';
+    var cx=Math.min(Math.max(m,(l+rt)/2-cw/2),vw-cw-m),cy=Math.min(Math.max(m,t),vh-chh-m);
+    if(bt+m+chh<=vh-m){x=cx;y=bt+m}
+    else if(t-m-chh>=m){x=cx;y=t-m-chh}
+    else if(rt+m+cw<=vw-m){x=rt+m;y=cy}
+    else if(l-m-cw>=m){x=l-m-cw;y=cy}
+    else if(t+120+m+chh<=vh-m){bt=vh-chh-2*m;hole.style.height=Math.max(0,bt-t)+'px';x=cx;y=bt+m} /* a tall element: light its top part and keep the card clear of it */
+    else{x=cx;y=(t+bt)/2<vh/2?vh-chh-m:m}
+  }
+  c.style.left=Math.round(Math.max(m,Math.min(x,vw-cw-m)))+'px';c.style.top=Math.round(Math.max(m,Math.min(y,vh-chh-m)))+'px';
+}
+/* First visit: start by itself once the data is on screen and nothing else is open. */
+function trAuto(){
+  if(tr.auto||ui.mode!=='ready')return;
+  tr.auto=true;
+  if(trSeen()||ui.open)return;
+  setTimeout(function(){if(!tr.on&&!trSeen()&&$('#sheet').hidden&&!lg.full&&!ui.open)trStart()},900);
+}
+document.addEventListener('keydown',function(e){
+  if(!tr.on)return;
+  var k=e.key,c=$('#tour .tr-card');
+  if(k==='Escape'){e.preventDefault();e.stopImmediatePropagation();trEnd();return}
+  if(k==='ArrowRight'){e.preventDefault();e.stopImmediatePropagation();trGo(1);return}
+  if(k==='ArrowLeft'){e.preventDefault();e.stopImmediatePropagation();trGo(-1);return}
+  if(k==='Tab'){
+    var f=c.querySelectorAll('button'),a=document.activeElement,i=Array.prototype.indexOf.call(f,a);
+    e.preventDefault();e.stopImmediatePropagation();
+    if(f.length)f[(i<0?0:(i+(e.shiftKey?-1:1)+f.length)%f.length)].focus();
+    return;
+  }
+  if(!(e.target&&e.target.closest&&e.target.closest('#tour'))){e.stopImmediatePropagation()}
+},true);
+window.addEventListener('resize',function(){if(tr.on)trPlace()});
+document.addEventListener('scroll',function(){if(tr.on)trPlace()},true);
 
 /* ---------- start ---------- */
 function start(){
