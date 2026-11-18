@@ -16,7 +16,8 @@ const S = {
     rules: { 5: 'за 5 минут', 15: 'за 15 минут', 60: 'за час', 1440: 'за день' },
     will: (when) => 'Напомню ' + when + '.',
     off: 'Напоминания выключены.',
-    link5: 'Ссылку на созвон пришлю за 5 минут до начала.',
+    linkNow: (u) => 'Ссылка на созвон: ' + u + '\nЗа 5 минут до начала пришлю её ещё раз.',
+    join: 'Открыть созвон',
     choose: 'Кнопками ниже можно выбрать, когда напоминать.',
     gone: 'Эта ссылка на встречу больше не действует. Попросите у организатора новую.',
     goneShort: 'Эта встреча больше не доступна',
@@ -32,6 +33,8 @@ const S = {
       return 'Через ' + m + ' ' + pluralRu(m, 'минуту', 'минуты', 'минут');
     },
     day: (d) => +d.slice(8, 10) + ' ' + MON.ru[+d.slice(5, 7) - 1],
+    // with the year when it is not the current one: a meeting may be far ahead
+    dayFull: (d, year) => +d.slice(8, 10) + ' ' + MON.ru[+d.slice(5, 7) - 1] + (d.slice(0, 4) !== String(year) ? ' ' + d.slice(0, 4) : ''),
   },
   en: {
     meeting: 'Meeting',
@@ -39,7 +42,8 @@ const S = {
     rules: { 5: '5 minutes before', 15: '15 minutes before', 60: '1 hour before', 1440: '1 day before' },
     will: (when) => "I'll remind you " + when + '.',
     off: 'Reminders are off.',
-    link5: "I'll send the call link 5 minutes before the start.",
+    linkNow: (u) => 'Call link: ' + u + "\nI'll send it again 5 minutes before the start.",
+    join: 'Join the call',
     choose: 'Use the buttons below to choose when to be reminded.',
     gone: 'This meeting link no longer works. Please ask the organizer for a new one.',
     goneShort: 'This meeting is no longer available',
@@ -56,6 +60,7 @@ const S = {
       return one(m, 'minute');
     },
     day: (d) => MON.en[+d.slice(5, 7) - 1] + ' ' + +d.slice(8, 10),
+    dayFull: (d, year) => MON.en[+d.slice(5, 7) - 1] + ' ' + +d.slice(8, 10) + (d.slice(0, 4) !== String(year) ? ', ' + d.slice(0, 4) : ''),
   },
 };
 const ok = (lang) => Object.prototype.hasOwnProperty.call(LANGS, String(lang || ''));

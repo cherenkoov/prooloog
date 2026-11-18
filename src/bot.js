@@ -9,6 +9,7 @@ const clock = require('./clock');
 const groups = require('./groups');
 const journal = require('./journal');
 const i18n = require('./i18n');
+const asks = require('./session');
 const ai = require('./ai');
 const mcp = require('./mcp');
 const usage = require('./usage');
@@ -162,8 +163,11 @@ async function route(m, draft, headerText) {
   return say(chat, 'Что сделать с этим текстом?', kb([[{ text: 'Ответ клиента', callback_data: 'k:m' }, { text: 'Во входящие', callback_data: 'k:i' }]].concat(ai.enabled() ? [[{ text: 'Спросить Claude', callback_data: 'k:a' }]] : [], [[{ text: 'Отмена', callback_data: 'x' }]])));
 }
 async function intake(m) {
-  const st0 = await db.getState(m.from.id);
-  if (st0.want === 'ask' && st0.until > now() && m.text && !m.forward_origin) { await db.setState(m.from.id, {}); return askClaude(m.chat.id, m.from.id, m.text); }
+  // a session with Claude is open: the text goes there, a forwarded message goes with its author
+  if (m.text && (await asks.active())) {
+    const d = m.forward_origin ? draftFrom(m, await appTz()) : null;
+    return askClaude(m.chat.id, m.from.id, d ? 'Пересланное сообщение' + (d.from ? ' от ' + d.from : '') + ':\n' + d.text : m.text);
+  }
   const draft = draftFrom(m, await appTz());
   if (!draft.text && !draft.file) return say(m.chat.id, UNSUPPORTED);
   return route(m, draft, draft.fwd ? '' : draft.text);
@@ -232,19 +236,25 @@ async function eventByShare(tok) {
 // A participant talks to the bot in their own language. Where it comes from, in this order:
 // the language the organizer fixed in the link, the one this person chose before, a question with the likely one first.
 const langOf = async (uid) => { const v = await db.kvGet('lang:' + uid); return i18n.ok(v) ? v : ''; };
-function guestKb(evId, rem, lang) {
+// link: the call link of the meeting, when it has one: the participant can open it straight from the message
+function guestKb(evId, rem, lang, link) {
   const L = i18n.of(lang);
-  return kb([GUEST_RULES.slice(0, 2), GUEST_RULES.slice(2)].map((row) => row.map((m) => ({ text: (rem.includes(m) ? '✓ ' : '') + L.rules[m], callback_data: 'er:' + evId + ':' + m })))
+  return kb((remind.okLink(link) ? [[{ text: L.join, url: link }]] : []).concat([GUEST_RULES.slice(0, 2), GUEST_RULES.slice(2)].map((row) => row.map((m) => ({ text: (rem.includes(m) ? '✓ ' : '') + L.rules[m], callback_data: 'er:' + evId + ':' + m }))))
     .concat([[{ text: L.langBtn, callback_data: 'el:' + evId + ':ask' }]]));
 }
 const langKb = (evId, code) => kb([i18n.offer(code).map((x) => ({ text: i18n.LANGS[x], callback_data: 'el:' + evId + ':' + x }))]);
 async function guestText(e, rem, tz, lang) {
   const L = i18n.of(lang);
-  const s = remind.starts(e.data, tz, Date.now()).filter((x) => x.ms > Date.now() - 600000)[0];
   const timed = /^\d{2}:\d{2}$/.test(e.data.time || '');
-  return '<b>' + esc(e.data.title || L.meeting) + '</b>\n' + (s ? L.day(s.d) + (timed ? ', ' + e.data.time + ' (' + remind.offsetLabel(s.ms, tz) + ')' : '') : L.tbd) +
-    '\n\n' + (rem.length ? L.will(rem.slice().sort((a, b) => a - b).map((m) => L.rules[m] || '').filter(Boolean).join(', ')) : L.off) +
-    (remind.okLink(e.data.link) ? ' ' + L.link5 : '') + '\n' + L.choose;
+  let s = remind.starts(e.data, tz, Date.now()).filter((x) => x.ms > Date.now() - 600000)[0];
+  // a meeting further than a month ahead still has its date
+  if (!s && !e.data.repeat && /^\d{4}-\d{2}-\d{2}$/.test(e.data.date || '')) {
+    const ms = clock.wallToMs(e.data.date, timed ? e.data.time : '09:00', tz);
+    if (ms > Date.now() - 600000) s = { d: e.data.date, ms };
+  }
+  return '<b>' + esc(e.data.title || L.meeting) + '</b>\n' + (s ? L.dayFull(s.d, clock.parts(Date.now(), tz).d.slice(0, 4)) + (timed ? ', ' + e.data.time + ' (' + remind.offsetLabel(s.ms, tz) + ')' : '') : L.tbd) +
+    (remind.okLink(e.data.link) ? '\n\n' + L.linkNow(esc(e.data.link)) : '') +
+    '\n\n' + (rem.length ? L.will(rem.slice().sort((a, b) => a - b).map((m) => L.rules[m] || '').filter(Boolean).join(', ')) : L.off) + '\n' + L.choose;
 }
 // fixed: the language the organizer put into the link ('' when the participant is to choose)
 async function guestJoin(m, tok, fixed) {
@@ -259,7 +269,7 @@ async function guestJoin(m, tok, fixed) {
   const d = await db.setDoc('evsubs', id, { event: e.id, tg: String(uid), name: auth.fullName(m.from), username: m.from.username || '', rem, lang, asked: settled, u: new Date().toISOString() });
   hub.publish('evsubs', d.id, d.data, d.version);
   if (!settled) return say(chat, '<b>' + esc(e.data.title || '') + '</b>\n' + i18n.PICK, langKb(e.id, code));
-  return say(chat, await guestText(e, rem, await appTz(), lang), guestKb(e.id, rem, lang));
+  return say(chat, await guestText(e, rem, await appTz(), lang), guestKb(e.id, rem, lang, e.data.link));
 }
 async function guestToggle(cq, evId, min) {
   const id = (evId + '-' + cq.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id), e = await db.getDoc('events', evId);
@@ -271,13 +281,13 @@ async function guestToggle(cq, evId, min) {
   hub.publish('evsubs', d.id, d.data, d.version);
   await ack(rem.includes(min) ? L.on(L.rules[min]) : L.removed);
   const msg = cq.message;
-  if (msg && msg.chat) await T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: await guestText(e, d.data.rem, await appTz(), lang), parse_mode: 'HTML', reply_markup: guestKb(evId, d.data.rem, lang) }).catch(() => {});
+  if (msg && msg.chat) await T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: await guestText(e, d.data.rem, await appTz(), lang), parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: guestKb(evId, d.data.rem, lang, e.data.link) }).catch(() => {});
 }
 // el:<event>:ask shows the languages again; el:<event>:<lang> sets one, for this meeting and for the next links
 async function guestLang(cq, evId, want) {
   const id = (evId + '-' + cq.from.id).slice(0, 64), cur = await db.getDoc('evsubs', id), e = await db.getDoc('events', evId), msg = cq.message;
   const ack = (t) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: t || undefined }).catch(() => {});
-  const edit = (html, markup) => (msg && msg.chat ? T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: html, parse_mode: 'HTML', reply_markup: markup }).catch(() => {}) : null);
+  const edit = (html, markup) => (msg && msg.chat ? T.tg('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup }).catch(() => {}) : null);
   if (!cur || !e) return ack(i18n.of(cur && cur.data.lang ? cur.data.lang : i18n.guess(cq.from.language_code)).goneShort);
   if (want === 'ask') { await ack(); return edit('<b>' + esc(e.data.title || '') + '</b>\n' + i18n.PICK, langKb(evId, cur.data.lang || cq.from.language_code)); }
   if (!i18n.ok(want)) return ack();
@@ -285,7 +295,7 @@ async function guestLang(cq, evId, want) {
   hub.publish('evsubs', d.id, d.data, d.version);
   await db.kvSet('lang:' + cq.from.id, want);
   await ack(i18n.of(want).saved);
-  return edit(await guestText(e, remind.rules(d.data.rem), await appTz(), want), guestKb(evId, remind.rules(d.data.rem), want));
+  return edit(await guestText(e, remind.rules(d.data.rem), await appTz(), want), guestKb(evId, remind.rules(d.data.rem), want, e.data.link));
 }
 
 /* ---------- an invite link: access to chosen projects ---------- */
@@ -336,18 +346,21 @@ async function briefing() {
   if (wait.length) { L.push('\nСООБЩЕНИЯ, ЖДУТ РЕВЬЮ'); wait.forEach((m) => L.push('- от ' + (m.from || 'кого-то') + ' (' + name(m.project) + ', ' + (m.date || '') + '): ' + String(m.summary || m.text || '').slice(0, 240))); }
   return L.join('\n').slice(0, 24000);
 }
-async function askClaude(chat, uid, question) {
-  if (!ai.enabled()) return say(chat, 'Claude на сервере пока не подключён. Нужен ключ API: в настройках сервера добавь переменную ANTHROPIC_API_KEY.');
-  const q = String(question || '').trim();
-  if (!q) { await db.setState(uid, { want: 'ask', until: now() + 600 }); return say(chat, 'Что спросить у Claude? Напиши вопрос следующим сообщением.'); }
-  T.tg('sendChatAction', { chat_id: chat, action: 'typing' }).catch(() => {});
-  const st = await db.getState(uid), hist = Array.isArray(st.chat) && st.chatAt > now() - 3600 ? st.chat.slice(-6) : [];
-  const system = 'Ты ассистент владельца в его дэшборде проектов ' + cfg.appName + ' и отвечаешь ему в Telegram. Отвечай по-русски, коротко и по делу, обычным текстом без разметки. ' +
-    'Опирайся на данные ниже; если их не хватает, скажи об этом прямо и ничего не выдумывай. Менять данные ты не можешь: предложи, что записать, а владелец сделает это сам.\n\nДАННЫЕ ДЭШБОРДА\n' + (await briefing());
-  const r = await ai.ask(system, hist.concat([{ role: 'user', content: q.slice(0, 4000) }]), 1500);
-  if (r.error) return say(chat, { not_granted: 'Claude не принял ключ API. Проверь ANTHROPIC_API_KEY в настройках сервера.', rate_limited: 'Claude сейчас перегружен запросами. Попробуй через минуту.', refused: 'Claude отказался отвечать на этот вопрос.' }[r.error] || 'Не получилось получить ответ от Claude. Попробуй ещё раз.');
-  await db.setState(uid, { chat: hist.concat([{ role: 'user', content: q.slice(0, 2000) }, { role: 'assistant', content: r.text.slice(0, 3000) }]).slice(-6), chatAt: now() });
-  for (let i = 0; i < r.text.length && i < 12000; i += 3900) await T.tg('sendMessage', { chat_id: chat, text: r.text.slice(i, i + 3900), link_preview_options: { is_disabled: true } });
+// «Спросить Claude» opens a session: see session.js. The first message may come with it.
+const askClaude = (chat, uid, question) => asks.say(chat, uid, question);
+async function memoryText() {
+  const list = await asks.notes(8), all = (await db.listDocs('memory')).length;
+  if (!all) return 'В памяти Claude пока пусто. Она пополняется, когда завершается сессия («Спросить Claude»), и когда ты просишь что-то запомнить.';
+  return '<b>Память Claude</b>: записей ' + all + '. Последние:\n\n' + list.map((m) => '• <b>' + esc(m.data.date || '') + '</b> ' + esc(m.data.title || '') + (m.data.text && m.data.text !== m.data.title ? '\n' + esc(String(m.data.text).slice(0, 500)) : '')).join('\n\n') +
+    '\n\nСтереть всю память: /forget';
+}
+async function forget(chat, arg) {
+  const docs = await db.listDocs('memory');
+  if (!docs.length) return say(chat, 'В памяти Claude и так пусто.');
+  if (!/^(да|yes)$/i.test(arg)) return say(chat, 'В памяти Claude записей: ' + docs.length + '. Стереть всё? Тогда напиши: /forget да');
+  for (const d of docs) { await db.deleteDoc('memory', d.id); hub.publish('memory', d.id, null, 0); }
+  journal.event('bulk', 'Память Claude стёрта: записей ' + docs.length);
+  return say(chat, 'Стёр память Claude: записей ' + docs.length + '.');
 }
 
 /* ---------- onboarding: one link for a whole chat ---------- */
@@ -405,7 +418,7 @@ function helpText(role) {
     '• Заметка: любой текст можно отправить во входящие.\n' +
     '• Рабочий чат: добавь меня в группу и выбери проект. Буду сохранять переписку на ревью, отвечать участникам по кнопкам и принимать от них задачи.\n' +
     '• /login — ссылка для входа в обычном браузере.\n' +
-    '• /ask вопрос — спросить Claude, он видит проекты, задачи и события.\n' +
+    '• /ask — сессия с Claude: пишешь как в обычном чате, он видит проекты, назначает встречи, ставит и закрывает задачи. Завершается кнопкой под ответом, командой /end или после 30 минут тишины; главное сохраняется в память (/memory).\n' +
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
     '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей, /votes — голоса.\n' +
@@ -429,6 +442,12 @@ async function onCommand(m, role, cmd, arg) {
   if (cmd === 'cancel') { await db.setState(uid, {}); return say(chat, 'Отменил.'); }
   if (!owner) return say(chat, 'Эта команда доступна только владельцу.');
   if (cmd === 'ask') return askClaude(chat, uid, arg);
+  if (cmd === 'end') {
+    const r = await asks.end('command');
+    return say(chat, r.none ? 'Сессии с Claude сейчас нет. Начать: /ask' : asks.closedText(r.memory, false));
+  }
+  if (cmd === 'memory') return say(chat, await memoryText());
+  if (cmd === 'forget') return forget(chat, arg);
   if (cmd === 'connect') {
     if (!https()) return say(chat, 'У сервера пока нет публичного адреса, коннектор выдать не могу.');
     const t = await mcp.token(/^(new|новый)$/i.test(arg));
@@ -484,6 +503,7 @@ async function onCommand(m, role, cmd, arg) {
 
 /* ---------- updates ---------- */
 groups.init({ say, kb, esc, projects, pname, me: () => ({ id: botId, name: botName, readsAll: botReadsAll }) });
+asks.init({ say, kb, esc, briefing, botName: () => botName });
 async function onMessage(m) {
   if (groups.isGroup(m.chat)) return groups.onMessage(m);
   if (!m.chat || m.chat.type !== 'private' || !m.from || m.from.is_bot) return;
@@ -522,6 +542,12 @@ async function onCallback(cq) {
   const stale = async () => { await ack('Уже обработано'); return edit(chat, 'Здесь уже нечего сохранять. Пришли сообщение ещё раз.'); };
 
   if (data === 'x') { await db.setState(uid, {}); await ack('Отменил'); return edit(chat, 'Отменил. Ничего не сохранено.'); }
+  if (data === 'as:end') {
+    const r = await asks.end('button');
+    await ack(r.none ? 'Сессии уже нет' : 'Завершил');
+    if (msg && msg.message_id) await T.tg('editMessageReplyMarkup', { chat_id: chat, message_id: msg.message_id, reply_markup: { inline_keyboard: [] } }).catch(() => {});
+    return say(chat, r.none ? 'Сессия с Claude уже завершена. Начать новую: /ask' : asks.closedText(r.memory, false));
+  }
   if (data === 'k:i') {
     if (!st.draft || !st.draft.text) return stale();
     const id = 'it' + st.draft.mid;
@@ -603,7 +629,7 @@ async function setup() {
     await T.tg('setMyCommands', { commands: [
       { command: 'start', description: 'Открыть ' + cfg.appName },
       { command: 'login', description: 'Ссылка для входа в браузере' },
-      { command: 'ask', description: 'Спросить Claude о проектах' },
+      { command: 'ask', description: 'Сессия с Claude' },
       { command: 'backup', description: 'Копия данных файлом' },
       { command: 'help', description: 'Что умеет бот' },
     ] });

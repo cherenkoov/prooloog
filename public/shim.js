@@ -229,6 +229,8 @@
   }
 
   var filesNs = {
+    // true when the server makes a Zoom room of its own for every meeting
+    zoom: function () { return !!(me && me.app && me.app.zoom); },
     upload: function (blob, meta) {
       return api('POST', '/files', undefined, { body: blob, type: (meta && meta.type) || blob.type || 'image/jpeg' });
     },
@@ -269,6 +271,13 @@
     bot: function () { return (me && me.app && me.app.bot) || ''; },
     readsAll: function () { return !!(me && me.app && me.app.readsAll); }
   };
+  // Onboarding of a project: the link for a chat, who filled the form in and what they answered. For the owner only.
+  var onboardNs = {
+    get: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid)); },
+    on: function (pid) { return api('POST', '/onboard/' + encodeURIComponent(pid), {}); },
+    off: function (pid) { return api('DELETE', '/onboard/' + encodeURIComponent(pid)); },
+    csv: function (pid) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/csv'); }
+  };
   // Who has access and invite links; for the owner only.
   var shareNs = {
     list: function () { return api('GET', '/share'); },
@@ -276,7 +285,8 @@
     dropLink: function (token) { return api('DELETE', '/share/links/' + encodeURIComponent(token)); },
     dropName: function (username) { return api('DELETE', '/share/names/' + encodeURIComponent(username)); },
     setMember: function (id, role, projects) { return api('PATCH', '/share/members/' + encodeURIComponent(id), { role: role, projects: projects }); },
-    dropMember: function (id) { return api('DELETE', '/share/members/' + encodeURIComponent(id)); }
+    dropMember: function (id) { return api('DELETE', '/share/members/' + encodeURIComponent(id)); },
+    chat: function (id) { return api('POST', '/share/members/' + encodeURIComponent(id) + '/chat'); }
   };
 
   /* ---------- start ---------- */
@@ -300,6 +310,7 @@
         if (name === 'downloads') return downloadsNs;
         if (name === 'share') return me && me.role === 'owner' ? shareNs : null;
         if (name === 'chat') return me && me.role === 'owner' ? chatNs : null;
+        if (name === 'onboard') return me && me.role === 'owner' ? onboardNs : null;
         // the journal of actions is kept by the server, so the page does not write its own
         if (name === 'journal') return { server: true };
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;

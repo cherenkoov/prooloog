@@ -9,6 +9,7 @@ const path = require('node:path');
 const PORT = 18080, BOT = '123456:TESTTOKEN', BASE = 'http://127.0.0.1:' + PORT;
 const tgCalls = [], tgFiles = {}, tgMember = {};
 let aiMode = 'ok';
+const aiScript = []; // answers the Claude stand-in gives next, in order (without stream)
 
 function listen(handler) { return new Promise((res) => { const s = http.createServer(handler); s.listen(0, '127.0.0.1', () => res(s)); }); }
 function body(req) { return new Promise((res) => { const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => res(Buffer.concat(c))); }); }
@@ -49,7 +50,8 @@ test.before(async () => {
     if (aiMode === 'badkey') { res.statusCode = 401; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } })); }
     if (!aiSrv.last.body.stream) {
       res.setHeader('content-type', 'application/json');
-      return res.end(JSON.stringify({ id: 'msg_2', type: 'message', role: 'assistant', model: aiSrv.last.body.model, content: [{ type: 'text', text: 'На этой неделе главное: пилот блога.' }], stop_reason: 'end_turn', usage: { input_tokens: 1200, output_tokens: 80 } }));
+      const base = { id: 'msg_2', type: 'message', role: 'assistant', model: aiSrv.last.body.model, content: [{ type: 'text', text: 'На этой неделе главное: пилот блога.' }], stop_reason: 'end_turn', usage: { input_tokens: 1200, output_tokens: 80 } };
+      return res.end(JSON.stringify(Object.assign(base, aiScript.shift() || {})));
     }
     res.setHeader('content-type', 'text/event-stream');
     const ev = (name, data) => res.write('event: ' + name + '\ndata: ' + JSON.stringify(data) + '\n\n');
@@ -441,33 +443,116 @@ test('Claude usage is counted per day, with a cost estimate', async () => {
   assert.equal(u.models['claude-sonnet-5-5'], u.n);
 });
 
-test('the bot answers a question with the dashboard in view', async () => {
+test('a session with Claude in the bot: a talk, actions on the data, memory at the end', async () => {
   aiMode = 'ok';
+  const session = require('../src/session'), dbm = require('../src/db');
+  const docs = async (coll) => (await call('GET', '/api/db/' + coll, { token: ownerToken })).json.docs;
+  const lastMsg = () => aiSrv.last.body.messages[aiSrv.last.body.messages.length - 1];
+  const say = (text) => ({ content: [{ type: 'text', text }], stop_reason: 'end_turn' });
+  const use = (id, name, input, text) => ({ content: (text ? [{ type: 'text', text }] : []).concat([{ type: 'tool_use', id, name, input }]), stop_reason: 'tool_use' });
   await call('PUT', '/api/db/projects/p-ask', { token: ownerToken, json: { data: { name: 'Проект для вопроса', status: 'active', order: 1 } } });
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { zoom: 'https://zoom.us/j/555' } } } });
+
+  // «/ask вопрос» opens a session; the answer carries the button that ends it
   await update(msg(OWNER, { text: '/ask Что у меня на этой неделе?' }));
   assert.equal(lastSay().params.text, 'На этой неделе главное: пилот блога.');
+  assert.deepEqual(lastSay().params.reply_markup.inline_keyboard, [[{ text: 'Завершить сессию', callback_data: 'as:end' }]]);
   const sent = aiSrv.last.body;
   assert.equal(sent.stream, undefined);
-  assert.match(sent.system, /ДАННЫЕ ДЭШБОРДА[\s\S]*Проект для вопроса/);
-  assert.equal(sent.messages[sent.messages.length - 1].content, 'Что у меня на этой неделе?');
-  // the next question carries the short history
-  await update(msg(OWNER, { text: '/ask А потом?' }));
-  assert.equal(aiSrv.last.body.messages.length, 3);
+  assert.match(sent.system, /ДАННЫЕ ДЭШБОРДА СЕЙЧАС[\s\S]*Проект для вопроса/);
+  assert.match(sent.system, /постоянные ссылки владельца: Zoom https:\/\/zoom\.us\/j\/555/);
+  assert.deepEqual(sent.tools.map((t) => t.name), ['status', 'list', 'get', 'write', 'add_message', 'create', 'remember']);
+  assert.ok(sent.tools.every((t) => t.input_schema && t.input_schema.type === 'object' && !t.inputSchema), 'tools in the shape the API takes');
+  assert.equal(lastMsg().content, 'Что у меня на этой неделе?');
+  // from now on a plain message is a turn of the talk, with what was said before
+  await update(msg(OWNER, { text: 'А потом?' }));
+  assert.deepEqual(aiSrv.last.body.messages.map((m) => m.role), ['user', 'assistant', 'user']);
+  assert.equal(lastSay().params.text, 'На этой неделе главное: пилот блога.');
   await new Promise((r) => setTimeout(r, 150));
-  const u = (await call('GET', '/api/db/usage', { token: ownerToken })).json.docs[0].data;
+  const u = (await docs('usage'))[0].data;
   assert.equal(u.by.bot.n, 2); assert.equal(u.by.bot.in, 2400);
   await update(msg(OWNER, { text: '/usage' }));
   assert.match(lastSay().params.text, /запросов \d+[\s\S]*\$/);
-  // «/ask» without a question waits for the next message
+
+  // Claude acts: a meeting is created, and Claude gets the participant's links back
+  aiScript.push(use('tu_1', 'create', { collection: 'events', data: { title: 'Созвон с Джоном', project: 'p-ask', date: '2031-06-01', time: '10:00', call: 'zoom', link: 'https://zoom.us/j/555', rem: [15], lang: 'en' } }, 'Назначаю.'),
+    say('**Готово**: встреча назначена на 1 июня в 10:00.'));
+  await update(msg(OWNER, { text: 'Назначь созвон с Джоном 1 июня в 10 утра, он говорит по-английски' }));
+  assert.equal(lastSay().params.text, 'Готово: встреча назначена на 1 июня в 10:00.', 'plain text for Telegram');
+  const ev = (await docs('events')).find((d) => d.data.title === 'Созвон с Джоном');
+  assert.match(ev.id, /^e[0-9a-f]{10}$/);
+  assert.deepEqual([ev.data.project, ev.data.date, ev.data.time, ev.data.call, ev.data.link, ev.data.rem, ev.data.lang], ['p-ask', '2031-06-01', '10:00', 'zoom', 'https://zoom.us/j/555', [15], 'en']);
+  assert.match(ev.data.share, /^[0-9a-f]{24}$/);
+  const back = aiSrv.last.body.messages, tr = lastMsg().content[0];
+  assert.deepEqual([tr.type, tr.tool_use_id, tr.is_error], ['tool_result', 'tu_1', undefined]);
+  assert.match(tr.content, new RegExp('"english":"https://t\\.me/prooloog_test_bot\\?start=even_' + ev.data.share + '"'));
+  assert.deepEqual(back[back.length - 2].content.map((b) => b.type), ['text', 'tool_use'], 'the tool call goes back as it came');
+  // a tool that fails tells Claude so, and the talk goes on
+  aiScript.push(use('tu_2', 'write', { ops: [{ op: 'merge', collection: 'nope', id: 'x', data: { a: 1 } }] }), say('Такой коллекции нет.'));
+  await update(msg(OWNER, { text: 'Поменяй что-нибудь в nope' }));
+  assert.deepEqual([lastMsg().content[0].is_error, /Unknown collection/.test(lastMsg().content[0].content)], [true, true]);
+  assert.equal(lastSay().params.text, 'Такой коллекции нет.');
+  // a forwarded message inside a session goes to Claude with its author
+  await update(msg(OWNER, { text: 'Давайте в четверг', forward_origin: { type: 'hidden_user', sender_user_name: 'Наташа', date: Math.floor(Date.now() / 1000) } }));
+  assert.equal(lastMsg().content, 'Пересланное сообщение от Наташа:\nДавайте в четверг');
+  // «запомни»: a note in the memory at once
+  aiScript.push(use('tu_3', 'remember', { text: 'Созвоны с Джоном ведём на английском' }), say('Запомнил.'));
+  await update(msg(OWNER, { text: 'Запомни: с Джоном говорим по-английски' }));
+  assert.deepEqual((await docs('memory')).map((d) => [d.data.kind, d.data.text]), [['note', 'Созвоны с Джоном ведём на английском']]);
+
+  // the button ends the session: Claude writes what to remember, the talk is kept next to it
+  aiScript.push(say('Созвон с Джоном и неделя\n- Назначен созвон с Джоном на 1 июня, 10:00, на английском\n- Главное на неделе: пилот блога'));
+  let n = tgCalls.length;
+  await update(tap(OWNER, 'as:end'));
+  assert.equal(lastSay().params.text, 'Сессия с Claude завершена. Запомнил:\n\nСозвон с Джоном и неделя\n- Назначен созвон с Джоном на 1 июня, 10:00, на английском\n- Главное на неделе: пилот блога\n\nВсё, что в памяти: /memory');
+  assert.ok(sinceMark(n, 'editMessageReplyMarkup').length, 'the button is gone from the old answer');
+  assert.match(aiSrv.last.body.system, /^Ты ведёшь память ассистента/);
+  assert.match(aiSrv.last.body.messages[0].content, /^Владелец: Что у меня на этой неделе\?\n\nClaude: На этой неделе главное: пилот блога\./);
+  const mem = (await docs('memory')).find((d) => d.data.kind === 'session').data;
+  assert.deepEqual([mem.title, mem.why, mem.turns, mem.talk.length, mem.talk[0].r, mem.src], ['Созвон с Джоном и неделя', 'button', 12, 12, 'u', 'bot']);
+  assert.equal((await call('GET', '/api/db/memory', { token: bobToken })).status, 403, 'the memory is the owner\'s');
+  // the session is over: a plain text is a note or a client reply again
+  await update(msg(OWNER, { text: 'Просто заметка' }));
+  assert.match(lastSay().params.text, /Что сделать с этим текстом/);
+  await update(tap(OWNER, 'x'));
+  await update(tap(OWNER, 'as:end'));
+  assert.match(lastSay().params.text, /уже завершена/);
+
+  // the next session knows what the earlier ones left
   await update(msg(OWNER, { text: '/ask' }));
-  assert.match(lastSay().params.text, /Напиши вопрос/);
-  await update(msg(OWNER, { text: 'Сколько открытых задач?' }));
-  assert.equal(aiSrv.last.body.messages[aiSrv.last.body.messages.length - 1].content, 'Сколько открытых задач?');
-  // a bad key is explained, not hidden
+  assert.match(lastSay().params.text, /^Сессия с Claude открыта\./);
+  await update(msg(OWNER, { text: 'Что ты помнишь?' }));
+  assert.match(aiSrv.last.body.system, /ПАМЯТЬ ПРОШЛЫХ СЕССИЙ[\s\S]*Назначен созвон с Джоном на 1 июня[\s\S]*Созвоны с Джоном ведём на английском/);
+  assert.equal(aiSrv.last.body.messages.length, 1, 'a new session starts clean');
+  // 30 minutes of silence close it, quietly, with its memory
+  const s = await dbm.kvGet(session.KEY);
+  await dbm.kvSet(session.KEY, Object.assign({}, s, { lastAt: Date.now() - 31 * 60000 }));
+  aiScript.push(say('Вопрос о памяти\n- Владелец спрашивал, что помнит ассистент'));
+  n = tgCalls.length;
+  assert.equal(await session.sweep(), true);
+  const quiet = sinceMark(n, 'sendMessage')[0].params;
+  assert.match(quiet.text, /^Сессия с Claude закрыта: 30 минут было тихо\. Запомнил:\n\nВопрос о памяти/);
+  assert.equal(quiet.disable_notification, true);
+  assert.equal(await session.sweep(), false);
+  assert.equal((await docs('memory')).filter((d) => d.data.why === 'idle').length, 1);
+  // what is in the memory, and how to clear it
+  await update(msg(OWNER, { text: '/memory' }));
+  assert.match(lastSay().params.text, /<b>Память Claude<\/b>: записей 3[\s\S]*Вопрос о памяти[\s\S]*\/forget/);
+  await update(msg(OWNER, { text: '/forget' }));
+  assert.match(lastSay().params.text, /записей: 3\. Стереть всё\? Тогда напиши: \/forget да/);
+  assert.equal((await docs('memory')).length, 3);
+  await update(msg(OWNER, { text: '/forget да' }));
+  assert.equal((await docs('memory')).length, 0);
+  // a bad key is explained, not hidden; nothing is remembered about a talk that never happened
   aiMode = 'badkey';
   await update(msg(OWNER, { text: '/ask ещё вопрос' }));
   assert.match(lastSay().params.text, /не принял ключ/);
   aiMode = 'ok';
+  await update(msg(OWNER, { text: '/end' }));
+  assert.match(lastSay().params.text, /^Сессия с Claude завершена\.$/);
+  assert.equal((await docs('memory')).length, 0);
+  await update(msg(OWNER, { text: '/end' }));
+  assert.match(lastSay().params.text, /Сессии с Claude сейчас нет/);
 });
 
 test('connector for Claude: address from the bot, tools, review rule, merge', async () => {
@@ -551,8 +636,9 @@ test('reminders: rules of the event, the call link, a participant with rules of 
   assert.deepEqual([sub.data.rem, sub.data.lang, sub.data.asked], [[5], 'ru', false], 'subscribed at once, in the likely language, even if the question is never answered');
   await update(tap(EVR, 'el:e-rem:ru'));
   assert.equal(lastSay().method, 'editMessageText');
-  assert.equal(lastSay().params.text, '<b>Созвон с Наташей</b>\n1 дек, 10:00 (UTC+5:30)\n\nНапомню за 5 минут. Ссылку на созвон пришлю за 5 минут до начала.\nКнопками ниже можно выбрать, когда напоминать.');
-  assert.deepEqual(keys(lastSay()), [[['✓ за 5 минут', 'er:e-rem:5'], ['за 15 минут', 'er:e-rem:15']], [['за час', 'er:e-rem:60'], ['за день', 'er:e-rem:1440']], [['🌐 Язык', 'el:e-rem:ask']]]);
+  assert.equal(lastSay().params.text, '<b>Созвон с Наташей</b>\n1 дек, 10:00 (UTC+5:30)\n\nСсылка на созвон: https://zoom.us/j/123\nЗа 5 минут до начала пришлю её ещё раз.\n\nНапомню за 5 минут.\nКнопками ниже можно выбрать, когда напоминать.', 'the call link comes at once, right after the language');
+  assert.deepEqual(keys(lastSay()), [[['Открыть созвон', undefined]], [['✓ за 5 минут', 'er:e-rem:5'], ['за 15 минут', 'er:e-rem:15']], [['за час', 'er:e-rem:60'], ['за день', 'er:e-rem:1440']], [['🌐 Язык', 'el:e-rem:ask']]]);
+  assert.equal(lastSay().params.reply_markup.inline_keyboard[0][0].url, 'https://zoom.us/j/123');
   await update(tap(EVR, 'er:e-rem:15'));
   sub = await subOf(EVE);
   assert.deepEqual([sub.data.rem, sub.data.lang, sub.data.asked], [[15, 5], 'ru', true]);
@@ -565,8 +651,8 @@ test('reminders: rules of the event, the call link, a participant with rules of 
   // the organizer fixed English in the link: no question, whatever the person's Telegram says
   const JOHN = { id: 777301, first_name: 'John', language_code: 'de' };
   await update(msg(JOHN, { text: '/start even_sharetoken123456' }));
-  assert.equal(lastSay().params.text, "<b>Созвон с Наташей</b>\nDec 1, 10:00 (UTC+5:30)\n\nI'll remind you 5 minutes before. I'll send the call link 5 minutes before the start.\nUse the buttons below to choose when to be reminded.");
-  assert.deepEqual(keys(lastSay()).flat().map((b) => b[0]), ['✓ 5 minutes before', '15 minutes before', '1 hour before', '1 day before', '🌐 Language']);
+  assert.equal(lastSay().params.text, "<b>Созвон с Наташей</b>\nDec 1, 10:00 (UTC+5:30)\n\nCall link: https://zoom.us/j/123\nI'll send it again 5 minutes before the start.\n\nI'll remind you 5 minutes before.\nUse the buttons below to choose when to be reminded.");
+  assert.deepEqual(keys(lastSay()).flat().map((b) => b[0]), ['Join the call', '✓ 5 minutes before', '15 minutes before', '1 hour before', '1 day before', '🌐 Language']);
   n = tgCalls.length;
   await update(tap(JOHN, 'er:e-rem:60'));
   assert.equal(sinceMark(n, 'answerCallbackQuery')[0].params.text, "I'll remind you 1 hour before");
@@ -654,6 +740,13 @@ test('invite link: access to chosen projects at a chosen level', async () => {
   // the owner raises her to editor of the same project
   assert.equal((await call('PATCH', '/api/share/members/' + CAROL.id, { token: ownerToken, json: { role: 'editor', projects: ['p-a2'] } })).status, 200);
   assert.equal((await put('tasks/ta-2', { title: 'От Carol', project: 'p-a2' }, ct)).status, 200);
+  // the chat with a person: the bot sends the owner a message where the name opens the person's profile
+  const chatMark = tgCalls.length;
+  assert.equal((await call('POST', '/api/share/members/' + CAROL.id + '/chat', { token: ownerToken })).json.ok, true);
+  const chatSay = sinceMark(chatMark, 'sendMessage')[0];
+  assert.ok(chatSay && String(chatSay.params.chat_id) === String(OWNER.id) && chatSay.params.text.includes('<a href="tg://user?id=' + CAROL.id + '">Carol</a>'), 'the owner gets the link to the person');
+  assert.equal((await call('POST', '/api/share/members/' + CAROL.id + '/chat', { token: ct })).status, 403, 'only the owner asks for it');
+  assert.equal((await call('POST', '/api/share/members/999000111/chat', { token: ownerToken })).status, 404);
   assert.equal((await put('tasks/tb-2', { title: 'Чужое', project: 'p-b2' }, ct)).status, 403);
   assert.equal((await put('tasks/ta-3', { title: 'Без проекта' }, ct)).status, 403);
   assert.equal((await call('PATCH', '/api/db/tasks/ta-2', { token: ct, json: { data: { project: 'p-b2' } } })).status, 403, 'cannot move a record out');
@@ -1099,6 +1192,124 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   assert.deepEqual(await ids('projects'), ['p-net']);
   await update(msg(OWNER, { text: '/onboard Сеть мастеров' }));
   assert.notEqual(/start=join_([A-Za-z0-9_-]+)/.exec(lastSay().params.text)[1], tok);
+});
+
+test('onboarding in the dashboard: the owner sees the link, the people, their answers and the poll', async () => {
+  const FAY = { id: 777010 }, ob = (m, path, token = ownerToken) => call(m, '/api/onboard/' + path, { token, json: m === 'POST' ? {} : undefined });
+  const v = (await ob('GET', 'p-net')).json;
+  assert.match(v.link.url, /^https:\/\/t\.me\/prooloog_test_bot\?start=join_[A-Za-z0-9_-]{12,40}$/);
+  assert.match(v.link.text, /^Коллеги, анкету «ЭкоЧакра» можно заполнить в Telegram[\s\S]*Встреча 19 ноября[\s\S]*start=join_/);
+  assert.deepEqual([v.form.id, v.form.title, v.forms.length >= 1], ['ecochakra', 'ЭкоЧакра', true]);
+  assert.deepEqual(v.people.map((x) => x.name).sort(), ['Alex Owner', 'Bob', 'Fay Mason', 'Gus']);
+  const fay = v.people.find((x) => x.tg === String(FAY.id));
+  assert.deepEqual([fay.username, fay.core, fay.answers['2.2'], /^\d{4}-\d\d-\d\dT/.test(fay.at)], ['fay_hub', true, 'Керамика и чай', true]);
+  assert.ok(fay.summary.length >= 3 && fay.summary.every((x) => typeof x === 'string' && x.includes(': ')), 'the short summary of the answers');
+  assert.ok(v.form.questions.some((q) => q.id === '2.2' && q.label));
+  assert.deepEqual([v.polls[0].id, v.polls[0].opts.map((o) => o.t)], ['meet-1119', ['Утро', 'День', 'Вечер']]);
+  // the answers side by side: who chose what
+  const st = v.stats.find((q) => q.id === '3.2');
+  const plan = st.opts.find((o) => o.t === 'Планирую создать');
+  assert.ok(plan.n >= 3 && plan.who.includes('Fay Mason') && plan.who.includes('Gus'));
+  assert.ok(st.opts.every((o, i) => i === 0 || st.opts[i - 1].n >= o.n), 'the most chosen first');
+  assert.ok(v.stats.every((q) => q.label && q.opts.every((o) => o.n === o.who.length && o.n > 0)));
+  assert.ok(v.stats.find((q) => q.id === '2.1').opts.some((o) => o.t === 'Другое'), 'free «other» answers are counted together');
+  assert.equal(v.polls[0].opts.reduce((n, o) => n + o.n, 0) >= 1, true);
+  // a project nobody came to: no link yet, nothing to show
+  await call('PUT', '/api/db/projects/p-ob2', { token: ownerToken, json: { data: { name: 'Без онбординга', status: 'idea', order: 61 } } });
+  const empty = (await ob('GET', 'p-ob2')).json;
+  assert.deepEqual([empty.link, empty.people, empty.polls.map((p) => p.voters)], [null, [], [0]]);
+  // the link is made in the dashboard, the same one comes back, and it can be switched off
+  const on = (await ob('POST', 'p-ob2')).json;
+  assert.match(on.link.url, /start=join_/);
+  assert.equal((await ob('POST', 'p-ob2')).json.link.url, on.link.url);
+  assert.equal((await call('GET', '/api/join/' + on.link.url.split('join_')[1])).status, 200);
+  assert.equal((await ob('DELETE', 'p-ob2')).json.link, null);
+  assert.equal((await call('GET', '/api/join/' + on.link.url.split('join_')[1])).status, 404);
+  // the table of answers of this project goes to the owner's chat
+  let n = tgCalls.length;
+  assert.deepEqual((await ob('POST', 'p-net/csv')).json, { ok: true, n: 4 });
+  const doc = sinceMark(n, 'sendDocument')[0];
+  assert.equal(String(doc.params.chat_id), String(OWNER.id)); assert.match(doc.params.caption, /Сеть мастеров[\s\S]*ответов 4/);
+  assert.equal((await ob('POST', 'p-ob2/csv')).status, 409);
+  // only the owner; an unknown project is not found
+  assert.equal((await ob('GET', 'p-net', bobToken)).status, 403);
+  assert.equal((await ob('POST', 'p-net', bobToken)).status, 403);
+  assert.equal((await ob('GET', 'p-nope')).status, 404);
+  await call('DELETE', '/api/db/projects/p-ob2', { token: ownerToken });
+});
+
+test('call links: a Zoom link appears by itself when a meeting is made', async () => {
+  const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  const ev = async (id) => (await call('GET', '/api/db/events', { token: ownerToken })).json.docs.find((d) => d.id === id).data;
+  await call('PATCH', '/api/db/settings/main', { token: ownerToken, json: { data: { meet: { zoom: 'https://zoom.us/j/555', meet: 'https://meet.google.com/own-room' } } } });
+  // without Zoom keys: the owner's permanent link is put in
+  assert.equal((await call('GET', '/api/me', { token: ownerToken })).json.app.zoom, false);
+  await put('events/e-z1', { title: 'Созвон без ключей', date: '2031-07-01', time: '15:30', call: 'zoom' });
+  assert.equal((await ev('e-z1')).link, 'https://zoom.us/j/555');
+  await put('events/e-g1', { title: 'В Meet', date: '2031-07-01', time: '16:00', call: 'meet' });
+  assert.equal((await ev('e-g1')).link, 'https://meet.google.com/own-room');
+  await put('events/e-o1', { title: 'Своя ссылка', date: '2031-07-01', time: '17:00', call: 'zoom', link: 'https://zoom.us/j/777' });
+  assert.equal((await ev('e-o1')).link, 'https://zoom.us/j/777', 'a link that is given stays');
+  await put('events/e-n1', { title: 'Не созвон', date: '2031-07-01', time: '18:00' });
+  assert.equal((await ev('e-n1')).link, undefined);
+  // with the keys of a Zoom app: every meeting gets a room of its own
+  const seen = [];
+  let fail = false, rooms = 9000;
+  const zoom = await listen(async (req, res) => {
+    const raw = (await body(req)).toString('utf8');
+    seen.push({ url: req.url, auth: req.headers.authorization, body: raw });
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/oauth/token') return res.end(JSON.stringify({ access_token: 'tok-1', token_type: 'bearer', expires_in: 3600 }));
+    if (fail) { res.statusCode = 500; return res.end(JSON.stringify({ code: 500, message: 'down' })); }
+    rooms++;
+    res.statusCode = 201;
+    res.end(JSON.stringify({ id: rooms, join_url: 'https://zoom.us/j/' + rooms + '?pwd=x' }));
+  });
+  const root = 'http://127.0.0.1:' + zoom.address().port;
+  Object.assign(process.env, { ZOOM_ACCOUNT_ID: 'acc', ZOOM_CLIENT_ID: 'cid', ZOOM_CLIENT_SECRET: 'sec', ZOOM_AUTH_ROOT: root, ZOOM_API_ROOT: root + '/v2' });
+  try {
+    assert.equal((await call('GET', '/api/me', { token: ownerToken })).json.app.zoom, true);
+    await put('events/e-z2', { title: 'Zoom-встреча', date: '2031-07-02', time: '15:30', call: 'zoom', share: 'zoomsharetoken1234' });
+    const z2 = await ev('e-z2');
+    assert.deepEqual([z2.link, z2.zoomId], ['https://zoom.us/j/9001?pwd=x', '9001']);
+    assert.deepEqual([seen[0].url, seen[0].auth, seen[0].body], ['/oauth/token', 'Basic ' + Buffer.from('cid:sec').toString('base64'), 'grant_type=account_credentials&account_id=acc']);
+    assert.deepEqual([seen[1].url, seen[1].auth], ['/v2/users/me/meetings', 'Bearer tok-1']);
+    const tz = await require('../src/clock').appTz();
+    assert.deepEqual(JSON.parse(seen[1].body), { topic: 'Zoom-встреча', type: 2, start_time: '2031-07-02T15:30:00', timezone: tz, duration: 60 });
+    // the key is asked once; a repeating meeting gets a room that stays open; saving again makes no second room
+    await put('events/e-z3', { title: 'Каждую неделю', date: '2031-07-03', time: '10:00', repeat: 'weekly', call: 'zoom' });
+    assert.deepEqual(JSON.parse(seen[2].body), { topic: 'Каждую неделю', type: 3 });
+    assert.equal(seen.filter((x) => x.url === '/oauth/token').length, 1);
+    await call('PATCH', '/api/db/events/e-z2', { token: ownerToken, json: { data: { title: 'Zoom-встреча, перенос' } } });
+    assert.equal(seen.length, 3);
+    assert.equal((await ev('e-z2')).link, 'https://zoom.us/j/9001?pwd=x');
+    // Zoom is down: the permanent link stands in
+    fail = true;
+    await put('events/e-z4', { title: 'Zoom лежит', date: '2031-07-04', time: '10:00', call: 'zoom' });
+    assert.equal((await ev('e-z4')).link, 'https://zoom.us/j/555');
+    fail = false;
+    // Claude in the bot makes a meeting with only «zoom»: the link comes back to him ready
+    aiScript.push({ content: [{ type: 'tool_use', id: 'tu_z', name: 'create', input: { collection: 'events', data: { title: 'Созвон от Claude', date: '2031-07-05', time: '12:00', call: 'zoom' } } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'text', text: 'Назначил.' }], stop_reason: 'end_turn' });
+    await update(msg(OWNER, { text: '/ask назначь созвон в зуме 5 июля в 12' }));
+    const back = aiSrv.last.body.messages;
+    assert.match(back[back.length - 1].content[0].content, /"call_link":"https:\/\/zoom\.us\/j\/9\d{3}\?pwd=x"/);
+    await update(msg(OWNER, { text: '/end' }));
+    // the participant: the language, and the Zoom link at once
+    const KIM = { id: 777401, first_name: 'Kim', language_code: 'en' };
+    await update(msg(KIM, { text: '/start ev_zoomsharetoken1234' }));
+    assert.match(lastSay().params.text, /Choose your language/);
+    await update(tap(KIM, 'el:e-z2:en'));
+    assert.match(lastSay().params.text, /^<b>Zoom-встреча, перенос<\/b>\nJul 2, 2031, 15:30 \(UTC[^)]*\)\n\nCall link: https:\/\/zoom\.us\/j\/9001\?pwd=x\nI'll send it again 5 minutes before the start\.\n\nI'll remind you 5 minutes before\./);
+    assert.deepEqual([lastSay().params.reply_markup.inline_keyboard[0][0].text, lastSay().params.reply_markup.inline_keyboard[0][0].url], ['Join the call', 'https://zoom.us/j/9001?pwd=x']);
+    const j = require('../src/journal'); await j.flush();
+    const log = (await call('GET', '/api/db/audit', { token: ownerToken })).json.docs.flatMap((d) => d.data.items);
+    assert.ok(log.some((e) => e.c === 'events' && e.by === 'Zoom' && e.f.includes('link')), 'the journal says where the link came from');
+  } finally {
+    ['ZOOM_ACCOUNT_ID', 'ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET', 'ZOOM_AUTH_ROOT', 'ZOOM_API_ROOT'].forEach((k) => { delete process.env[k]; });
+    zoom.close();
+  }
+  for (const id of ['e-z1', 'e-g1', 'e-o1', 'e-n1', 'e-z2', 'e-z3', 'e-z4']) await call('DELETE', '/api/db/events/' + id, { token: ownerToken });
 });
 
 test('journal: who did what with the data, kept by the server, outside copies', async () => {

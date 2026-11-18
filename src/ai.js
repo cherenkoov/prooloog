@@ -114,4 +114,29 @@ async function ask(system, messages, maxTokens) {
   return text ? { text, truncated: j.stop_reason === 'max_tokens' } : { error: 'upstream' };
 }
 
-module.exports = { handle, ask, enabled: () => !!cfg.anthropicKey, toMessages };
+// One step of a talk where Claude may call tools. The content blocks come back as they are:
+// the caller runs the tool_use blocks, appends the tool_result blocks and calls again.
+// Shapes: https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
+async function chat({ system, messages, tools, maxTokens }) {
+  if (!cfg.anthropicKey) return { error: 'not_declared' };
+  let up;
+  try {
+    up = await fetch(cfg.aiApiRoot + '/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'anthropic-version': cfg.aiApiVersion, authorization: 'Bearer ' + cfg.anthropicKey },
+      body: JSON.stringify({ model: cfg.aiModel, max_tokens: maxTokens || 2000, system, messages, tools: tools && tools.length ? tools : undefined }),
+      signal: AbortSignal.timeout(120000),
+    });
+  } catch (e) { return { error: 'upstream' }; }
+  const j = await up.json().catch(() => null);
+  if (!up.ok || !j) {
+    const err = (j && j.error) || {};
+    console.error('[ai] upstream refused:', up.status, err.type || '', String(err.message || '').slice(0, 200));
+    return { error: codeFor(up.status, err.type, err.message) };
+  }
+  if (j.usage) usage.record(cfg.aiModel, j.usage, 'bot').catch((e) => console.error('[ai] usage not saved:', e.message));
+  if (j.stop_reason === 'refusal') return { error: 'refused' };
+  return { content: Array.isArray(j.content) ? j.content : [], stop: j.stop_reason };
+}
+
+module.exports = { handle, ask, chat, enabled: () => !!cfg.anthropicKey, toMessages };

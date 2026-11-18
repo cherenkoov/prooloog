@@ -13,6 +13,8 @@ const mcp = require('./mcp');
 const remind = require('./remind');
 const groups = require('./groups');
 const journal = require('./journal');
+const asks = require('./session');
+const calls = require('./calls');
 const T = require('./telegram');
 const join = require('./join');
 
@@ -98,7 +100,7 @@ function build() {
 
   const session = async (user, role) => ({
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
-    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll() }, ownerOnly: [...cfg.ownerOnly],
+    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn() }, ownerOnly: [...cfg.ownerOnly],
     projects: role === 'owner' ? null : await auth.scopeOf(user.id),
   });
   api.post('/auth/telegram', authLimit, json, async (req, res) => {
@@ -118,7 +120,7 @@ function build() {
     res.json(await session({ id }, role));
   });
   api.get('/me', auth.guard(), async (req, res) => {
-    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
+    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
     bot.maybeBackup();
   });
 
@@ -156,6 +158,7 @@ function build() {
     const d = await db.setDoc(coll, req.params.id, req.body.data);
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     journal.note(cur ? 'upd' : 'add', coll, d.id, d.data, cur && cur.data, await who(req));
+    if (coll === 'events') await calls.ensure(d.id).catch((e) => console.error('[calls]', e.message));
     if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
     res.json({ ok: true, version: d.version });
   });
@@ -168,6 +171,7 @@ function build() {
     if (!d) return res.status(404).json({ error: 'not_found' });
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     journal.note('upd', coll, d.id, d.data, cur && cur.data, await who(req));
+    if (coll === 'events') await calls.ensure(d.id).catch((e) => console.error('[calls]', e.message));
     if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
     res.json({ ok: true, version: d.version });
   });
@@ -226,6 +230,18 @@ function build() {
     if (ok) hub.setAccess(req.params.id, a.role, a.projects);
     if (ok) { const m = await db.getMember(req.params.id); journal.event('acc', 'Доступ изменён: ' + ((m && (m.name || m.username)) || req.params.id) + ' — ' + (a.role === 'editor' ? 'редактирует' : 'смотрит') + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты')); }
     res.status(ok ? 200 : 404).json({ ok });
+  });
+  // The chat with a person who has no name in Telegram: the bot sends the owner a message where the person's
+  // name is a link to their profile. Telegram opens a person by id only from such a message.
+  api.post('/share/members/:id/chat', auth.guard('owner'), actLimit, async (req, res) => {
+    if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    const m = await db.getMember(req.params.id);
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const name = String(m.name || (m.username ? '@' + m.username : '') || 'Без имени').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    try {
+      await T.tg('sendMessage', { chat_id: req.user.id, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, text: 'Чат с человеком: <a href="tg://user?id=' + req.params.id + '">' + name + '</a>\nНажми на имя: откроется профиль, оттуда можно написать.' });
+    } catch (e) { return res.status(502).json({ error: 'bot_unavailable' }); }
+    res.json({ ok: true });
   });
   api.delete('/share/members/:id', auth.guard('owner'), async (req, res) => {
     if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
@@ -291,6 +307,41 @@ function build() {
 
   api.use('/join', limiter(120, 60000), json, join.router(() => bot.name()));
 
+  /* ---------- onboarding of a project: the owner's view in the dashboard ---------- */
+  const obProject = async (req, res) => {
+    const id = String(req.params.project || ''), p = ID_RE.test(id) ? await db.getDoc('projects', id) : null;
+    if (!p) { res.status(404).json({ error: 'no_project' }); return null; }
+    return p;
+  };
+  const obView = async (req, res, p) => { res.setHeader('Cache-Control', 'no-store'); res.json(await join.overview(p.id, bot.name())); };
+  api.get('/onboard/:project', auth.guard('owner'), async (req, res) => { const p = await obProject(req, res); if (p) await obView(req, res, p); });
+  api.post('/onboard/:project', auth.guard('owner'), actLimit, json, async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const f = join.form(req.body && req.body.form) || join.forms()[0];
+    if (!f) return res.status(409).json({ error: 'no_form' });
+    if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
+    const had = (await db.listJoinLinks()).some((l) => l.project === p.id && l.form === f.id);
+    await join.linkFor(p.id, f.id);
+    if (!had) journal.event('acc', 'Онбординг включён: проект «' + String(p.data.name || '') + '», анкета «' + f.title + '»');
+    await obView(req, res, p);
+  });
+  api.delete('/onboard/:project', auth.guard('owner'), async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    if (await db.revokeJoinLinks(p.id)) journal.event('acc', 'Онбординг выключен: проект «' + String(p.data.name || '') + '»');
+    await obView(req, res, p);
+  });
+  // the table of answers goes to the owner's chat with the bot: a file is of little use inside Telegram's window
+  api.post('/onboard/:project/csv', auth.guard('owner'), actLimit, async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const o = await join.overview(p.id, bot.name()), f = o.form && join.form(o.form.id);
+    if (!f || !o.people.length) return res.status(409).json({ error: 'empty' });
+    const t = await join.csv(f, p.id);
+    try {
+      await require('./telegram').sendDocument(req.user.id, 'answers-' + f.id + '-' + p.id + '.csv', t.body, 'Анкета «' + f.title + '», проект «' + String(p.data.name || '') + '»: ответов ' + t.n + '. Открывается в Excel и Google Таблицах.');
+      res.json({ ok: true, n: t.n });
+    } catch (e) { console.error('[onboard]', e.message); res.status(502).json({ error: 'not_sent' }); }
+  });
+
   api.use((req, res) => res.status(404).json({ error: 'not_found' }));
   app.use('/api', api);
 
@@ -334,8 +385,9 @@ async function start() {
   console.log('[http] ' + cfg.appName + ' is on port ' + cfg.port + (cfg.baseUrl ? ', public address ' + cfg.baseUrl : ''));
   bot.setup();
   remind.use({ bot: () => bot.name() });
+  asks.start();
   if (process.env.REMINDERS !== '0') remind.start();
-  const stop = async () => { remind.stop(); await journal.stop(); hub.closeAll(); server.close(); await db.close(); };
+  const stop = async () => { remind.stop(); asks.stop(); await journal.stop(); hub.closeAll(); server.close(); await db.close(); };
   return { app, server, stop };
 }
 

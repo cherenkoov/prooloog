@@ -225,10 +225,10 @@ async function votesText() {
   return out.join('\n').trim() || 'Голосований пока нет.';
 }
 // Every answer as a table: one row per person, opens in Excel and Google Sheets.
-async function csv(f) {
+async function csv(f, project) {
   const qs = questions(f), polls = f.polls || [], cell = (v) => '"' + flat(v).replace(/"/g, '""') + '"';
   const rows = [['Дата', 'Имя в Telegram', 'Telegram'].concat(qs.map((q) => q.id + ' ' + q.label), polls.map((p) => p.title)).map(cell).join(',')];
-  const list = (await entries(f)).sort((a, b) => String(a.data.at || '').localeCompare(String(b.data.at || '')));
+  const list = (await entries(f)).filter((d) => !project || d.data.project === project).sort((a, b) => String(a.data.at || '').localeCompare(String(b.data.at || '')));
   for (const d of list) {
     const x = d.data, a = x.answers || {};
     rows.push([String(x.at || '').slice(0, 10), x.name || '', x.username ? '@' + x.username : ''].concat(qs.map((q) => a[q.id]), polls.map((p) => (x.votes || {})[p.id])).map(cell).join(','));
@@ -236,4 +236,33 @@ async function csv(f) {
   return { n: list.length, body: Buffer.from('﻿' + rows.join('\r\n'), 'utf8') };
 }
 
-module.exports = { router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally };
+// The onboarding of one project as its owner sees it in the dashboard: the link, who came and what they
+// answered, how the polls stand.
+async function overview(project, botName) {
+  const all = forms(), link = (await db.listJoinLinks()).find((l) => l.project === project) || null;
+  const out = { forms: all.map((x) => ({ id: x.id, title: x.title })), link: null, form: null, people: [], polls: [] };
+  // the form of the live link; without a link, the form people of this project have already filled in
+  let f = link ? form(link.form) : null;
+  if (!f) { const mine = (await db.listDocs('joins')).find((d) => d.data.project === project); f = (mine && form(mine.data.form)) || all[0] || null; }
+  if (!f) return out;
+  const list = (await entries(f)).filter((d) => d.data.project === project);
+  if (link && botName) {
+    const u = url(botName, link.token);
+    out.link = { url: u, form: link.form, text: 'Коллеги, анкету «' + f.title + '» можно заполнить в Telegram: ' + (f.coreTime || 'пара минут') + ', вопросы с вариантами ответа.' +
+      ((f.polls || []).length ? ' Там же голосование: ' + f.polls.map((x) => x.title).join(', ') + ', и видно, кто за что проголосовал.' : '') + '\n\n' + u };
+  }
+  out.form = { id: f.id, title: f.title, questions: questions(f).map((q) => ({ id: q.id, label: q.label })) };
+  out.people = list.map((d) => ({ id: d.id, tg: d.data.tg, name: d.data.name || '', username: d.data.username || '', at: d.data.at || '', core: !!d.data.core, more: !!d.data.more, summary: summaryLines(f, d.data.answers || {}), answers: d.data.answers || {} }));
+  out.polls = tally(f, list, '');
+  // the answers side by side: for every question with choices, how many picked each one and who
+  const name = (d) => d.data.name || (d.data.username ? '@' + d.data.username : 'Участник');
+  out.stats = questions(f).filter((q) => (q.t === 'one' || q.t === 'many') && Array.isArray(q.opts)).map((q) => {
+    const rows = {}, add = (k, d) => { (rows[k] = rows[k] || []).push(name(d)); };
+    list.forEach((d) => { const v = (d.data.answers || {})[q.id]; (Array.isArray(v) ? v : v ? [v] : []).forEach((x) => add(String(x).startsWith(OTHER + ': ') ? OTHER : String(x), d)); });
+    const opts = q.opts.concat(rows[OTHER] && !q.opts.includes(OTHER) ? [OTHER] : []).map((o) => ({ t: o, n: (rows[o] || []).length, who: rows[o] || [] })).filter((o) => o.n);
+    return { id: q.id, label: q.s || q.label, opts: opts.sort((a, b) => b.n - a.n) };
+  }).filter((q) => q.opts.length);
+  return out;
+}
+
+module.exports = { router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview };

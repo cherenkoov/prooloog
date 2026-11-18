@@ -425,6 +425,25 @@ button.lg-r:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .lg-box.full button.lg-r:hover{background:var(--surface2)}
 .lg-box.full .lg-x{white-space:normal;overflow-wrap:anywhere}
 @media (max-width:899px){.lg-full{padding:12px 12px calc(12px + env(safe-area-inset-bottom,0px))}.lg-fh h2{flex-basis:100%;margin:0}}
+/* onboarding */
+#ob-p input{width:100%}
+.ob-pl{font-size:13px;color:var(--mute);margin-top:6px}
+.ob-pl b{color:var(--ink);font-weight:600;margin-right:6px}
+.ob-poll{margin:8px 0 12px}
+.ob-opt{display:grid;grid-template-columns:minmax(70px,auto) 28px minmax(0,1fr);gap:10px;align-items:baseline;padding:5px 0;border-top:1px solid var(--line);font-size:14px}
+.ob-opt .mute{font-size:13px}
+.ob-u{border-top:1px solid var(--line);padding:9px 0}
+.ob-u summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;list-style:none;border-radius:6px;position:relative;padding-right:24px}
+.ob-u summary::-webkit-details-marker{display:none}
+.ob-u summary::after{content:"";position:absolute;right:6px;top:5px;width:7px;height:7px;border-right:1.6px solid var(--mute);border-bottom:1.6px solid var(--mute);transform:rotate(45deg)}
+.ob-u[open] summary::after{transform:rotate(-135deg);top:9px}
+.ob-n{font-weight:600}
+.ob-d{font-size:12px}
+.ob-s{flex-basis:100%;font-size:13px;color:var(--mute);overflow-wrap:anywhere}
+.ob-a{display:grid;gap:8px;margin-top:10px;padding-left:2px}
+.ob-a>div{display:grid;gap:1px}
+.ob-a .mute{font-size:12px}
+.ob-a span+span{overflow-wrap:anywhere}
 /* work chats */
 .cl-row>.row{border-top:0}
 .cl-row+.cl-row{border-top:1px solid var(--line)}
@@ -438,6 +457,10 @@ button.lg-r:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 #sh-pl{max-height:210px;overflow-y:auto}
 #sh-lists .cl-row>.row{cursor:default;border-top:0}
 #sh-lists .cl-row>.row:hover{background:none}
+#sh-lists .cl-row>.row[data-member]{cursor:pointer;user-select:none;-webkit-user-select:none;border-radius:8px;touch-action:manipulation}
+#sh-lists .cl-row>.row[data-member]:hover{background:var(--surface2)}
+#sh-lists .cl-row>.row[data-member]:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+#sh-lists a.btn,#ct-go a.btn{color:var(--ink);text-decoration:none}
 #sh-link a.btn{color:var(--ink);text-decoration:none}
 #sh-lists .cl-row+.cl-row{border-top:1px solid var(--line)}
 #sh-lists .acts{flex-wrap:wrap;justify-content:flex-end}
@@ -1091,7 +1114,7 @@ function drawOverviewOne(p){
   }).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
   h+='</section></div>';
   h+=cyclePanel(p,true);
-  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+subsPanel(p);
+  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+obPanel(p)+subsPanel(p);
   return h+notesPanel(p);
 }
 
@@ -2239,6 +2262,73 @@ function dataSync(t){
   });
 }
 
+/* ---------- onboarding of a project: one link for a chat, a form in Telegram, who came and what they answered ---------- */
+var obNs=null,ob={};
+function obHas(v){return !(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length))}
+function obLoad(pid,force){
+  var x=ob[pid];
+  if(!obNs||(x&&x.st==='load')||(x&&!force&&Date.now()-x.at<60000))return;
+  ob[pid]={st:'load',d:x?x.d:null,at:Date.now()};
+  Promise.resolve(obNs.get(pid)).then(function(d){ob[pid]={st:'ok',d:d,at:Date.now()};obPaint(pid)},function(){ob[pid]={st:'err',d:x?x.d:null,at:0};obPaint(pid)});
+}
+function obSet(pid,d){ob[pid]={st:'ok',d:d,at:Date.now()};obPaint(pid)}
+function obPaint(pid){
+  var p=P(pid),el=$('#ob-p'),sh=$('#ob-sheet');
+  if(el&&el.dataset.id===pid&&p)el.innerHTML=obInner(p);
+  if(sh&&sh.dataset.id===pid)sh.innerHTML=obSheet(pid);
+}
+function obPanel(p){
+  if(!ui.owner||!obNs)return '';
+  obLoad(p.id);
+  return '<section class="panel" id="ob-p" data-id="'+esc(p.id)+'">'+obInner(p)+'</section>';
+}
+function obInner(p){
+  var x=ob[p.id],d=x&&x.d,id=esc(p.id);
+  if(!d)return '<div class="ph"><h2>Онбординг</h2></div><p class="mute">'+(x&&x.st==='err'?'Не получилось загрузить. <button type="button" class="tlink" data-act="ob-refresh" data-id="'+id+'">Попробовать ещё раз</button>':'Загружаю…')+'</p>';
+  var n=d.people.filter(function(u){return u.core}).length,m=d.people.filter(function(u){return u.more}).length;
+  var h='<div class="ph"><h2>Онбординг</h2><span class="pbtn">'+(d.people.length?'<button type="button" class="btn sm w" data-act="ob-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+
+    (d.link?'':'<button type="button" class="btn sm" data-act="ob-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
+  if(!d.link)return h+'<p class="mute">Одна ссылка для командного чата. Человек заполняет анкету'+(d.form?' «'+esc(d.form.title)+'»':'')+' в Telegram и сразу попадает в этот проект с правом вести задачи, а ты получаешь сообщение о каждом.</p><p class="sg-out" id="ob-out" role="status"></p>';
+  h+='<input id="ob-url" readonly value="'+esc(d.link.url)+'" aria-label="Ссылка онбординга"><div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="ob-copy" data-id="'+id+'">Скопировать ссылку</button><button type="button" class="btn sm" data-act="ob-text" data-id="'+id+'">Скопировать текст для чата</button><button type="button" class="btn sm dng" data-act="ob-off" data-id="'+id+'">Выключить ссылку</button></div>'+
+    '<p class="sg-out" id="ob-out" role="status" style="margin-top:8px">Анкета «'+esc(d.form?d.form.title:'')+'» · заполнили: '+n+(m?' · расширенную часть: '+m:'')+'. Ссылка многоразовая: каждый, кто заполнит анкету, получает доступ только к этому проекту.</p>';
+  d.polls.forEach(function(q){if(q.voters)h+='<p class="ob-pl"><b>'+esc(q.title)+'</b> '+q.opts.map(function(o){return esc(o.t)+' — '+o.n}).join(' · ')+'</p>'});
+  return h;
+}
+function obSheet(pid){
+  var x=ob[pid],d=x&&x.d,id=esc(pid);if(!d)return '<p class="mute">Загружаю…</p>';
+  var h='',qs=d.form?d.form.questions:[];
+  if(d.polls.length)h+='<div class="chat-h" style="margin-top:0;border-top:0;padding-top:0"><h2>Голосования</h2></div>'+d.polls.map(function(q){
+    return '<div class="ob-poll"><p><b>'+esc(q.title)+'</b><span class="mute"> · проголосовали: '+q.voters+'</span></p>'+q.opts.map(function(o){return '<div class="ob-opt"><span>'+esc(o.t)+'</span><b>'+o.n+'</b><span class="mute">'+esc(o.who.join(', '))+'</span></div>'}).join('')+'</div>'}).join('');
+  if(d.stats&&d.stats.length)h+='<div class="chat-h"'+(d.polls.length?'':' style="margin-top:0;border-top:0;padding-top:0"')+'><h2>Сводка по ответам</h2></div>'+d.stats.map(function(q){
+    return '<details class="ob-u"><summary><span class="ob-n">'+esc(q.label)+'</span><span class="ob-s">'+esc(q.opts.slice(0,3).map(function(o){return o.t+' — '+o.n}).join(' · '))+(q.opts.length>3?' · …':'')+'</span></summary><div class="ob-a">'+q.opts.map(function(o){return '<div><span><b>'+esc(o.t)+'</b> — '+o.n+'</span><span class="mute">'+esc(o.who.join(', '))+'</span></div>'}).join('')+'</div></details>'}).join('');
+  h+='<div class="chat-h"'+(d.polls.length||(d.stats&&d.stats.length)?'':' style="margin-top:0;border-top:0;padding-top:0"')+'><h2>Кто заполнил анкету</h2></div>';
+  if(!d.people.length)h+='<p class="mute">Пока никто. Отправь ссылку в командный чат.</p>';
+  else h+=d.people.map(function(u){
+    return '<details class="ob-u"><summary><span class="ob-n">'+esc(u.name||'Без имени')+(u.username?' <span class="mute">@'+esc(u.username)+'</span>':'')+'</span><span class="mute ob-d">'+esc(fmt(String(u.at||'').slice(0,10)))+(u.more?' · расширенная часть':'')+'</span>'+(u.summary.length?'<span class="ob-s">'+esc(u.summary.slice(0,4).join(' · '))+'</span>':'')+'</summary>'+
+      '<div class="ob-a">'+qs.filter(function(k){return obHas(u.answers[k.id])}).map(function(k){var v=u.answers[k.id];return '<div><span class="mute">'+esc(k.label)+'</span><span>'+esc(Array.isArray(v)?v.join('; '):String(v))+'</span></div>'}).join('')+'</div></details>'}).join('');
+  return h+'<div class="acts" style="margin-top:14px">'+(d.people.length?'<button type="button" class="btn" data-act="ob-csv" data-id="'+id+'">Таблица ответов в Telegram</button>':'')+'<button type="button" class="btn" data-act="ob-refresh" data-id="'+id+'">Обновить</button></div><p class="sg-out" id="ob-sout" role="status"></p>';
+}
+function formOnboard(pid){
+  var p=P(pid);if(!p||!obNs)return;
+  obLoad(pid,true);
+  openSheet('Онбординг: '+p.name,'<div id="ob-sheet" data-id="'+esc(pid)+'">'+obSheet(pid)+'</div>',null,false,true);
+}
+function obAct(t,d){
+  var pid=d.id,x=ob[pid],v=x&&x.d,say=function(q,s){var e=$(q);if(e)e.textContent=s};
+  if(!obNs||!P(pid))return;
+  switch(d.act){
+    case 'ob-open':formOnboard(pid);break;
+    case 'ob-refresh':obLoad(pid,true);break;
+    case 'ob-on':t.disabled=true;say('#ob-out','Создаю ссылку…');Promise.resolve(obNs.on(pid)).then(function(r){obSet(pid,r)},function(e){t.disabled=false;say('#ob-out',e&&e.code==='no_bot'?'Бот ещё не подключён к серверу.':e&&e.code==='no_form'?'На сервере нет ни одной анкеты.':'Не получилось создать ссылку. Попробуй ещё раз.')});break;
+    case 'ob-off':
+      if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно выключить?';break}
+      Promise.resolve(obNs.off(pid)).then(function(r){obSet(pid,r)},function(){say('#ob-out','Не получилось выключить ссылку.')});break;
+    case 'ob-copy':if(v&&v.link)copyText(v.link.url,$('#ob-url')||t).then(function(ok){say('#ob-out',ok?'Ссылка скопирована. Отправь её в командный чат.':'Скопируй ссылку из поля выше.')});break;
+    case 'ob-text':if(v&&v.link)copyText(v.link.text,t).then(function(ok){say('#ob-out',ok?'Текст со ссылкой скопирован: его можно вставить в чат как есть.':'Не получилось скопировать текст.')});break;
+    case 'ob-csv':t.disabled=true;say('#ob-sout','Отправляю таблицу в чат с ботом…');Promise.resolve(obNs.csv(pid)).then(function(r){t.disabled=false;say('#ob-sout','Таблица в чате с ботом: ответов '+((r&&r.n)||0)+'. Открывается в Excel и Google Таблицах.')},function(){t.disabled=false;say('#ob-sout','Не получилось отправить таблицу.')});break;
+  }
+}
+
 /* ---------- work chats: the bot sits in a Telegram group that is tied to a project ---------- */
 var chatNs=null;
 var CHC={all:'Все сообщения',ask:'Только обращённое к боту: ответы ему и упоминания',off:'Ничего не сохранять'};
@@ -2309,17 +2399,36 @@ function shPick(){
   Array.prototype.forEach.call(document.querySelectorAll('#sh-pl input:checked'),function(x){ids.push(x.value)});
   return {role:($('#sh-ed')||{}).checked?'editor':'viewer',projects:all?null:ids};
 }
+// the chat with a person in Telegram: a link by their name; without a name the bot sends the owner a message
+// where the person's name opens their profile (Telegram opens a person by id only from such a message)
+function shChatBtn(username,id,label){
+  var u=tgUser(username),n=String(id||'').replace(/\D/g,'');
+  if(u)return '<a class="btn sm" href="https://t.me/'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>';
+  return n&&shareNs&&typeof shareNs.chat==='function'?'<button type="button" class="btn sm" data-act="sh-chat" data-id="'+esc(n)+'">'+esc(label)+'</button>':'';
+}
+function shChatAsk(id){
+  if(!shareNs||typeof shareNs.chat!=='function')return;
+  Promise.resolve(shareNs.chat(id)).then(function(r){toast(r&&r.ok?'Бот прислал тебе сообщение: нажми в нём на имя, откроется чат с этим человеком.':'Не получилось: бот не смог отправить ссылку.')},function(){toast('Не получилось: бот не смог отправить ссылку.')});
+}
+// the card of a person who has access: their contact when there is one (the onboarding form makes it), otherwise a new one, filled in
+function shCard(id){
+  var m=shMember(id);if(!m||!ui.owner)return;
+  var u=String(m.username||'').toLowerCase();
+  var c=byId(S.contacts,'jn-'+m.id)||S.contacts.filter(function(q){return u&&String(q.tg||'').replace(/^@/,'').toLowerCase()===u})[0]||null;
+  if(c)formContact(c.id,null,m.id);
+  else formContact(null,{name:m.name||'',tg:m.username?'@'+m.username:'',projects:Array.isArray(m.projects)?m.projects.filter(function(q){return P(q)}):[]},m.id);
+}
 function shMember(id){return shState?(shState.members||[]).filter(function(x){return x.id===id})[0]||null:null}
-function shRow(main,sub,btns){
-  return '<div class="cl-row"><div class="row"><i class="dot" aria-hidden="true"></i><span class="row-t"><span>'+main+'</span><span class="row-p">'+sub+'</span></span><span></span></div><span class="acts" style="margin:0">'+btns+'</span></div>';
+function shRow(main,sub,btns,who){
+  return '<div class="cl-row"><div class="row"'+(who?' data-member="'+esc(who)+'" tabindex="0" role="button" title="Двойное нажатие: карточка человека"':'')+'><i class="dot" aria-hidden="true"></i><span class="row-t"><span>'+main+'</span><span class="row-p">'+sub+'</span></span><span></span></div><span class="acts" style="margin:0">'+btns+'</span></div>';
 }
 function shDraw(){
   var b=$('#sh-lists');if(!b||!shState)return;
   var m=shState.members||[],l=shState.links||[],n=shState.names||[];
   var h='<div class="chat-h"><h2>У кого есть доступ</h2></div>'+(m.length?'<div class="rows">'+m.map(function(x){
     return shRow(esc(x.name||'Без имени')+(x.username?' <span class="mute">@'+esc(x.username)+'</span>':''),(x.role==='editor'?'Редактирует':'Смотрит')+' · '+esc(shNames(x.projects)),
-      '<button type="button" class="btn sm" data-act="sh-edit" data-id="'+esc(x.id)+'">Изменить</button><button type="button" class="btn sm dng" data-act="sh-drop-member" data-id="'+esc(x.id)+'">Закрыть доступ</button>');
-  }).join('')+'</div>':'<p class="mute">Пока доступ есть только у тебя.</p>');
+      shChatBtn(x.username,x.id,'Написать')+'<button type="button" class="btn sm" data-act="sh-edit" data-id="'+esc(x.id)+'">Изменить</button><button type="button" class="btn sm dng" data-act="sh-drop-member" data-id="'+esc(x.id)+'">Закрыть доступ</button>',x.id);
+  }).join('')+'</div><p class="sg-out" style="margin-top:6px">Двойное нажатие на человека открывает его карточку. «Написать» открывает чат с ним в Telegram.</p>':'<p class="mute">Пока доступ есть только у тебя.</p>');
   if(l.length||n.length)h+='<div class="chat-h"><h2>Приглашения, которыми ещё не воспользовались</h2></div><div class="rows">'+l.map(function(x){
     return shRow((x.role==='editor'?'Редактировать':'Смотреть')+' · '+esc(shNames(x.projects)),'ссылка действует до '+esc(fmt(String(x.expires||'').slice(0,10))),
       '<button type="button" class="btn sm" data-act="sh-copy" data-url="'+esc(x.url)+'">Скопировать</button><button type="button" class="btn sm" data-act="sh-drop-link" data-id="'+esc(x.token)+'">Отозвать</button>');
@@ -2729,7 +2838,7 @@ function meetTick(){
 // On the server the journal is kept by the server for everybody (the owner, guests, the bot, Claude through
 // the connector), and the page only shows it. Copies, merges and syncs do not carry the journal.
 var LOG_KEEP=90,LOG_CAP=600,LOG_SKIP={activity:1,usage:1,gone:1,audit:1,evsubs:1};
-var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['майлстоун','m'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],settings:['настройки','p']};
+var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['майлстоун','m'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],memory:['запись в памяти Claude','f'],settings:['настройки','p']};
 var LOGV={add:{m:'Добавлен',f:'Добавлена',n:'Добавлено',p:'Добавлены'},upd:{m:'Изменён',f:'Изменена',n:'Изменено',p:'Изменены'},del:{m:'Удалён',f:'Удалена',n:'Удалено',p:'Удалены'}};
 var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'майлстоун',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника'};
 var LOGK={projects:'project',tasks:'task',milestones:'milestone',events:'event',posts:'post',services:'service',clients:'client',contacts:'contact'};
@@ -3278,11 +3387,14 @@ function formEvent(id,pre){
       remList(e.rem).forEach(row);sync();
       add.addEventListener('click',function(){var n=list.children.length;row(n===0?15:n===1?60:1440)});
       list.addEventListener('click',function(ev){var x=ev.target.closest('.rem-x');if(x){x.parentNode.remove();sync()}});
+      var zapi=!!(filesNs&&typeof filesNs.zoom==='function'&&filesNs.zoom());
       var hint=function(){
         var k=cs.value;
+        if(k==='zoom'&&zapi){note.textContent=ln.value?'Эта ссылка останется как есть. Чтобы комната Zoom создалась сама, очисти поле.':'Оставь поле пустым: отдельная комната Zoom создастся сама при сохранении, и ссылка появится в событии.';return}
         note.textContent=!k?'':(k==='other'?'':(meet[k]?'Подставлена твоя постоянная ссылка '+CALLS[k]+'. Её можно заменить для этой встречи.':'Вставь свою постоянную ссылку '+CALLS[k]+': она запомнится и будет подставляться сама.'));
       };
-      cs.addEventListener('change',function(){var k=cs.value,saved=Object.keys(meet).map(function(x){return meet[x]});if(!ln.value||saved.indexOf(ln.value)>=0)ln.value=k&&meet[k]?meet[k]:'';hint()});
+      cs.addEventListener('change',function(){var k=cs.value,saved=Object.keys(meet).map(function(x){return meet[x]});if(!ln.value||saved.indexOf(ln.value)>=0)ln.value=k&&meet[k]&&!(k==='zoom'&&zapi)?meet[k]:'';hint()});
+      ln.addEventListener('input',hint);
       hint();
     },!id);
 }
@@ -3341,8 +3453,14 @@ function formMoney(id,pre){
     fld('Категория',inp('cat',m.cat,'list="cats-dl" maxlength="40" autocomplete="off"')+dl)+
     fld('Это план: деньги ещё не пришли или не потрачены','<input type="checkbox" id="f-plan" name="plan"'+(m.plan?' checked':'')+'>','fc rev')),null,!id);
 }
-function formContact(id,pre){
+function ctChat(b,mid){
+  var box=b.querySelector('#ct-go'),f=b.querySelector('#f-tg');if(!box||!f)return;
+  var draw=function(){box.innerHTML=shChatBtn(f.value,tgUser(f.value)?'':mid,'Написать в Telegram');box.hidden=!box.innerHTML};
+  f.addEventListener('input',draw);draw();
+}
+function formContact(id,pre,mid){
   var c=id?byId(S.contacts,id):null;if(id&&!c)return;
+  mid=mid||(/^jn-\d+$/.test(id||'')?id.slice(3):'');
   c=c||merge({name:'',role:'',rel:'',tg:'',phone:'',email:'',projects:ui.project!=='all'&&P(ui.project)?[ui.project]:[],notes:''},pre);
   var pj=cProjects(c);
   var list=S.projects.length?'<div class="f"><span class="f-l">Проекты</span><div class="ckl">'+sorted(S.projects).map(function(p){return '<label><input type="checkbox" id="f-pj-'+esc(p.id)+'" name="pj:'+esc(p.id)+'"'+(pj.indexOf(p.id)>=0?' checked':'')+'><span>'+esc(p.name)+'</span></label>'}).join('')+'</div></div>':'';
@@ -3351,8 +3469,9 @@ function formContact(id,pre){
     fld('Роль в отношениях',inp('rel',c.rel||'','list="rel-dl" maxlength="40" autocomplete="off" placeholder="Клиент, партнёр, наставник: выбери или впиши свою"')+'<datalist id="rel-dl">'+(function(){var u={};RELS.forEach(function(r){u[r]=1});S.contacts.forEach(function(x){if(cRel(x))u[cRel(x)]=1});return Object.keys(u).map(function(r){return '<option value="'+esc(r)+'"></option>'}).join('')})()+'</datalist>')+
     fld('Кто это: должность, компания, коллектив',inp('role',c.role,'maxlength="80" placeholder="Например: кастинг-директор, Portal Dance Family"'))+
     '<div class="f2">'+fld('Telegram',inp('tg',c.tg,'maxlength="64" placeholder="@username" autocapitalize="off" autocomplete="off"'))+fld('Телефон',inp('phone',c.phone,'maxlength="32" inputmode="tel" autocomplete="off"'))+'</div>'+
+    '<div class="acts" id="ct-go" style="margin:0 0 12px" hidden></div>'+
     fld('Почта',inp('email',c.email,'type="email" maxlength="120" autocomplete="off"'))+list+
-    fld('Заметки',ta('notes',c.notes,3))),null,!id);
+    fld('Заметки',ta('notes',c.notes,3))),function(b){ctChat(b,mid)},!id);
 }
 /* ---------- Claude inside the page ---------- */
 var sampleFn=null,chatCtl=null;
@@ -3933,6 +4052,18 @@ function setProject(id,quiet){
 function readHash(){var h=String(location.hash||'').replace('#','');if(VIEWS[h])ui.view=h}
 
 /* ---------- events ---------- */
+var shTap={id:'',t:0};
+document.addEventListener('click',function(e){
+  var r=e.target&&e.target.closest?e.target.closest('#sh-lists .row[data-member]'):null;
+  if(!r){shTap.id='';return}
+  var now=Date.now(),id=r.dataset.member;
+  if(shTap.id===id&&now-shTap.t<450){shTap.id='';var sl=window.getSelection&&window.getSelection();if(sl&&sl.removeAllRanges)sl.removeAllRanges();shCard(id)}
+  else{shTap.id=id;shTap.t=now}
+});
+document.addEventListener('keydown',function(e){
+  var r=e.key==='Enter'&&e.target&&e.target.matches&&e.target.matches('#sh-lists .row[data-member]')?e.target:null;
+  if(r){e.preventDefault();shCard(r.dataset.member)}
+});
 document.addEventListener('change',function(e){
   var t=e.target;if(!t||t.id!=='ev-lang')return;
   var o=byId(S.events,t.dataset.id);if(!o||ui.ro)return;
@@ -4035,6 +4166,7 @@ document.addEventListener('click',function(e){
     case 'pop-undo':popUndo();break;
     case 'data':formData();break;
     case 'usage':formUsage();break;
+    case 'ob-open':case 'ob-refresh':case 'ob-on':case 'ob-off':case 'ob-copy':case 'ob-text':case 'ob-csv':obAct(t,d);break;
     case 'log-full':logFull(!lg.full);break;
     case 'log-f':lg.f=d.v||'all';logPaint();break;
     case 'log-open':logOpen(d.c,d.id);break;
@@ -4051,6 +4183,7 @@ document.addEventListener('click',function(e){
     case 'sh-drop-link':if(shareNs)Promise.resolve(shareNs.dropLink(d.id)).then(shLoad,shLoad);break;
     case 'sh-drop-name':if(shareNs)Promise.resolve(shareNs.dropName(d.id)).then(shLoad,shLoad);break;
     case 'sh-edit':shEditStart(d.id);break;
+    case 'sh-chat':shChatAsk(d.id);break;
     case 'sh-cancel':shEdit=null;shMode();o=$('#sh-out');if(o)o.textContent='';break;
     case 'sh-drop-member':
       if(!shareNs)break;
@@ -4151,6 +4284,7 @@ function start(){
   Promise.resolve(c.use('files')).then(function(f){if(f&&typeof f.upload==='function')filesNs=f}).catch(function(){});
   Promise.resolve(c.use('downloads')).then(function(x){if(x&&typeof x.save==='function')dlNs=x}).catch(function(){});
   Promise.resolve(c.use('share')).then(function(x){if(x&&typeof x.list==='function')shareNs=x}).catch(function(){});
+  Promise.resolve(c.use('onboard')).then(function(x){if(x&&typeof x.get==='function'){obNs=x;render()}}).catch(function(){});
   Promise.resolve(c.use('journal')).then(function(x){lg.srv=!!(x&&x.server)}).catch(function(){lg.srv=false});
   Promise.resolve(c.use('chat')).then(function(x){if(x&&typeof x.post==='function'){chatNs=x;render()}}).catch(function(){});
 }
