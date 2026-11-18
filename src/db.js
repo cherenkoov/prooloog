@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS invite_links (
   used_by bigint,
   used_at timestamptz
 );
+CREATE TABLE IF NOT EXISTS join_links (
+  token text PRIMARY KEY,
+  project text NOT NULL,
+  form text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz
+);
 CREATE TABLE IF NOT EXISTS sent_reminders (
   key text PRIMARY KEY,
   at timestamptz NOT NULL DEFAULT now()
@@ -256,6 +263,16 @@ async function takeInvite(username) { const r = await q('DELETE FROM invites WHE
 async function listInvites() { const r = await q('SELECT username, role FROM invites ORDER BY created_at'); return r.rows; }
 async function removeInvite(username) { const r = await q('DELETE FROM invites WHERE username = $1', [username]); return r.rowCount; }
 
+/* onboarding links: many people, one project, one form; live until revoked */
+async function createJoinLink(project, form) {
+  const token = crypto.randomBytes(12).toString('base64url');
+  await q('INSERT INTO join_links (token, project, form) VALUES ($1, $2, $3)', [token, project, form]);
+  return token;
+}
+async function getJoinLink(token) { const r = await q('SELECT token, project, form FROM join_links WHERE token = $1 AND revoked_at IS NULL', [token]); return r.rows[0] || null; }
+async function listJoinLinks() { const r = await q('SELECT token, project, form FROM join_links WHERE revoked_at IS NULL ORDER BY created_at'); return r.rows; }
+async function revokeJoinLinks(project) { const r = await q('UPDATE join_links SET revoked_at = now() WHERE project = $1 AND revoked_at IS NULL', [project]); return r.rowCount; }
+
 /* ---------- one-time login links ---------- */
 async function createLoginCode(tgId, minutes = 10) {
   const code = crypto.randomBytes(24).toString('base64url');
@@ -288,5 +305,6 @@ module.exports = {
   kvGet, kvSet, kvClaim, getMember, upsertMember, touchMember, listMembers, removeMemberByUsername,
   setMemberAccess, removeMember, createInviteLink, listInviteLinks, useInviteLink, dropInviteLink,
   setInvite, takeInvite, listInvites, removeInvite,
+  createJoinLink, getJoinLink, listJoinLinks, revokeJoinLinks,
   createLoginCode, useLoginCode, getState, setState, putFile, getFile,
 };

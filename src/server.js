@@ -13,6 +13,7 @@ const mcp = require('./mcp');
 const remind = require('./remind');
 const groups = require('./groups');
 const T = require('./telegram');
+const join = require('./join');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const SEED = cfg.seedFile || path.join(__dirname, '..', 'seed', 'initial.json');
@@ -67,6 +68,8 @@ function build() {
   app.get('/healthz', (req, res) => res.type('text').send('ok'));
   app.get('/', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.type('html').send(page()); });
   app.get('/shim.js', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(PUBLIC, 'shim.js')); });
+  // The onboarding page: a form that ends with the person attached to a project.
+  app.get('/join/:token', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
   app.get('/robots.txt', (req, res) => res.type('text').send('User-agent: *\nDisallow: /\n'));
 
   /* ---------- Telegram webhook ---------- */
@@ -241,7 +244,7 @@ function build() {
   api.post('/import', auth.guard('owner'), express.json({ limit: '25mb' }), async (req, res) => {
     const b = req.body || {};
     if (b.app !== 'prooloog' || !isObj(b.docs)) return res.status(400).json({ error: 'bad_request' });
-    const n = await db.importAll(b.docs, cfg.collections, b.mode === 'replace');
+    const n = await db.importAll(b.docs, cfg.allCollections, b.mode === 'replace');
     hub.reloadAll();
     res.json({ ok: true, imported: n });
   });
@@ -264,6 +267,8 @@ function build() {
   });
 
   api.post('/ai', auth.guard('write'), json, (req, res) => ai.handle(req, res));
+
+  api.use('/join', limiter(120, 60000), json, join.router(() => bot.name()));
 
   api.use((req, res) => res.status(404).json({ error: 'not_found' }));
   app.use('/api', api);
@@ -292,7 +297,7 @@ function build() {
 async function seedIfEmpty() {
   if (!fs.existsSync(SEED) || (await db.countDocs()) > 0 || (await db.kvGet('seeded'))) return 0;
   const j = JSON.parse(fs.readFileSync(SEED, 'utf8'));
-  const n = await db.importAll(j.docs || {}, cfg.collections, false);
+  const n = await db.importAll(j.docs || {}, cfg.allCollections, false);
   await db.kvSet('seeded', { at: new Date().toISOString(), docs: n });
   console.log('[seed] imported ' + n + ' records');
   return n;

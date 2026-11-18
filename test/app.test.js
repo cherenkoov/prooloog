@@ -73,7 +73,7 @@ test.before(async () => {
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
-  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders, invite_links');
+  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders, invite_links, join_links');
   await db.close();
   srv = await require('../src/server').start();
   await new Promise((r) => setTimeout(r, 300));   // bot.setup() talks to the Telegram stand-in
@@ -923,6 +923,133 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   assert.ok(sinceMark(n, 'leaveChat').some((c) => String(c.params.chat_id) === String(G2.id)));
   assert.equal((await docs('chats')).find((d) => d.id === 'g1005550000003').data.on, false);
   await call('DELETE', '/api/share/members/' + NAT.id, { token: ownerToken });
+});
+
+test('onboarding: a link for a chat, the form, access to one project, a poll', async () => {
+  const FAY = { id: 777010, first_name: 'Fay', last_name: 'Mason', username: 'fay_hub' }, GUS = { id: 777011, first_name: 'Gus' };
+  const post = (tok, path, json) => call('POST', '/api/join/' + tok + path, { json });
+  const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  await put('projects/p-net', { name: 'Сеть мастеров', status: 'idea', order: 60 });
+  await put('tasks/te-1', { title: 'Собрать анкеты', project: 'p-net' });
+  // only the owner gets a link; the same link comes back the second time
+  await update(msg(BOB, { text: '/onboard Сеть мастеров' }));
+  assert.doesNotMatch(lastSay().params.text, /start=join_/);
+  await update(msg(OWNER, { text: '/onboard сеть мастеров' }));
+  const tok = /start=join_([A-Za-z0-9_-]{12,40})/.exec(lastSay().params.text)[1];
+  assert.match(lastSay().params.text, /Встреча 19 ноября/);
+  await update(msg(OWNER, { text: '/onboard Сеть мастеров' }));
+  assert.equal(/start=join_([A-Za-z0-9_-]+)/.exec(lastSay().params.text)[1], tok);
+  // a name the bot cannot place: the project is picked from buttons, a stranger's tap does nothing
+  await update(msg(OWNER, { text: '/onboard неизвестный' }));
+  assert.match(lastSay().params.text, /Не нашёл проект/);
+  assert.ok(lastSay().params.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'ob:p-net'));
+  let n0 = tgCalls.length;
+  await update(tap(FAY, 'ob:p-net'));
+  assert.equal(sinceMark(n0, 'sendMessage').length, 0);
+  await update(tap(OWNER, 'ob:p-net'));
+  assert.equal(/start=join_([A-Za-z0-9_-]+)/.exec(lastSay().params.text)[1], tok);
+  // a stranger opens the link in the bot and gets the button to the form
+  await update(msg(FAY, { text: '/start join_' + tok }));
+  assert.match(lastSay().params.text, /ЭкоЧакра[\s\S]*Сеть мастеров/);
+  assert.equal(lastSay().params.reply_markup.inline_keyboard[0][0].web_app.url, 'https://prooloog.test/join/' + tok);
+  await update(msg(FAY, { text: '/start join_AAAAAAAAAAAAAAAA' }));
+  assert.match(lastSay().params.text, /больше не действует/);
+  // the page and the form are public by the link; a wrong link shows nothing
+  assert.match((await call('GET', '/join/' + tok)).text, /telegram-web-app\.js/);
+  const pub = await call('GET', '/api/join/' + tok);
+  assert.equal(pub.json.project, 'Сеть мастеров'); assert.equal(pub.json.form.id, 'ecochakra'); assert.equal(pub.json.bot, 'prooloog_test_bot');
+  assert.equal((await call('GET', '/api/join/AAAAAAAAAAAAAAAA')).status, 404);
+  // who you are comes from Telegram only
+  assert.equal((await post(tok, '/me', { initData: 'user=%7B%22id%22%3A1%7D&hash=00' })).status, 401);
+  const me0 = await post(tok, '/me', { initData: initData(FAY) });
+  assert.equal(me0.json.joined, false); assert.equal(me0.json.user.name, 'Fay Mason'); assert.equal(me0.json.polls[0].voters, 0);
+  // no vote and no extended part before the form
+  assert.equal((await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119', picks: ['Утро'] })).status, 409);
+  assert.equal((await post(tok, '/submit', { initData: initData(FAY), part: 'more', answers: { '8.2': '500' } })).status, 409);
+  // required answers are checked on the server
+  const core = {
+    '1.1': 'Fay Mason', '1.2': '+995 555 12 34 56', '1.3': 'fay@example.com', '1.5': ['Telegram'],
+    '2.1': ['Владелец пространства / хаба', 'Другое: гончар'], '2.2': 'Керамика', '3.1': 'Батуми, Грузия', '3.2': 'Планирую создать',
+    '4.1': ['Провести ретрит / событие'], '5.1': ['Ретриты и выездные форматы'], '6.1': ['Амбассадор', 'Эксперт-консультант'],
+    '7.1': '2–5', '8.1': ['Обсуждаемо'], '9.1': 'Пока затрудняюсь ответить', '10.5': 'Пока затрудняюсь ответить',
+  };
+  const badTry = await post(tok, '/submit', { initData: initData(FAY), part: 'core', answers: Object.assign({}, core, { '1.3': 'not-mail', '3.2': 'выдумка', '5.1': ['Сеть точек и хабов на карте', 'Ретриты и выездные форматы', 'Ремесло, мастерские, ручная работа', 'Обучение и передача знаний'], '7.1': undefined }) });
+  assert.equal(badTry.status, 400); assert.deepEqual(badTry.json.fields.sort(), ['1.3', '3.2', '5.1', '7.1']);
+  assert.equal((await require('../src/db').getMember(String(FAY.id))), null);
+  // the form goes through: access to this one project, a contact, a word to both sides
+  let n = tgCalls.length;
+  const done = await post(tok, '/submit', { initData: initData(FAY), part: 'core', answers: Object.assign({ junk: 'x', '8.2': 'не из этой части' }, core) });
+  assert.equal(done.status, 200); assert.equal(done.json.joined, true); assert.equal(done.json.people, 1);
+  assert.equal(done.json.answers.junk, undefined); assert.equal(done.json.answers['8.2'], undefined);
+  const said = sinceMark(n, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text]);
+  assert.match(said.find((x) => x[0] === String(FAY.id))[1], /вы в проекте <b>Сеть мастеров/);
+  assert.match(said.find((x) => x[0] === String(OWNER.id))[1], /Fay Mason<\/b> \(@fay_hub\)[\s\S]*Сеть мастеров[\s\S]*Город: Батуми, Грузия[\s\S]*Роль: Амбассадор; Эксперт-консультант/);
+  const f = await call('POST', '/api/auth/telegram', { json: { initData: initData(FAY) } });
+  assert.equal(f.json.role, 'editor'); assert.deepEqual(f.json.projects, ['p-net']);
+  const ft = f.json.token, ids = async (coll) => (await call('GET', '/api/db/' + coll, { token: ft })).json.docs.map((d) => d.id);
+  assert.deepEqual(await ids('projects'), ['p-net']); assert.deepEqual(await ids('tasks'), ['te-1']);
+  assert.equal((await call('GET', '/api/db/contacts', { token: ft })).status, 403);
+  assert.equal((await call('GET', '/api/db/joins', { token: ft })).status, 404);
+  assert.equal((await call('GET', '/api/db/joins', { token: ownerToken })).status, 404);
+  assert.equal((await call('PUT', '/api/db/tasks/te-2', { token: ft, json: { data: { title: 'Моя задача', project: 'p-net' } } })).status, 200);
+  assert.equal((await call('PUT', '/api/db/tasks/tx-9', { token: ft, json: { data: { title: 'В чужой проект', project: 'p-india' } } })).status, 403);
+  const contact = (await call('GET', '/api/db/contacts', { token: ownerToken })).json.docs.find((d) => d.id === 'jn-' + FAY.id);
+  assert.equal(contact.data.name, 'Fay Mason'); assert.equal(contact.data.tg, '@fay_hub'); assert.equal(contact.data.email, 'fay@example.com');
+  assert.deepEqual(contact.data.projects, ['p-net']); assert.match(contact.data.notes, /Анкета «ЭкоЧакра»[\s\S]*Сфера: Керамика/);
+  // sending the form again changes the answers, the contact stays one, nobody is told twice
+  n = tgCalls.length;
+  const again = await post(tok, '/submit', { initData: initData(FAY), part: 'core', answers: Object.assign({}, core, { '2.2': 'Керамика и чай' }) });
+  assert.equal(again.json.answers['2.2'], 'Керамика и чай'); assert.equal(again.json.people, 1);
+  assert.equal(sinceMark(n, 'sendMessage').length, 0);
+  const c2 = (await call('GET', '/api/db/contacts', { token: ownerToken })).json.docs.filter((d) => /^jn-/.test(d.id));
+  assert.equal(c2.length, 1); assert.equal((c2[0].data.notes.match(/Анкета «ЭкоЧакра»/g) || []).length, 1); assert.match(c2[0].data.notes, /Керамика и чай/);
+  // the extended part: everything optional, saved step by step, core answers stay
+  const more = await post(tok, '/submit', { initData: initData(FAY), part: 'more', answers: { '3.3': 'Да, по договорённости', '10.2': ['Генерирую идеи', 'Обучаю других'], '11.6': 'керамика' } });
+  assert.equal(more.json.more, true); assert.equal(more.json.answers['1.1'], 'Fay Mason'); assert.deepEqual(more.json.answers['10.2'], ['Генерирую идеи', 'Обучаю других']);
+  assert.equal((await post(tok, '/submit', { initData: initData(FAY), part: 'more', answers: { '10.2': ['Генерирую идеи', 'Обучаю других', 'Организую процессы'] } })).status, 400);
+  // the poll: several picks, names are shown, a vote can be changed; the owner votes without the form
+  const v1 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119', picks: ['Утро', 'Вечер', 'Ночь'] });
+  assert.deepEqual(v1.json.polls[0].mine, ['Утро', 'Вечер']);
+  const v2 = await post(tok, '/vote', { initData: initData(OWNER), poll: 'meet-1119', picks: ['Вечер'] });
+  assert.equal(v2.json.owner, true); assert.equal(v2.json.joined, false); assert.equal(v2.json.people, 1);
+  const byT = (r) => Object.fromEntries(r.json.polls[0].opts.map((o) => [o.t, o.who]));
+  assert.deepEqual(byT(v2), { 'Утро': ['Fay Mason'], 'День': [], 'Вечер': ['Fay Mason', 'Alex Owner'] });
+  const v3 = await post(tok, '/vote', { initData: initData(FAY), poll: 'meet-1119', picks: ['День'] });
+  assert.deepEqual(byT(v3), { 'Утро': [], 'День': ['Fay Mason'], 'Вечер': ['Alex Owner'] }); assert.equal(v3.json.polls[0].voters, 2);
+  assert.equal((await post(tok, '/vote', { initData: initData(GUS), poll: 'meet-1119', picks: ['День'] })).status, 409);
+  assert.equal((await post(tok, '/vote', { initData: initData(FAY), poll: 'nope', picks: [] })).status, 400);
+  await update(msg(OWNER, { text: '/votes' }));
+  assert.match(lastSay().params.text, /Встреча 19 ноября<\/b> · проголосовали: 2[\s\S]*День — 1: Fay Mason[\s\S]*Вечер — 1: Alex Owner/);
+  await update(msg(FAY, { text: '/votes' }));
+  assert.match(lastSay().params.text, /только владельцу/);
+  // answers as a table, and in the backup; the owner's own access did not change
+  n = tgCalls.length;
+  await update(msg(OWNER, { text: '/answers' }));
+  const docs = sinceMark(n, 'sendDocument');
+  assert.equal(docs.length, 1); assert.match(docs[0].params.caption, /ответов 2/);
+  const tbl = await require('../src/join').csv(require('../src/join').form('ecochakra'));
+  assert.match(tbl.body.toString('utf8'), /"Fay Mason","@fay_hub","Fay Mason","\+995 555 12 34 56"[\s\S]*"Владелец пространства \/ хаба; Другое: гончар"[\s\S]*"День"/);
+  const exp = (await call('GET', '/api/export', { token: ownerToken })).json;
+  assert.equal(exp.docs.joins['ecochakra-' + FAY.id].answers['2.2'], 'Керамика и чай');
+  assert.equal((await call('GET', '/api/me', { token: ownerToken })).json.role, 'owner');
+  assert.equal(await require('../src/db').getMember(String(OWNER.id)), null);
+  // a person without a username joins too; someone with access to all projects keeps it
+  const g = await post(tok, '/submit', { initData: initData(GUS), part: 'core', answers: Object.assign({}, core, { '1.1': 'Gus' }) });
+  assert.equal(g.json.people, 2);
+  assert.deepEqual((await require('../src/db').getMember(String(GUS.id))).projects, ['p-net']);
+  await post(tok, '/submit', { initData: initData(BOB), part: 'core', answers: Object.assign({}, core, { '1.1': 'Bob' }) });
+  const share = (await call('GET', '/api/share', { token: ownerToken })).json;
+  assert.deepEqual(share.members.find((m) => m.id === String(FAY.id)).projects, ['p-net']);
+  const bobNow = share.members.find((m) => m.id === String(BOB.id));
+  if (bobNow) assert.equal(bobNow.projects === null || bobNow.projects.includes('p-net'), true);
+  // switched off: the link stops working, people who came in stay
+  await update(msg(OWNER, { text: '/onboard off Сеть мастеров' }));
+  assert.match(lastSay().params.text, /выключена/);
+  assert.equal((await call('GET', '/api/join/' + tok)).status, 404);
+  assert.equal((await post(tok, '/me', { initData: initData(FAY) })).status, 404);
+  assert.deepEqual(await ids('projects'), ['p-net']);
+  await update(msg(OWNER, { text: '/onboard Сеть мастеров' }));
+  assert.notEqual(/start=join_([A-Za-z0-9_-]+)/.exec(lastSay().params.text)[1], tok);
 });
 
 test('the bot dates messages by the time zone chosen in the dashboard', async () => {

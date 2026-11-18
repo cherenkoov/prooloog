@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Анкета</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+/* The onboarding form. Same palette and type as the dashboard; one step per screen, answers by tapping. */
+:root{
+  --bg:#eceef3; --surface:#ffffff; --surface2:#f3f4f8; --ink:#14161c; --mute:#5f6575; --line:#dcdfe8;
+  --accent:#1c8556; --on-accent:#ffffff; --crit:#c2362b;
+  --display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --bg:#0e1015; --surface:#171a22; --surface2:#1e222c; --ink:#eceef4; --mute:#9aa1b2; --line:#2b303c;
+  --accent:#4fc48c; --on-accent:#06281a; --crit:#f2766a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-text-size-adjust:100%}
+button,input,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+h1,h2,h3,p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+[hidden]{display:none!important}
+
+#app{max-width:560px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+.body{flex:1;padding:20px 18px 24px;display:flex;flex-direction:column;gap:22px}
+.foot{position:sticky;bottom:0;display:flex;gap:10px;padding:12px 18px calc(12px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--line)}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;padding:0 18px;border-radius:14px;border:1px solid var(--line);background:var(--surface);font-weight:600;text-align:center}
+.btn.pri{flex:1;background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.wide{width:100%}
+a.btn{text-decoration:none;color:inherit}
+a.btn.pri{color:var(--on-accent)}
+.btn[disabled]{opacity:.55}
+.link{color:var(--mute);font-weight:500;text-decoration:underline;text-underline-offset:3px;padding:8px 0;align-self:center}
+
+/* progress */
+.top{position:sticky;top:0;z-index:2;padding:12px 18px 10px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px)}
+.bar{display:flex;gap:4px}
+.bar i{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.bar i.on{background:var(--accent)}
+.top-t{display:flex;justify-content:space-between;gap:10px;margin-top:8px;font-size:13px;color:var(--mute)}
+
+/* hello and home */
+.kick{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.h1{font:600 34px/1.1 var(--display);letter-spacing:-.02em;overflow-wrap:anywhere}
+.h2{font:600 22px/1.2 var(--display);letter-spacing:-.01em;text-wrap:balance}
+.lead{color:var(--mute)}
+.facts{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;background:var(--surface);border:1px solid var(--line)}
+.fact{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.fact b{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent);font:600 13px/1 var(--body)}
+.hero{margin-top:auto;display:flex;flex-direction:column;gap:14px}
+.ok{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--on-accent)}
+.card{padding:16px;border-radius:16px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.card h3{font:600 17px/1.25 var(--display)}
+.small{font-size:13px;color:var(--mute)}
+
+/* questions */
+.q{display:flex;flex-direction:column;gap:10px}
+.q-l{font-weight:600;font-size:17px;line-height:1.3;text-wrap:pretty}
+.q-l .req{color:var(--accent)}
+.q-h{font-size:13px;color:var(--mute);margin-top:-6px}
+.q-e{font-size:13px;color:var(--crit);font-weight:500}
+input[type=text],input[type=tel],input[type=email],input[type=url],textarea{width:100%;min-height:50px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface)}
+textarea{min-height:110px;resize:vertical;line-height:1.4}
+.q.bad input,.q.bad textarea{border-color:var(--crit)}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opts.row{flex-direction:row;flex-wrap:wrap}
+.o{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;min-height:50px;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);width:100%}
+.opts.row .o{width:auto;flex:1 1 auto;grid-template-columns:1fr;text-align:center;padding:10px 16px}
+.opts.row .o .mk{display:none}
+.mk{width:22px;height:22px;border-radius:7px;border:2px solid var(--line);display:grid;place-items:center;color:transparent}
+.o.one .mk{border-radius:50%}
+.o.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.o.on .mk{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.opts.row .o.on{background:var(--accent);color:var(--on-accent);font-weight:600}
+.tag{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+.o.nope{animation:nope .3s}
+@keyframes nope{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+/* poll */
+.pv{display:flex;flex-direction:column;gap:8px}
+.po{position:relative;overflow:hidden;display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;min-height:54px;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface2);width:100%}
+.po>*{position:relative}
+.po .fill{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent) 16%,transparent);transition:width .3s}
+.po.on{border-color:var(--accent)}
+.po.on .mk{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.po-t{font-weight:600;display:block}
+.po-w{display:block;font-size:13px;color:var(--mute);overflow-wrap:anywhere}
+.po-n{font:600 17px/1 var(--display);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app" aria-live="polite"><div class="body"><p class="lead">Загружаю анкету…</p></div></div>
+<script>
+(function(){
+'use strict';
+var tg=window.Telegram&&window.Telegram.WebApp, initData=(tg&&tg.initData)||'';
+var token=(/\/join\/([A-Za-z0-9_-]{12,40})/.exec(location.pathname)||[])[1]||'';
+var app=document.getElementById('app'), KEY='prooloog.join.'+token;
+var F=null, info=null, me=null, A={}, scr='load', part='core', step=0, bad={}, busy=false, note='';
+var CHECK='<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function theme(){var dark=tg&&tg.colorScheme?tg.colorScheme==='dark':window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches;document.documentElement.setAttribute('data-theme',dark?'dark':'light')}
+function haptic(k){try{if(tg&&tg.HapticFeedback){if(k==='ok'||k==='error')tg.HapticFeedback.notificationOccurred(k==='ok'?'success':'error');else tg.HapticFeedback.selectionChanged()}}catch(e){}}
+function keep(){try{localStorage.setItem(KEY,JSON.stringify(A))}catch(e){}}
+function kept(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){return {}}}
+function api(method,path,body){
+  return fetch('/api/join/'+token+path,{method:method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}).then(function(r){
+    return r.json().catch(function(){return null}).then(function(j){if(!r.ok){var e=new Error((j&&j.error)||'http_'+r.status);e.code=(j&&j.error)||'';e.fields=(j&&j.fields)||[];throw e}return j});
+  },function(){var e=new Error('network');e.code='network';throw e});
+}
+function steps(p){return F.steps.filter(function(s){return s.part===p})}
+function qCount(p){return steps(p).reduce(function(n,s){return n+s.qs.length},0)}
+function plural(n,a,b,c){var m=n%100,d=n%10;return m>10&&m<20?c:d===1?a:d>1&&d<5?b:c}
+function isOther(v){return typeof v==='string'&&v.indexOf('Другое')===0}
+function otherText(v){return isOther(v)?v.replace(/^Другое(: )?/,''):''}
+
+/* ---------- screens ---------- */
+function render(){
+  var h='';
+  if(scr==='gate')h=gate();else if(scr==='hello')h=hello();else if(scr==='form')h=formScr();else if(scr==='home')h=home();
+  else if(scr==='error')h='<div class="body"><h1 class="h2">Не получилось открыть анкету</h1><p class="lead">'+esc(note)+'</p><button class="btn wide" data-act="reload">Обновить</button></div>';
+  app.innerHTML=h;
+  try{if(tg&&tg.BackButton){if(scr==='form')tg.BackButton.show();else tg.BackButton.hide()}}catch(e){}
+}
+function gate(){
+  var url=info&&info.bot?'https://t.me/'+info.bot+'?start=join_'+token:'';
+  return '<div class="body"><p class="kick">'+esc(F?F.kicker:'Анкета')+'</p><h1 class="h1">'+esc(F?F.title:'Анкета')+'</h1><p class="lead">Анкета открывается внутри Telegram: так мы узнаём вас без паролей и регистрации.</p>'+
+    (url?'<a class="btn pri" style="flex:none" href="'+esc(url)+'">Открыть в Telegram</a>':'')+'</div>';
+}
+function hello(){
+  var n=qCount('core'), first=me&&me.user.name?me.user.name.split(' ')[0]:'';
+  var polls=(F.polls||[]).map(function(p){return p.title}).join(', ');
+  return '<div class="body"><p class="kick">'+esc(F.kicker||'Анкета')+'</p><h1 class="h1">'+esc(F.title)+'</h1><p class="lead">'+(first?esc(first)+', здравствуйте! ':'')+esc(F.intro||'')+'</p>'+
+    '<div class="facts"><div class="fact"><b>1</b><span>'+n+' '+plural(n,'вопрос','вопроса','вопросов')+', '+esc(F.coreTime||'пара минут')+'. Почти везде достаточно нажать на вариант.</span></div>'+
+    '<div class="fact"><b>2</b><span>Сразу после отправки вы в проекте «'+esc(info.project)+'»: видите задачи команды и можете вести свои.</span></div>'+
+    (polls?'<div class="fact"><b>3</b><span>Там же голосование: '+esc(polls)+'.</span></div>':'')+'</div>'+
+    (me.owner?'<p class="small">Вы владелец: анкета сохранится как ваша, доступы не меняются.</p><button class="link" data-act="home">Посмотреть голоса без анкеты</button>':'')+
+    '</div><div class="foot"><button class="btn pri" data-act="begin">Начать</button></div>';
+}
+function formScr(){
+  var ss=steps(part), s=ss[step], last=step===ss.length-1, h='';
+  h+='<div class="top"><div class="bar">'+ss.map(function(x,i){return '<i class="'+(i<=step?'on':'')+'"></i>'}).join('')+'</div><div class="top-t"><span>'+(part==='more'?'Расширенная анкета · ':'')+'Шаг '+(step+1)+' из '+ss.length+'</span><span>'+(part==='more'?'по желанию':'')+'</span></div></div>';
+  h+='<div class="body"><h1 class="h2">'+esc(s.title)+'</h1>'+s.qs.map(question).join('');
+  if(part==='core'&&last&&F.consent)h+='<p class="small">'+esc(F.consent)+'</p>';
+  if(note)h+='<p class="q-e" role="alert">'+esc(note)+'</p>';
+  h+='</div><div class="foot"><button class="btn" data-act="back" aria-label="Назад">Назад</button><button class="btn pri" data-act="next"'+(busy?' disabled':'')+'>'+(busy?'Сохраняю…':part==='core'?(last?'Отправить':'Дальше'):(last?'Готово':'Сохранить и дальше'))+'</button></div>';
+  return h;
+}
+function question(q){
+  var v=A[q.id], h='<div class="q'+(bad[q.id]?' bad':'')+'" data-q="'+esc(q.id)+'"><label class="q-l"'+(q.opts?'':' for="i-'+esc(q.id)+'"')+'>'+esc(q.label)+(q.req?' <span class="req" aria-hidden="true">*</span>':'')+'</label>';
+  if(q.hint)h+='<p class="q-h">'+esc(q.hint)+'</p>';
+  if(q.opts){
+    var arr=q.t==='many'?(Array.isArray(v)?v:[]):(v?[v]:[]), other=arr.filter(isOther)[0];
+    h+='<div class="opts'+(q.row?' row':'')+'" role="group">'+q.opts.concat(q.other?['Другое']:[]).map(function(o){
+      var on=o==='Другое'&&q.other?other!==undefined:arr.indexOf(o)>=0;
+      return '<button type="button" class="o '+(q.t==='one'?'one':'many')+(on?' on':'')+'" aria-pressed="'+on+'" data-act="pick" data-q="'+esc(q.id)+'" data-o="'+esc(o)+'"><span class="mk">'+CHECK+'</span><span>'+esc(o)+'</span>'+(q.lead&&on&&arr[0]===o?'<span class="tag">основная</span>':'<span></span>')+'</button>';
+    }).join('')+'</div>';
+    if(q.other&&other!==undefined)h+='<input type="text" id="oth-'+esc(q.id)+'" data-oth="'+esc(q.id)+'" maxlength="200" placeholder="Напишите свой вариант" value="'+esc(otherText(other))+'" aria-label="Свой вариант">';
+  }else if(q.t==='area'){
+    h+='<textarea id="i-'+esc(q.id)+'" data-in="'+esc(q.id)+'" maxlength="2000" placeholder="'+esc(q.ph||'')+'">'+esc(v||'')+'</textarea>';
+  }else{
+    h+='<input id="i-'+esc(q.id)+'" data-in="'+esc(q.id)+'" type="'+(q.t==='text'?'text':q.t)+'" inputmode="'+({tel:'tel',email:'email',url:'url'}[q.t]||'text')+'" autocomplete="'+esc(q.ac||'off')+'" maxlength="200" placeholder="'+esc(q.ph||'')+'" value="'+esc(v||'')+'">';
+  }
+  if(bad[q.id])h+='<p class="q-e" role="alert">'+esc(bad[q.id])+'</p>';
+  return h+'</div>';
+}
+function home(){
+  var nm=qCount('more'), h='<div class="body">'+(me.joined?'<div class="ok"><svg width="26" height="26" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>':'')+
+    '<h1 class="h2">'+(me.joined?'Вы в проекте «'+esc(info.project)+'»':'Проект «'+esc(info.project)+'»')+'</h1><p class="lead">'+(me.joined?'Анкета принята. Участников в проекте: '+me.people+'.':'Анкету заполнили: '+me.people+'.')+'</p>';
+  (me.polls||[]).forEach(function(p){
+    var max=Math.max.apply(null,p.opts.map(function(o){return o.n}).concat([1]));
+    h+='<div class="card"><h3>'+esc(p.title)+'</h3><p class="small">'+esc(p.q||'')+'</p><div class="pv">'+p.opts.map(function(o){
+      var on=p.mine.indexOf(o.t)>=0;
+      return '<button type="button" class="po'+(on?' on':'')+'" aria-pressed="'+on+'" data-act="vote" data-p="'+esc(p.id)+'" data-o="'+esc(o.t)+'"><i class="fill" style="width:'+(o.n/max*100).toFixed(0)+'%"></i><span class="mk">'+CHECK+'</span><span><span class="po-t">'+esc(o.t)+'</span><span class="po-w">'+(o.who.length?esc(o.who.join(', ')):'пока никто')+'</span></span><span class="po-n">'+o.n+'</span></button>';
+    }).join('')+'</div><p class="small" id="pn-'+esc(p.id)+'">'+(p.mine.length?'Ваш голос учтён. Его можно изменить.':'Нажмите на подходящие варианты.')+' Проголосовали: '+p.voters+'.</p></div>';
+  });
+  h+='<div class="hero"><a class="btn pri" style="flex:none" href="/">Открыть проект</a>';
+  if(me.joined&&nm)h+='<div class="card"><h3>'+(me.more?'Расширенная анкета':'Расскажите о себе больше')+'</h3><p class="small">'+esc(F.moreIntro||'')+' '+nm+' '+plural(nm,'вопрос','вопроса','вопросов')+', '+esc(F.moreTime||'')+'.</p><button class="btn wide" data-act="more">'+(me.more?'Изменить ответы':'Дополнить анкету')+'</button></div>';
+  h+='<button class="link" data-act="edit">'+(me.joined?'Изменить основные ответы':'Заполнить анкету')+'</button></div></div>';
+  return h;
+}
+
+/* ---------- answers ---------- */
+function pick(qid,o,el){
+  var q=findQ(qid), v=A[qid];
+  if(q.t==='one'){A[qid]=o==='Другое'&&q.other?(isOther(v)?v:'Другое'):o}
+  else{
+    var arr=Array.isArray(v)?v.slice():[], i=o==='Другое'&&q.other?arr.findIndex(isOther):arr.indexOf(o);
+    if(i>=0)arr.splice(i,1);
+    else{
+      if(q.max&&arr.length>=q.max){el.classList.remove('nope');void el.offsetWidth;el.classList.add('nope');haptic('error');bad[qid]='Можно выбрать не больше '+q.max+'. Снимите один из вариантов.';return paint(qid)}
+      arr.push(o);
+    }
+    A[qid]=arr;
+  }
+  delete bad[qid];keep();haptic();paint(qid);
+  if(o==='Другое'&&q.other){var x=document.getElementById('oth-'+qid);if(x)x.focus()}
+}
+function paint(qid){
+  var el=app.querySelector('.q[data-q="'+qid+'"]');if(!el)return render();
+  var d=document.createElement('div');d.innerHTML=question(findQ(qid));el.replaceWith(d.firstChild);
+}
+function findQ(id){var r=null;F.steps.forEach(function(s){s.qs.forEach(function(q){if(q.id===id)r=q})});return r}
+function check(s){
+  bad={};
+  s.qs.forEach(function(q){
+    var v=A[q.id], empty=q.t==='many'?!(Array.isArray(v)&&v.length):!String(v||'').trim();
+    if(q.req&&empty)bad[q.id]=q.opts?'Выберите вариант':'Заполните это поле';
+    else if(!empty&&q.t==='email'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim()))bad[q.id]='Проверьте адрес: в нём должны быть @ и точка';
+    else if(!empty&&q.t==='tel'&&String(v).replace(/\D/g,'').length<5)bad[q.id]='Проверьте номер: слишком мало цифр';
+    else if(q.t==='many'&&q.max&&Array.isArray(v)&&v.length>q.max)bad[q.id]='Можно выбрать не больше '+q.max;
+  });
+  return !Object.keys(bad).length;
+}
+function payload(p){var o={};steps(p).forEach(function(s){s.qs.forEach(function(q){if(A[q.id]!==undefined)o[q.id]=A[q.id]})});return o}
+function toFirstBad(){var el=app.querySelector('.q.bad');if(el)el.scrollIntoView({block:'center',behavior:'smooth'})}
+function next(){
+  if(busy)return;
+  var ss=steps(part), s=ss[step], last=step===ss.length-1;
+  note='';
+  if(!check(s)){haptic('error');render();return toFirstBad()}
+  if(part==='core'&&!last){step++;render();return window.scrollTo(0,0)}
+  busy=true;render();
+  api('POST','/submit',{initData:initData,part:part,answers:payload(part)}).then(function(j){
+    busy=false;me=j;A=Object.assign({},A,j.answers);keep();
+    if(last){scr='home';haptic('ok')}else step++;
+    render();window.scrollTo(0,0);
+  },function(e){
+    busy=false;
+    if(e.code==='bad_answers'&&e.fields.length){
+      e.fields.forEach(function(id){bad[id]='Проверьте этот ответ'});
+      var i=ss.findIndex(function(x){return x.qs.some(function(q){return e.fields.indexOf(q.id)>=0})});if(i>=0)step=i;
+    }
+    note=e.code==='link_closed'?'Ссылка на анкету больше не действует. Попросите у организатора новую.':e.code==='unauthorized'?'Telegram не подтвердил вход. Закройте окно и откройте анкету из бота ещё раз.':e.code==='network'?'Нет связи с сервером. Ответы сохранены на этом устройстве: попробуйте ещё раз через минуту.':'Не получилось сохранить. Попробуйте ещё раз.';
+    haptic('error');render();toFirstBad();
+  });
+}
+function back(){
+  note='';bad={};
+  if(step>0){step--;render();return window.scrollTo(0,0)}
+  scr=me.joined?'home':'hello';render();
+}
+function vote(pid,o){
+  var p=me.polls.filter(function(x){return x.id===pid})[0];if(!p||busy)return;
+  var picks=p.mine.slice(), i=picks.indexOf(o);
+  if(i>=0)picks.splice(i,1);else if(p.multi)picks.push(o);else picks=[o];
+  busy=true;haptic();
+  api('POST','/vote',{initData:initData,poll:pid,picks:picks}).then(function(j){busy=false;me=j;render()},function(e){
+    busy=false;var n=document.getElementById('pn-'+pid);
+    if(n)n.textContent=e.code==='core_first'?'Голосование открывается после анкеты.':'Не получилось сохранить голос. Попробуйте ещё раз.';
+  });
+}
+function begin(p){
+  part=p;step=0;note='';bad={};scr='form';
+  // what Telegram already knows goes in first: fewer fields to type
+  F.steps.forEach(function(s){s.qs.forEach(function(q){
+    if(A[q.id]!==undefined)return;
+    if(q.fill==='name'&&me.user.name)A[q.id]=me.user.name;
+    if(q.fill==='telegram'&&q.opts.indexOf('Telegram')>=0)A[q.id]=['Telegram'];
+  })});
+  render();window.scrollTo(0,0);
+}
+
+app.addEventListener('click',function(e){
+  var t=e.target.closest('[data-act]');if(!t)return;
+  var a=t.getAttribute('data-act');
+  if(a==='pick')pick(t.getAttribute('data-q'),t.getAttribute('data-o'),t);
+  else if(a==='next')next();
+  else if(a==='back')back();
+  else if(a==='begin'||a==='edit')begin('core');
+  else if(a==='more')begin('more');
+  else if(a==='vote')vote(t.getAttribute('data-p'),t.getAttribute('data-o'));
+  else if(a==='home'){scr='home';render()}
+  else if(a==='reload')location.reload();
+});
+app.addEventListener('input',function(e){
+  var t=e.target, id=t.getAttribute('data-in'), oid=t.getAttribute('data-oth');
+  if(id){A[id]=t.value;keep()}
+  else if(oid){
+    var q=findQ(oid), val='Другое'+(t.value.trim()?': '+t.value.trim():'');
+    if(q.t==='one')A[oid]=val;else A[oid]=(A[oid]||[]).map(function(x){return isOther(x)?val:x});
+    keep();
+  }
+});
+
+/* ---------- start ---------- */
+theme();
+try{if(tg){tg.ready();tg.expand();if(tg.onEvent)tg.onEvent('themeChanged',theme);if(tg.BackButton)tg.BackButton.onClick(back)}}catch(e){}
+function fail(e){
+  note=e.code==='link_closed'?'Ссылка на анкету больше не действует. Попросите у организатора новую.':e.code==='unauthorized'?'Telegram не подтвердил вход. Закройте окно и откройте анкету из бота ещё раз.':'Сервер не отвечает. После простоя он просыпается около минуты: обновите страницу чуть позже.';
+  scr='error';render();
+}
+if(!token){note='В ссылке нет кода анкеты.';scr='error';render()}
+else api('GET','').then(function(j){
+  info=j;F=j.form;document.title=F.title;
+  if(!initData){scr='gate';return render()}
+  return api('POST','/me',{initData:initData}).then(function(m){
+    me=m;A=Object.assign({},kept(),m.answers);
+    scr=m.joined?'home':'hello';render();
+  });
+}).catch(fail);
+})();
+</script>
+</body>
+</html>

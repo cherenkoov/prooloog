@@ -49,7 +49,7 @@ function initData(user) {
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
-  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders, invite_links');
+  await db.q('DROP TABLE IF EXISTS docs, kv, members, invites, login_codes, bot_state, files, sent_reminders, invite_links, join_links');
   await db.close();
   await require('../src/server').start();
   const cfg = require('../src/config');

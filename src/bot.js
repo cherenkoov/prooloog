@@ -11,6 +11,7 @@ const ai = require('./ai');
 const mcp = require('./mcp');
 const usage = require('./usage');
 const remind = require('./remind');
+const join = require('./join');
 
 let botName = '', botId = 0, botReadsAll = false;
 
@@ -318,6 +319,43 @@ async function askClaude(chat, uid, question) {
   for (let i = 0; i < r.text.length && i < 12000; i += 3900) await T.tg('sendMessage', { chat_id: chat, text: r.text.slice(i, i + 3900), link_preview_options: { is_disabled: true } });
 }
 
+/* ---------- onboarding: one link for a whole chat ---------- */
+// «/onboard проект» gives the link, «/onboard off проект» switches it off, «/onboard» lists the live ones.
+async function onboard(chat, arg) {
+  const list = await projects(), forms = join.forms();
+  if (!forms.length) return say(chat, 'На сервере нет ни одной анкеты.');
+  if (!botName) return say(chat, 'Бот ещё не подключён, ссылку выдать не могу.');
+  const off = /^(off|выкл|стоп)\s+/i.test(arg), query = arg.replace(/^(off|выкл|стоп)\s+/i, '').trim();
+  if (!query) {
+    const links = await db.listJoinLinks(), lines = [];
+    for (const l of links) {
+      const p = list.find((x) => x.id === l.project), f = join.form(l.form);
+      if (p && f) lines.push('• <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '», заполнили: ' + (await join.entries(f)).filter((d) => d.data.core).length + '\n' + join.url(botName, l.token));
+    }
+    return say(chat, (lines.length ? 'Ссылки онбординга:\n' + lines.join('\n') + '\n\n' : '') + 'Выключить ссылку: /onboard off название проекта\nОтветы таблицей: /answers, голоса: /votes\n\nДля какого проекта создать ссылку?', onboardKb(list, []));
+  }
+  const mp = matchProject(query, list, false);
+  if (!mp.best) return say(chat, 'Не нашёл проект «' + esc(query) + '». ' + (off ? 'Напиши название точнее.' : 'Выбери его из списка:'), off ? undefined : onboardKb(list, mp.cands));
+  if (off) {
+    const n = await db.revokeJoinLinks(mp.best.id);
+    return say(chat, n ? 'Ссылка онбординга в <b>' + esc(pname(mp.best)) + '</b> выключена. Те, кто уже вошёл, остаются в проекте: убрать можно в окне «Доступ».' : 'У проекта <b>' + esc(pname(mp.best)) + '</b> нет активной ссылки онбординга.');
+  }
+  return onboardLink(chat, mp.best);
+}
+function onboardKb(list, cands) {
+  const k = projectKb(list, cands);
+  k.inline_keyboard.forEach((row) => row.forEach((b) => { if (b.callback_data.startsWith('p:')) b.callback_data = 'ob:' + b.callback_data.slice(2); }));
+  k.inline_keyboard = k.inline_keyboard.map((row) => row.filter((b) => Buffer.byteLength(b.callback_data) <= 64)).filter((row) => row.length);
+  return k;
+}
+async function onboardLink(chat, p) {
+  const f = join.forms()[0], link = join.url(botName, await join.linkFor(p.id, f.id));
+  await say(chat, 'Ссылка онбординга в <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '». Работает для любого числа людей, пока её не выключить.\n\n' +
+    'Каждый, кто заполнит основную часть, сразу получает доступ только к этому проекту с правом вести задачи и попадает в его контакты. Тебе придёт сообщение о каждом.\n\nТекст для чата ниже, его можно переслать как есть.');
+  return say(chat, 'Коллеги, анкету «' + esc(f.title) + '» можно заполнить в Telegram: ' + esc(f.coreTime || 'пара минут') + ', вопросы с вариантами ответа.' +
+    ((f.polls || []).length ? ' Там же голосование: ' + esc(f.polls.map((x) => x.title).join(', ')) + ', и видно, кто за что проголосовал.' : '') + '\n\n' + link);
+}
+
 /* ---------- commands ---------- */
 function closedText(from) {
   return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ даёт владелец.' +
@@ -339,6 +377,7 @@ function helpText(role) {
     '• /ask вопрос — спросить Claude, он видит проекты, задачи и события.\n' +
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
+    '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей, /votes — голоса.\n' +
     '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
 }
@@ -370,6 +409,18 @@ async function onCommand(m, role, cmd, arg) {
     return say(chat, !ai.enabled() ? 'Claude на сервере не подключён: в настройках сервера нет ключа ANTHROPIC_API_KEY.'
       : u.n ? 'Claude API за ' + m + ': запросов ' + u.n + ', токенов на вход ' + u.in + ', на выход ' + u.out + ', примерно ' + u.cost.toFixed(2) + ' $.\nЭто оценка по прайсу, точная сумма в консоли Anthropic.'
         : 'В этом месяце запросов к Claude с сервера ещё не было.');
+  }
+  if (cmd === 'onboard') return onboard(chat, arg);
+  if (cmd === 'votes') return say(chat, await join.votesText());
+  if (cmd === 'answers') {
+    let sent = 0;
+    for (const f of join.forms()) {
+      const t = await join.csv(f);
+      if (!t.n) continue;
+      await T.sendDocument(chat, 'answers-' + f.id + '-' + day(0, await appTz()) + '.csv', t.body, 'Анкета «' + f.title + '»: ответов ' + t.n + '. Открывается в Excel и Google Таблицах.');
+      sent++;
+    }
+    return sent ? undefined : say(chat, 'Анкету пока никто не заполнил.');
   }
   if (cmd === 'backup') return sendBackup(chat, true);
   if (cmd === 'restore') return say(chat, 'Пришли файл копии (prooloog-backup-….json) с подписью /restore.');
@@ -409,6 +460,8 @@ async function onMessage(m) {
   if (ev) return guestJoin(m, ev[1]);
   const inv = cmd && cmd[1].toLowerCase() === 'start' ? /^inv_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
   if (inv) return inviteJoin(m, inv[1]);
+  const jn = cmd && cmd[1].toLowerCase() === 'start' ? /^join_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
+  if (jn) return join.start(m, jn[1]);
   if (cmd) return onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim());
   if (!role) return say(m.chat.id, closedText(m.from));
   if (role !== 'owner') return say(m.chat.id, 'Ответы клиентов и заметки принимаю только от владельца. Дэшборд открывается командой /start.');
@@ -455,6 +508,13 @@ async function onCallback(cq) {
     await ack();
     return edit(chat, 'В какой проект сохранить?', projectKb(await projects(), []));
   }
+  if (data.startsWith('ob:')) {
+    const p = (await projects()).find((x) => x.id === data.slice(3));
+    await ack();
+    if (!p || !botName || !join.forms().length) return edit(chat, 'Этого проекта уже нет.');
+    await edit(chat, 'Проект: <b>' + esc(pname(p)) + '</b>');
+    return onboardLink(chat, p);
+  }
   if (data.startsWith('p:')) {
     const pid = data.slice(2);
     if (st.draft && st.want === 'project') { await ack('Сохраняю'); return finish(chat, uid, st.draft, pid, edit); }
@@ -473,7 +533,7 @@ async function onCallback(cq) {
     const b = await readBackup(st.restore.file);
     await db.setState(uid, {});
     if (!b || !b.n) return edit(chat, 'Не получилось прочитать копию. Данные не менялись.');
-    const n = await db.importAll(b.docs, cfg.collections, true);
+    const n = await db.importAll(b.docs, cfg.allCollections, true);
     hub.reloadAll();
     return edit(chat, 'Готово: данные заменены копией, записей ' + n + '.');
   }

@@ -46,5 +46,8 @@ if (+env.AI_PRICE_IN > 0 && +env.AI_PRICE_OUT > 0) cfg.aiPrices[cfg.aiModel] = {
 cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'gone', 'settings'];
 // Money, people and client messages are for the owner only.
 cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'gone']);
+// Kept by the server alone (onboarding answers): the page never reads them, but backups carry them.
+cfg.serverOnly = ['joins'];
+cfg.allCollections = cfg.collections.concat(cfg.serverOnly);
 
 module.exports = cfg;
