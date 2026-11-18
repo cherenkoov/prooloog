@@ -719,6 +719,7 @@ button.pl-d:hover b{color:var(--accent)}
 .chg-h{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mute)}
 .chg-a{font-size:14px;color:var(--mute);overflow-wrap:anywhere}
 .chg-n{font-size:14px;overflow-wrap:anywhere}
+.chg-a.pre,.chg-n.pre{white-space:pre-line}
 .apl{margin:8px 0 0;padding-left:18px;font-size:14px}
 .apl li{margin:4px 0;overflow-wrap:anywhere}
 .fl{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
@@ -3500,9 +3501,15 @@ function reviewBadge(m){
   if(m.review==='done')return Array.isArray(m.applied)&&m.applied.length?'<span class="rv rv-d">применено: '+m.applied.length+'</span>':'<span class="rv">без изменений</span>';
   return '';
 }
+var MVN={tasks:'задача',milestones:'майлстоун',log:'комментарий',events:'событие'};
+function mvRec(it){return it&&MVN[it.c]&&Array.isArray(S[it.c])?byId(S[it.c],it.id):null}
+function mvTitle(c,q){return q?excerpt(String(q.title||q.text||''),90):''}
 function itemView(it,m){
-  var p=P(m.project),q;
+  var p=P(m.project),q,to;
   switch(it.t){
+    case 'why':return {h:'Описание проекта',a:p?(p.why||'не задано'):'',b:String(it.to||''),ok:!!p&&!!it.to&&p.why!==it.to};
+    case 'nt':return {h:'Заметки проекта',a:p?(p.notes||'пусто'):'',b:String(it.to||'')||'пусто',ok:!!p&&typeof it.to==='string'&&(p.notes||'')!==it.to,pre:true};
+    case 'mv':q=mvRec(it);to=P(it.to);return {h:'Перенос в проект «'+(to?to.name:'не найден')+'»: '+(MVN[it.c]||'запись'),b:mvTitle(it.c,q),ok:!!q&&!!to&&!!p&&q.project===m.project&&it.to!==m.project};
     case 'next':return {h:'Следующий шаг проекта',a:p?(p.next||'не задан'):'',b:String(it.to||''),ok:!!p&&!!it.to&&p.next!==it.to};
     case 'st':return {h:'Статус проекта',a:p?(ST[p.status]||''):'',b:ST[it.to]||'',ok:!!p&&STO.indexOf(it.to)>=0&&p.status!==it.to};
     case 'task':return {h:'Новая задача',b:String(it.title||'')+(validDate(it.due)?' · срок '+fmt(it.due):''),ok:!!p&&!!it.title};
@@ -3522,6 +3529,9 @@ function cleanItems(items,project,hasContact){
     var q;
     switch(c.t){
       case 'next':if(s(c.to,240))out.push({t:'next',to:s(c.to,240)});break;
+      case 'why':if(s(c.to,300))out.push({t:'why',to:s(c.to,300)});break;
+      case 'nt':if(typeof c.to==='string')out.push({t:'nt',to:c.to.trim().slice(0,4000)});break;
+      case 'mv':q=mvRec({c:c.c,id:s(c.id,80)});if(q&&q.project===project&&P(c.to)&&c.to!==project)out.push({t:'mv',c:c.c,id:q.id,to:c.to});break;
       case 'st':if(STO.indexOf(c.to)>=0)out.push({t:'st',to:c.to});break;
       case 'task':if(s(c.title,200))out.push({t:'task',title:s(c.title,200),due:validDate(c.due)?c.due:''});break;
       case 'msd':q=byId(S.milestones,s(c.id,80));if(q&&q.project===project&&validDate(c.to)&&q.date!==c.to)out.push({t:'msd',id:q.id,to:c.to});break;
@@ -3602,7 +3612,7 @@ function viewMessage(id,over){
   if(pending){
     h+='<div class="chat-h"><h2>Ревью изменений в проекте</h2></div><p class="sg-out" style="margin:6px 0 10px">Пока ты не подтвердишь, в проекте ничего не меняется. Сними галочку с того, что применять не нужно.</p><div class="chgs" id="chgs">'+items.map(function(it,i){
       var v=itemView(it,m);
-      return '<label class="chg'+(v.ok?'':' off')+'"><input type="checkbox" id="chg-'+i+'" data-i="'+i+'"'+(v.ok?' checked':' disabled')+'><span class="chg-b"><span class="chg-h">'+esc(v.h)+'</span>'+(v.a?'<span class="chg-a">Было: '+esc(v.a)+'</span>':'')+'<span class="chg-n">'+(v.a?'Станет: ':'')+esc(v.b)+'</span>'+(v.ok?'':'<span class="chg-h">уже неприменимо</span>')+'</span></label>';
+      return '<label class="chg'+(v.ok?'':' off')+'"><input type="checkbox" id="chg-'+i+'" data-i="'+i+'"'+(v.ok?' checked':' disabled')+'><span class="chg-b"><span class="chg-h">'+esc(v.h)+'</span>'+(v.a?'<span class="chg-a'+(v.pre?' pre':'')+'">Было: '+esc(v.a)+'</span>':'')+'<span class="chg-n'+(v.pre?' pre':'')+'">'+(v.a?'Станет: ':'')+esc(v.b)+'</span>'+(v.ok?'':'<span class="chg-h">уже неприменимо</span>')+'</span></label>';
     }).join('')+'</div>';
     h+='<div class="acts w"><button type="button" class="btn pri" data-act="rv-apply" data-id="'+esc(id)+'">Применить выбранное</button><button type="button" class="btn" data-act="close">Отложить</button><button type="button" class="btn dng" data-act="rv-reject" data-id="'+esc(id)+'">Отклонить всё</button></div>';
   }else if(m.review==='done'){
@@ -3616,12 +3626,22 @@ function applyProposal(id){
   if(!m){toast('Сообщение ещё сохраняется. Попробуй через пару секунд');return}
   var items=propItems(m),box=$('#chgs'),applied=[],p=P(m.project),name=who(m),now=new Date().toISOString();
   var projPatch={},msgPatch={},tOrder=maxOrder(S.tasks),mOrder=maxOrder(S.milestones);
+  // where the chosen records move: a task keeps its milestone only when both end up in one project
+  var moved={},picked=function(i){var cb=box?box.querySelector('input[data-i="'+i+'"]'):null;return !!cb&&cb.checked&&!cb.disabled};
+  items.forEach(function(it,i){if(it.t==='mv'&&picked(i)&&itemView(it,m).ok)moved[it.c+'/'+it.id]=it.to});
+  var endsIn=function(c,r){return moved[c+'/'+r.id]||r.project};
   items.forEach(function(it,i){
     var cb=box?box.querySelector('input[data-i="'+i+'"]'):null;
     if(!cb||!cb.checked||cb.disabled)return;
     var v=itemView(it,m),q,cid;if(!v.ok)return;
     switch(it.t){
       case 'next':projPatch.next=it.to;applied.push('Следующий шаг: '+it.to);break;
+      case 'why':projPatch.why=it.to;applied.push('Описание проекта: '+excerpt(it.to,80));break;
+      case 'nt':projPatch.notes=it.to;applied.push('Заметки проекта обновлены');break;
+      case 'mv':q=mvRec(it);
+        if(it.c==='tasks'){var ms=q.milestone?byId(S.milestones,q.milestone):null;patch('tasks',q.id,{project:it.to,milestone:ms&&endsIn('milestones',ms)===it.to?q.milestone:''})}
+        else{patch(it.c,q.id,{project:it.to});if(it.c==='milestones')S.tasks.forEach(function(t){if(t.milestone===q.id&&endsIn('tasks',t)!==it.to)patch('tasks',t.id,{milestone:''})})}
+        applied.push('Перенос в «'+P(it.to).name+'»: '+mvTitle(it.c,q));break;
       case 'st':projPatch.status=it.to;applied.push('Статус проекта: '+ST[it.to]);break;
       case 'task':tOrder++;put('tasks',uid('t'),{title:it.title,project:m.project,status:'todo',due:validDate(it.due)?it.due:'',milestone:'',notes:'Из сообщения: '+name+', '+fmt(m.date),order:tOrder});applied.push('Задача: '+it.title);break;
       case 'msd':q=byId(S.milestones,it.id);patch('milestones',it.id,{date:it.to});applied.push('Майлстоун «'+q.title+'»: '+(validDate(q.date)?fmt(q.date):'без даты')+' → '+fmt(it.to));break;
