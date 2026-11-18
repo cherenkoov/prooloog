@@ -392,6 +392,34 @@ button.lnk{font-weight:500}
 .mk-p{background:var(--pc);border-radius:999px;width:12px;height:6px}
 .it-p{background:none;box-shadow:inset 0 0 0 1px var(--pc);border-radius:999px;padding-left:8px}
 
+/* clients of a product */
+.cl-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+.cl-row>.row{text-align:left}
+.cl-row .row-t>span:first-child{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}
+.cl-b{display:inline-block;font:600 11px/1.35 var(--body);padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mute)}
+@media (max-width:899px){.cl-row>.row{grid-template-columns:auto minmax(0,1fr)}.cl-row .row-d{grid-column:2;text-align:left}}
+.cl-paid{color:var(--good);border-color:color-mix(in srgb,var(--good) 45%,var(--line));background:color-mix(in srgb,var(--good) 10%,var(--surface))}
+.cl-due{color:var(--crit);border-color:color-mix(in srgb,var(--crit) 45%,var(--line));background:color-mix(in srgb,var(--crit) 9%,var(--surface))}
+.cl-trial{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line));background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+.seg-w{flex-wrap:wrap}
+/* content: the weekly cycle */
+.cyc{margin-bottom:16px}
+.cy-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:10px}
+.cy-slots{display:flex;gap:6px;flex-wrap:wrap}
+.cy-s{width:28px;height:28px;border-radius:50%;border:2px dashed var(--line);display:block}
+.cy-s.work{border:2px solid var(--pc);background:color-mix(in srgb,var(--pc) 16%,var(--surface))}
+.cy-s.done{border:2px solid var(--pc);background:var(--pc);position:relative}
+.cy-s.done::after{content:"";position:absolute;left:9px;top:5px;width:6px;height:11px;border-right:2px solid var(--surface);border-bottom:2px solid var(--surface);transform:rotate(45deg)}
+.cy-n{font-size:14px;color:var(--mute)}
+.cy-n b{font:600 20px/1.2 var(--display);color:var(--ink);font-variant-numeric:tabular-nums;margin-right:4px}
+.cy-n small{display:block;font-size:13px;margin-top:2px}
+.cy-rows{margin-top:12px}
+.cy-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+.cy-row>.row{text-align:left}
+.cy-m{width:12px;height:12px;border-radius:50%;border:2px solid var(--pc);display:block}
+.cy-m.done{background:var(--pc)}
+.cy-auto{font-size:12px;color:var(--mute);white-space:nowrap}
+.cyc .acts{margin-top:12px}
 /* scroll bars in the app's own style */
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--ink) 26%,transparent) transparent}}
 ::-webkit-scrollbar{width:11px;height:11px}
@@ -699,10 +727,10 @@ button.pl-d:hover b{color:var(--accent)}
 'use strict';
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
-var COLLS=CORE.concat(['money','contacts','messages','subs','activity','gone']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],activity:[],gone:[],settings:{capacity:40}};
+var COLLS=CORE.concat(['money','contacts','messages','subs','clients','activity','gone']);
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],activity:[],gone:[],settings:{capacity:40}};
 var loaded={};
-var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
+var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
 var ST={idea:'Идея',active:'В работе',paused:'Пауза',done:'Готово'},STO=['idea','active','paused','done'];
 var TS={todo:'Очередь',doing:'В работе',done:'Готово'},TSO=['todo','doing','done'];
@@ -710,6 +738,7 @@ var VIEWS={overview:'Обзор',plan:'План',board:'Борда',calendar:'К
 function views(){return Object.keys(VIEWS).filter(function(v){return ui.owner||(v!=='budget'&&v!=='contacts')})}
 var MON=['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
 var MONG=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+var MONP=['январе','феврале','марте','апреле','мае','июне','июле','августе','сентябре','октябре','ноябре','декабре'];
 var MONF=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 var DOW=['пн','вт','ср','чт','пт','сб','вс'];
 var DOWF=['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
@@ -985,7 +1014,8 @@ function drawOverviewOne(p){
     return '<div class="li'+(late?' late':'')+'" style="--pc:'+pc(p.id)+'"><button class="ck rnd w" data-act="tg-task" data-id="'+esc(t.id)+'" aria-label="Задача готова"></button><button class="li-b" data-act="edit" data-kind="task" data-id="'+esc(t.id)+'"><span class="li-t">'+esc(t.title)+'</span><span class="li-d">'+esc(TS[t.status]||'')+(validDate(t.due)?' · '+dueT(t)+' · '+rel(t.due):'')+'</span></button></div>';
   }).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
   h+='</section></div>';
-  if(ui.owner)h+='<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+subsPanel(p);
+  h+=cyclePanel(p,true);
+  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+subsPanel(p);
   return h+notesPanel(p);
 }
 
@@ -1208,8 +1238,9 @@ function sums(items){
 }
 function drawBudget(){
   var t=today();if(!ui.budMonth)ui.budMonth=t.slice(0,7);
-  var bseg='<div class="b-top"><div class="seg" role="group" aria-label="Раздел бюджета"><button class="'+(ui.bshow!=='subs'?'on':'')+'" data-act="bshow" data-v="flow">Доходы и расходы</button><button class="'+(ui.bshow==='subs'?'on':'')+'" data-act="bshow" data-v="subs">Подписки <b>'+S.subs.filter(subScope).filter(subOn).length+'</b></button></div></div>';
+  var bseg='<div class="b-top"><div class="seg" role="group" aria-label="Раздел бюджета"><button class="'+(ui.bshow!=='subs'&&ui.bshow!=='clients'?'on':'')+'" data-act="bshow" data-v="flow">Доходы и расходы</button><button class="'+(ui.bshow==='subs'?'on':'')+'" data-act="bshow" data-v="subs">Подписки <b>'+S.subs.filter(subScope).filter(subOn).length+'</b></button><button class="'+(ui.bshow==='clients'?'on':'')+'" data-act="bshow" data-v="clients">'+esc(clUnit(ui.project==='all'?null:P(ui.project)).many)+' <b>'+S.clients.filter(clScope).filter(function(x){return clSt(x)==='on'}).length+'</b></button></div></div>';
   if(ui.bshow==='subs')return bseg+drawSubs();
+  if(ui.bshow==='clients')return bseg+drawClients();
   var scope=S.money.filter(mScope),cl=curs(scope);
   var cur=cl.indexOf(ui.cur)>=0?ui.cur:(cl[0]||S.settings.currency||'USD');
   var allTime=ui.budMonth==='all';
@@ -1421,6 +1452,75 @@ function chCard(c){
   var net=netOf(c),lim=chLimit(c);
   return '<div class="pcard" role="button" tabindex="0" data-act="edit" data-kind="channel" data-id="'+esc(c.id)+'"><div class="card-h"><h3>'+esc(c.name||'Канал')+'</h3>'+(c.draft?'<span class="pill st-idea">черновик Claude</span>':'<span class="pill">'+esc(net.n)+'</span>')+'</div><div class="kv">'+[['Аудитория',c.audience],['Тон',c.voice],['Формат',c.formats],['Рубрики',c.pillars],['План',c.cadence]].filter(function(x){return x[1]}).map(function(x){return '<span class="k">'+x[0]+'</span><span class="v">'+esc(excerpt(x[1],190))+'</span>'}).join('')+'</div><div class="card-f"><span>'+(net.mc?'публикация через Metricool':'публикация вручную')+'</span><span>'+(lim?'до '+lim+' знаков':'')+'</span></div></div>';
 }
+/* ---------- content: the weekly cycle ---------- */
+function postIsPub(x){return postChs(x).some(function(c){return vSt(vOf(x,c.id))==='published'})}
+function postPubDate(x){
+  var d='';
+  postChs(x).forEach(function(c){
+    var v=vOf(x,c.id);if(vSt(v)!=='published')return;
+    var q=String(v.pubAt||v.at||'').slice(0,10);if(!validDate(q))q=validDate(x.date)?x.date:'';
+    if(q&&(!d||q<d))d=q;
+  });
+  return d;
+}
+// A post belongs to a week when it was picked for it, or, if it was not picked for any week, by its dates.
+function postInWeek(x,ws){
+  if(validDate(x.week))return x.week===ws;
+  var we=addDays(ws,6),ds=postDates(x).slice(),pd=postPubDate(x);
+  if(pd)ds.push(pd);
+  if(validDate(x.date))ds.push(x.date);
+  return ds.some(function(d){return d>=ws&&d<=we});
+}
+function cyclePosts(pid,ws){return S.posts.filter(function(x){return x.project===pid&&postInWeek(x,ws)}).sort(postSort)}
+function cycleStreak(p){
+  var goal=Math.round(+p.weekGoal||0),w=weekStart(today()),n=0;
+  if(goal<1)return 0;
+  if(cyclePosts(p.id,w).filter(postIsPub).length>=goal)n++;
+  for(var i=0;i<104;i++){w=addDays(w,-7);if(cyclePosts(p.id,w).filter(postIsPub).length>=goal)n++;else break}
+  return n;
+}
+function cyclePanel(p,compact){
+  var goal=Math.round(+p.weekGoal||0),t=today(),cur=weekStart(t);
+  if(goal<1){
+    if(compact||ui.ro)return '';
+    return '<section class="panel cyc" style="--pc:'+pc(p.id)+'"><div class="ph"><h2>Недельный цикл'+(ui.project==='all'?': '+esc(p.name):'')+'</h2><button class="btn sm" data-act="cycle-goal" data-id="'+esc(p.id)+'">Задать цель</button></div><p class="mute">Цель на неделю, например 4 публикации. Посты на неделю выбираются из контента, а здесь видно, сколько уже вышло.</p></section>';
+  }
+  var ws=compact?cur:(validDate(ui.cweek)?ui.cweek:cur),we=addDays(ws,6),isCur=ws===cur;
+  var its=cyclePosts(p.id,ws),pub=its.filter(postIsPub),work=its.length-pub.length,pick=Math.max(0,goal-its.length),left=Math.max(0,goal-pub.length),days=diff(we,t)+1,streak=cycleStreak(p);
+  var slots='';for(var i=0;i<Math.max(goal,its.length);i++)slots+='<i class="cy-s'+(i<pub.length?' done':i<its.length?' work':'')+'"></i>';
+  var bits=[];
+  if(pub.length>=goal)bits.push('цель недели выполнена');
+  if(work>0)bits.push('в работе: '+work);
+  if(pick>0)bits.push('осталось выбрать: '+pick);
+  if(isCur&&left>0)bits.push(days>1?'до конца недели '+days+' '+plural(days,'день','дня','дней'):'сегодня последний день недели');
+  if(streak>0)bits.push('серия: '+streak+' '+plural(streak,'неделя','недели','недель')+' подряд');
+  var h='<section class="panel cyc" style="--pc:'+pc(p.id)+'"><div class="ph"><h2>'+(compact?'Неделя блога':(ui.project==='all'?esc(p.name)+': неделя':'Неделя'))+' '+esc(fmtDM(ws))+' – '+esc(fmtDM(we))+'</h2><span class="pbtn">'+(compact?'<button class="btn sm" data-act="view" data-v="content">Контент</button>':'<button class="btn sm" data-act="cweek" data-v="-1" aria-label="Предыдущая неделя">‹</button>'+(isCur?'':'<button class="btn sm" data-act="cweek" data-v="0">Эта неделя</button>')+'<button class="btn sm" data-act="cweek" data-v="1" aria-label="Следующая неделя">›</button><button class="btn sm w" data-act="cycle-goal" data-id="'+esc(p.id)+'">Цель: '+goal+'</button>')+'</span></div>';
+  h+='<div class="cy-top"><div class="cy-slots" role="img" aria-label="Опубликовано '+pub.length+' из '+goal+'">'+slots+'</div><div class="cy-n"><b>'+pub.length+' из '+goal+'</b> опубликовано'+(bits.length?'<small>'+esc(bits.join(' · '))+'</small>':'')+'</div></div>';
+  if(compact)return h+'</section>';
+  h+=its.length?'<div class="rows cy-rows">'+its.map(function(x){
+    var st=postState(x),on=postIsPub(x),picked=x.week===ws;
+    return '<div class="cy-row"><button class="row" data-act="post" data-id="'+esc(x.id)+'" style="--pc:'+pc(x.project)+'"><span class="cy-m'+(on?' done':'')+'" aria-hidden="true"></span><span class="row-t"><span>'+esc(x.title||'Без темы')+'</span><span class="row-p">'+esc(PST[st]+(validDate(x.date)?' · '+fmt(x.date)+(postClock(x.time)?', '+x.time:''):' · без даты'))+'</span></span><span></span></button>'+(picked&&!ui.ro?'<button class="x" data-act="cycle-rm" data-id="'+esc(x.id)+'" aria-label="Убрать пост из этой недели" title="Убрать из недели">×</button>':'<span class="cy-auto" title="Пост попал в неделю по своей дате">по дате</span>')+'</div>';
+  }).join('')+'</div>':'<p class="mute">На эту неделю посты ещё не выбраны.</p>';
+  if(!ui.ro)h+='<div class="acts"><button class="btn sm pri" data-act="cycle-pick" data-id="'+esc(p.id)+'" data-w="'+ws+'">+ Выбрать из контента</button><button class="btn sm" data-act="cycle-new" data-id="'+esc(p.id)+'" data-w="'+ws+'">+ Новый пост на эту неделю</button></div>';
+  return h+'</section>';
+}
+function cycleList(pid,ws){
+  var its=S.posts.filter(function(x){return x.project===pid&&!postInWeek(x,ws)&&!postIsPub(x)}).sort(postSort);
+  if(!its.length)return '<p class="mute">Свободных постов нет: все уже в этой неделе или опубликованы. Новый пост можно добавить кнопкой «+ Новый пост на эту неделю».</p>';
+  return '<div class="rows">'+its.map(function(x){
+    var st=postState(x),other=validDate(x.week);
+    return '<div class="cy-row"><div class="row" style="--pc:'+pc(x.project)+'"><span class="cy-m" aria-hidden="true"></span><span class="row-t"><span>'+esc(x.title||'Без темы')+'</span><span class="row-p">'+esc(PST[st]+(validDate(x.date)?' · '+fmt(x.date):' · без даты')+(other?' · выбран на неделю с '+fmtDM(x.week):''))+'</span></span><span></span></div><button class="btn sm" data-act="cycle-add" data-id="'+esc(x.id)+'" data-w="'+ws+'">В неделю</button></div>';
+  }).join('')+'</div>';
+}
+function formCyclePick(pid,ws){
+  var p=P(pid);if(!p||!validDate(ws))return;
+  openSheet('Посты на неделю '+fmtDM(ws)+' – '+fmtDM(addDays(ws,6)),'<p class="sg-out" style="margin-bottom:10px">Выбери из контента, что выйдет на этой неделе. Дата поста не меняется: её можно поставить в самом посте.</p><div id="cy-pick" data-id="'+esc(pid)+'" data-w="'+ws+'">'+cycleList(pid,ws)+'</div>',null,false,true);
+}
+function formCycleGoal(pid){
+  var p=P(pid);if(!p)return;
+  openSheet('Цель на неделю','<form class="form" data-form="cycle" data-id="'+esc(pid)+'">'+fld('Сколько публикаций в неделю: '+esc(p.name),inp('goal',Math.round(+p.weekGoal||0)||4,'type="number" min="0" max="50" step="1" inputmode="numeric" required'))+'<p class="mute">Считается пост, у которого опубликован хотя бы один вариант. Ноль выключает цикл.</p><div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',null,true);
+}
+
 function drawContent(){
   var posts=S.posts.filter(function(p){return ui.project==='all'||p.project===ui.project}).sort(postSort),chs=chList();
   var h='<div class="b-top"><div class="seg" role="group" aria-label="Что показывать"><button class="'+(ui.cshow==='posts'?'on':'')+'" data-act="cshow" data-v="posts">Посты <b>'+posts.length+'</b></button><button class="'+(ui.cshow==='channels'?'on':'')+'" data-act="cshow" data-v="channels">Каналы <b>'+chs.length+'</b></button></div><div class="sp w">'+(ui.cshow==='posts'?'<button class="btn sm" data-act="new" data-kind="post">+ Пост</button>':'<button class="btn sm" data-act="mc-set">Metricool</button><button class="btn sm" data-act="new" data-kind="channel">+ Канал</button>')+'</div></div>';
@@ -1429,6 +1529,8 @@ function drawContent(){
     return h;
   }
   if(!chs.length)h+='<p class="mute">Сначала опиши каналы на вкладке «Каналы»: по ним строятся варианты поста.</p>';
+  var cyp=ui.project==='all'?sorted(S.projects).filter(function(x){return +x.weekGoal>0}):(P(ui.project)&&(+P(ui.project).weekGoal>0||posts.length||chs.length)?[P(ui.project)]:[]);
+  h+=cyp.map(function(x){return cyclePanel(x,false)}).join('');
   h+=posts.length?'<div class="cards">'+posts.map(postCard).join('')+'</div>':'<section class="panel"><p>Постов пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Пост начинается с темы и сути. Потом для каждого канала готовится свой вариант, ты делаешь финальную правку и отправляешь в публикацию.</p></section>';
   return h;
 }
@@ -1457,11 +1559,11 @@ function postFields(p){
     fld('Ссылка на фото или видео',inp('media',p.media,'type="url" maxlength="600" placeholder="https://, можно Google Drive"'))+
     (chs.length?'<div class="f"><span class="f-l">Каналы, для которых нужен вариант</span><div class="ckl">'+chs.map(function(c){return '<label><input type="checkbox" id="f-ch-'+esc(c.id)+'" name="ch:'+esc(c.id)+'"'+(vs[c.id]?' checked':'')+'><span>'+esc(c.name)+'</span></label>'}).join('')+'</div></div>':'');
 }
-function formPost(){
+function formPost(pre){
   var blog=P('p-blog')?'p-blog':'',vars={};
   chList().forEach(function(c){vars[c.id]={}});
-  var p={title:'',pillar:'',date:'',time:'',core:'',media:'',project:ui.project!=='all'&&P(ui.project)?ui.project:blog,variants:vars};
-  openSheet('Новый пост','<form class="form" data-form="post" data-id="">'+postFields(p)+'<div class="acts"><button type="submit" class="btn pri">Сохранить и перейти к вариантам</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',null,true,true);
+  var p={title:'',pillar:'',date:'',time:'',core:'',media:'',project:pre&&P(pre.project)?pre.project:(ui.project!=='all'&&P(ui.project)?ui.project:blog),variants:vars};
+  openSheet('Новый пост','<form class="form" data-form="post" data-id="">'+postFields(p)+(pre&&validDate(pre.week)?'<input type="hidden" id="f-week" name="week" value="'+esc(pre.week)+'"><p class="sg-out">Пост будет выбран на неделю '+esc(fmtDM(pre.week))+' – '+esc(fmtDM(addDays(pre.week,6)))+'.</p>':'')+'<div class="acts"><button type="submit" class="btn pri">Сохранить и перейти к вариантам</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',null,true,true);
 }
 function utf8Len(s){try{return new TextEncoder().encode(String(s)).length}catch(e){return String(s).length*2}}
 function variantBlock(p,c){
@@ -1859,6 +1961,147 @@ function formSub(id,pre){
     (id&&/^https?:\/\//i.test(x.url||'')?'<p><a class="lnk" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer">Открыть страницу подписки ↗</a></p>':'')),null,!id);
 }
 
+/* ---------- clients of a product: who pays the subscription, who does not, income ---------- */
+var CLS={lead:'Знакомство',on:'В работе',pause:'Пауза',off:'Ушли'},CLSO=['lead','on','pause','off'];
+var CLU=[['Клиенты','Клиент'],['Команды','Команда'],['Компании','Компания'],['Пользователи','Пользователь'],['Ученики','Ученик'],['Участники','Участник']];
+var CLPM=['Telegram Stars','Карта','Перевод','Наличные','Другое'];
+function clScope(x){return ui.project==='all'||x.project===ui.project}
+function clCur(x){return typeof x.cur==='string'&&x.cur?x.cur:'USD'}
+function clSt(x){return CLS[x.st]?x.st:'on'}
+function clUnit(p){var s=p&&p.sales;return {many:(s&&s.many)||'Клиенты',one:(s&&s.one)||'Клиент'}}
+function clSales(p){var s=(p&&p.sales)||{};return {many:s.many||'Клиенты',one:s.one||'Клиент',fee:Math.max(0,+s.fee||0),price:Math.max(0,+s.price||0),per:s.per==='year'?'year':'month',cur:typeof s.cur==='string'&&s.cur?s.cur:(S.settings.currency||'USD'),trial:Math.max(0,Math.round(+s.trial||0))}}
+function addMonths(s,n){var b=parse(s),r=new Date(b.getFullYear(),b.getMonth()+n,1);r.setDate(Math.min(b.getDate(),new Date(r.getFullYear(),r.getMonth()+1,0).getDate()));return iso(r)}
+// How things stand with the payment: paid, on trial, or due.
+function clPay(x){
+  var t=today(),st=clSt(x),n;
+  if(st!=='on')return {k:st,t:CLS[st]};
+  if(validDate(x.paidTo)&&x.paidTo>=t)return {k:'paid',t:'Оплачено до '+fmt(x.paidTo)};
+  if(validDate(x.trialTo)&&x.trialTo>=t)return {k:'trial',t:'Пробный до '+fmt(x.trialTo)};
+  if(validDate(x.paidTo)){n=diff(t,x.paidTo);return {k:'due',t:'Не оплачено '+n+' '+plural(n,'день','дня','дней')+', с '+fmt(addDays(x.paidTo,1))}}
+  if(validDate(x.trialTo))return {k:'due',t:'Пробный кончился '+fmt(x.trialTo)+', подписки нет'};
+  return {k:'due',t:'Подписка не оформлена'};
+}
+function clMonthly(x){var a=Math.max(0,+x.price||0);return x.per==='year'?a/12:a}
+function clPays(id){return S.money.filter(function(m){return m.client===id&&m.kind==='in'&&!m.plan}).sort(function(a,b){return (a.date||'')<(b.date||'')?1:-1})}
+function clSum(items,fn){var o={},ks=[];items.forEach(function(x){var c=clCur(x),v=fn(x);if(!v)return;if(o[c]==null){o[c]=0;ks.push(c)}o[c]+=v});return ks.map(function(c){return [c,o[c]]})}
+function clSort(a,b){
+  var r={due:0,trial:1,paid:2,lead:3,pause:4,off:5},x=r[clPay(a).k],y=r[clPay(b).k];
+  if(x!==y)return x-y;
+  var g=String(a.group||'').localeCompare(String(b.group||''),'ru');
+  return g||String(a.name||'').localeCompare(String(b.name||''),'ru');
+}
+function clRow(x,showProject){
+  var p=P(x.project),pay=clPay(x),c=x.contact?byId(S.contacts,x.contact):null,price=+x.price>0?fmtMoney(+x.price,clCur(x))+(x.per==='year'?' в год':' в месяц'):'цена не указана';
+  var feeTxt=+x.fee>0?(validDate(x.feePaid)?'подключение оплачено':'подключение не оплачено: '+fmtMoney(+x.fee,clCur(x))):'';
+  return '<div class="cl-row"><button class="row" data-act="edit" data-kind="client" data-id="'+esc(x.id)+'" style="--pc:'+(p?pc(p.id):'var(--mute)')+'"><i class="dot" aria-hidden="true"></i><span class="row-t"><span>'+esc(x.name||'Без названия')+'<span class="cl-b cl-'+pay.k+'">'+esc(pay.t)+'</span></span><span class="row-p">'+esc([x.group,showProject&&p?p.name:'',c?c.name:'',feeTxt].filter(Boolean).join(' · '))+'</span></span><span class="row-d">'+esc(price)+'</span></button>'+(ui.ro||clSt(x)==='off'?'':'<button class="btn sm" data-act="cl-pay" data-id="'+esc(x.id)+'">Оплата</button>')+'</div>';
+}
+function clStats(list){
+  var on=list.filter(function(x){return clSt(x)==='on'}),by={paid:[],trial:[],due:[]};
+  on.forEach(function(x){by[clPay(x).k].push(x)});
+  return {on:on,paid:by.paid,trial:by.trial,due:by.due,lead:list.filter(function(x){return clSt(x)==='lead'}),rest:list.filter(function(x){var s=clSt(x);return s==='pause'||s==='off'})};
+}
+function clIncome(pidOk,from,to){
+  var o={sub:{},fee:{}};
+  S.money.forEach(function(m){
+    if(!m.client||m.kind!=='in'||m.plan||!pidOk(m)||!validDate(m.date)||m.date<from||m.date>to)return;
+    var k=m.what==='fee'?'fee':'sub',c=mCur(m);o[k][c]=(o[k][c]||0)+(+m.amount||0);
+  });
+  return o;
+}
+function clLine(o){var ks=Object.keys(o);return ks.length?ks.map(function(c){return fmtMoney(Math.round(o[c]*100)/100,c)}).join(' · '):'—'}
+function clAdd(a,b){var r=Object.assign({},a);Object.keys(b).forEach(function(c){r[c]=(r[c]||0)+b[c]});return r}
+function drawClients(){
+  var all=S.clients.filter(clScope),st=clStats(all),f=ui.clf,t=today(),p=ui.project==='all'?null:P(ui.project),u=clUnit(p);
+  var sets=[['all','Все',all.length],['paid','Платят',st.paid.length],['due','Не оплатили',st.due.length],['trial','Пробный',st.trial.length],['lead','Знакомство',st.lead.length],['rest','Пауза и ушли',st.rest.length]];
+  var h='<div class="b-top"><div class="seg seg-w" role="group" aria-label="Каких клиентов показывать">'+sets.filter(function(x){return x[0]==='all'||x[0]==='paid'||x[0]==='due'||x[2]>0}).map(function(x){return '<button class="'+(f===x[0]?'on':'')+'" data-act="clf" data-v="'+x[0]+'">'+x[1]+' <b>'+x[2]+'</b></button>'}).join('')+'</div><div class="sp w">'+(p?'<button class="btn sm" data-act="cl-sales" data-id="'+esc(p.id)+'">Условия</button>':'')+'<button class="btn sm pri" data-act="new" data-kind="client">+ '+esc(u.one)+'</button></div></div>';
+  if(!all.length)return h+'<section class="panel"><p>Здесь пока пусто.</p><p class="mute" style="margin-top:6px;max-width:65ch">Запиши тех, кто пользуется продуктом: команду, компанию или человека. У каждого видно, оплачена ли подписка и до какого числа, а платежи сразу попадают в доходы проекта.</p></section>';
+  var ok=function(m){return ui.project==='all'||m.project===ui.project},ms=t.slice(0,8)+'01',mon=clIncome(ok,ms,monthEnd(t)),total=clIncome(ok,'0000-00-00','9999-99-99');
+  h+='<div class="tiles"><div class="tile"><h2>Платят подписку</h2><div class="n">'+st.paid.length+' из '+st.on.length+'</div><small>'+(st.due.length?'не оплатили: '+st.due.length:'долгов нет')+(st.trial.length?' · пробный: '+st.trial.length:'')+'</small></div>';
+  h+='<div class="tile"><h2>Подписка в месяц</h2><div class="n pos">'+subLine(clSum(st.paid,clMonthly))+'</div><small>если заплатят все: '+subLine(clSum(st.on,clMonthly))+'</small></div>';
+  h+='<div class="tile"><h2>Получено в '+MONP[+t.slice(5,7)-1]+'</h2><div class="n">'+clLine(clAdd(mon.sub,mon.fee))+'</div><small>за всё время: '+clLine(clAdd(total.sub,total.fee))+'</small></div></div>';
+  var list=(f==='paid'?st.paid:f==='due'?st.due:f==='trial'?st.trial:f==='lead'?st.lead:f==='rest'?st.rest:all).slice().sort(clSort);
+  var title={all:'Все',paid:'Платят подписку',due:'Не оплатили',trial:'На пробном периоде',lead:'Знакомство',rest:'Пауза и ушли'}[f]||'Все';
+  h+='<section class="panel"><div class="ph"><h2>'+title+'</h2></div>'+(list.length?'<div class="rows">'+list.map(function(x){return clRow(x,ui.project==='all')}).join('')+'</div>':'<p class="mute">В этом списке пусто.</p>')+'</section>';
+  var rows='',any=false;
+  for(var i=0;i<6;i++){
+    var d=new Date(+t.slice(0,4),+t.slice(5,7)-1-i,1),a=iso(d),b=monthEnd(a),q=clIncome(ok,a,b),sum=clAdd(q.sub,q.fee);
+    if(Object.keys(sum).length)any=true;
+    rows+='<tr><td>'+MONF[d.getMonth()]+' '+d.getFullYear()+'</td><td>'+clLine(q.sub)+'</td><td>'+clLine(q.fee)+'</td><td class="amt">'+clLine(sum)+'</td></tr>';
+  }
+  h+='<section class="panel"><div class="ph"><h2>Доход по месяцам</h2></div>'+(any?'<div class="tbl-w"><table class="tbl"><thead><tr><th scope="col">Месяц</th><th scope="col">Подписка</th><th scope="col">Подключение</th><th scope="col">Итого</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<p class="mute">Платежей пока нет. Отметь первый кнопкой «Оплата» в строке клиента.</p>')+'</section>';
+  return h+'<p class="mute" style="font-size:13px;max-width:70ch">Каждая отмеченная оплата записывается доходом в «Доходы и расходы» с привязкой к проекту.</p>';
+}
+function clientsPanel(p){
+  var its=S.clients.filter(function(x){return x.project===p.id});
+  if(!its.length&&!p.sales)return '';
+  var u=clUnit(p),st=clStats(its);
+  var h='<section class="panel"><div class="ph"><h2>'+esc(u.many)+'</h2><span class="pbtn"><button class="btn sm w" data-act="new" data-kind="client" data-project="'+esc(p.id)+'">+ '+esc(u.one)+'</button><button class="btn sm w" data-act="cl-sales" data-id="'+esc(p.id)+'">Условия</button><button class="btn sm" data-act="cl-all">Доход</button></span></div>';
+  if(!its.length)return h+'<p class="mute">Пока никого. Добавь первую запись, и здесь будет видно, кто платит подписку, а кто нет.</p></section>';
+  h+='<div class="msum"><div><span>Платят <b class="amt in">'+st.paid.length+' из '+st.on.length+'</b></span>'+(st.due.length?'<span>Не оплатили <b class="amt neg">'+st.due.length+'</b></span>':'')+(st.trial.length?'<span>Пробный <b class="amt">'+st.trial.length+'</b></span>':'')+'<span>Подписка в месяц <b class="amt">'+subLine(clSum(st.paid,clMonthly))+'</b></span></div></div>';
+  return h+'<div class="rows" style="margin-top:8px">'+its.slice().sort(clSort).map(function(x){return clRow(x,false)}).join('')+'</div></section>';
+}
+function formClient(id,pre){
+  var x=id?byId(S.clients,id):null;if(id&&!x)return;if(needProject())return;
+  var pid=x?x.project:(pre&&P(pre.project)?pre.project:(ui.project!=='all'&&P(ui.project)?ui.project:(sorted(S.projects).filter(function(q){return q.sales})[0]||{}).id||defProject())),p=P(pid),sl=clSales(p),u=clUnit(p),t=today();
+  x=x||{name:'',group:'',project:pid,st:'on',contact:'',fee:sl.fee||'',feePaid:'',price:sl.price||'',per:sl.per,cur:sl.cur,start:t,trialTo:sl.trial?addDays(t,sl.trial):'',paidTo:'',notes:''};
+  var cl=CURO.slice();if(cl.indexOf(clCur(x))<0)cl.unshift(clCur(x));
+  var groups={};S.clients.forEach(function(q){if(q.group)groups[q.group]=1});
+  var dl='<datalist id="clg-dl">'+Object.keys(groups).map(function(g){return '<option value="'+esc(g)+'"></option>'}).join('')+'</datalist>';
+  var pays=id?clPays(id):[],hist='';
+  if(id){
+    var pay=clPay(x);
+    hist='<div class="chat-h"><h2>Оплаты</h2></div><p class="sg-out" style="margin:6px 0 8px"><span class="cl-b cl-'+pay.k+'" style="margin-left:0">'+esc(pay.t)+'</span></p>'+(pays.length?'<div class="rows">'+pays.map(function(m){return '<button type="button" class="row" data-act="edit" data-kind="money" data-id="'+esc(m.id)+'"><i class="dot" aria-hidden="true"></i><span class="row-t"><span>'+esc(m.title||m.cat||'Оплата')+'</span><span class="row-p">'+esc([fmt(m.date),m.method,validDate(m.to)?'оплачено до '+fmt(m.to):''].filter(Boolean).join(' · '))+'</span></span><span class="amt in">+'+fmtMoney(+m.amount||0,mCur(m))+'</span></button>'}).join('')+'</div>':'<p class="mute">Оплат пока не было.</p>')+(ui.ro?'':'<div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="cl-pay" data-id="'+esc(id)+'">+ Оплата</button></div>');
+  }
+  openSheet(id?u.one:'Новая запись: '+u.one.toLowerCase(),formHtml('client',id,
+    '<div class="f2">'+fld('Название',inp('name',x.name,'required maxlength="80" autocomplete="off"'))+fld('Коллектив или компания',inp('group',x.group,'list="clg-dl" maxlength="80" autocomplete="off" placeholder="Необязательно"')+dl)+'</div>'+
+    '<div class="f2">'+fld('Проект',sel('project',projOpts(),pid))+fld('Статус',sel('st',CLSO.map(function(k){return [k,CLS[k]]}),clSt(x)))+'</div>'+
+    (S.contacts.length?fld('Контактное лицо',sel('contact',cOpts(pid,x.contact),byId(S.contacts,x.contact)?x.contact:'')):'')+
+    '<div class="f2">'+fld('Подписка: цена',inp('price',x.price,'type="number" min="0" step="0.01" inputmode="decimal"'))+fld('Период',sel('per',[['month','В месяц'],['year','В год']],x.per==='year'?'year':'month'))+'</div>'+
+    '<div class="f2">'+fld('Подключение: разовая сумма',inp('fee',x.fee,'type="number" min="0" step="0.01" inputmode="decimal"'))+fld('Валюта',sel('cur',cl.map(function(c){return [c,c+(CUR[c]?' '+CUR[c]:'')]}),clCur(x)))+'</div>'+
+    '<div class="f2">'+fld('Начало работы',inp('start',validDate(x.start)?x.start:'','type="date"'))+fld('Пробный период до',inp('trialTo',validDate(x.trialTo)?x.trialTo:'','type="date"'))+'</div>'+
+    '<div class="f2">'+fld('Подписка оплачена до',inp('paidTo',validDate(x.paidTo)?x.paidTo:'','type="date"'))+fld('Подключение оплачено',inp('feePaid',validDate(x.feePaid)?x.feePaid:'','type="date"'))+'</div>'+
+    fld('Заметка',ta('notes',x.notes,2,'maxlength="1000"'))+hist),null,!id,true);
+}
+function payCalc(x,what,date,n){
+  var per=x.per==='year'?12:1,base=validDate(x.paidTo)?x.paidTo:(validDate(x.trialTo)&&x.trialTo>=date?x.trialTo:date);
+  return what==='fee'?{amount:+x.fee||0,to:''}:{amount:Math.round((+x.price||0)*n*100)/100,to:addMonths(base,per*n)};
+}
+function formPay(id){
+  var x=byId(S.clients,id);if(!x||ui.ro)return;
+  var t=today(),what=+x.fee>0&&!validDate(x.feePaid)&&!validDate(x.paidTo)?'fee':'sub',c=payCalc(x,what,t,1),unit=x.per==='year'?'лет':'месяцев';
+  var cl=CURO.slice();if(cl.indexOf(clCur(x))<0)cl.unshift(clCur(x));
+  openSheet('Оплата: '+(x.name||''),'<form class="form" data-form="pay" data-id="'+esc(id)+'">'+
+    '<div class="f" role="radiogroup" aria-label="Что оплачено"><span class="f-l">Что оплачено</span><div class="kindsw"><label><input type="radio" id="f-what-sub" name="what" value="sub"'+(what==='sub'?' checked':'')+'><span>Подписка</span></label><label><input type="radio" id="f-what-fee" name="what" value="fee"'+(what==='fee'?' checked':'')+'><span>Подключение</span></label></div></div>'+
+    '<div class="f2">'+fld('Сумма',inp('amount',c.amount||'','type="number" min="0" step="0.01" inputmode="decimal" required'))+fld('Валюта',sel('cur',cl.map(function(k){return [k,k+(CUR[k]?' '+CUR[k]:'')]}),clCur(x)))+'</div>'+
+    '<div class="f2">'+fld('Дата оплаты',inp('date',t,'type="date" required'))+fld('Способ',sel('method',CLPM.map(function(m){return [m,m]}),CLPM[0]))+'</div>'+
+    '<div class="f2" id="pay-sub">'+fld('За сколько '+unit,inp('months',1,'type="number" min="1" max="60" step="1" inputmode="numeric"'))+fld('Подписка оплачена до',inp('to',c.to,'type="date"'))+'</div>'+
+    fld('Заметка',inp('note','','maxlength="160" autocomplete="off"'))+
+    '<div class="acts"><button type="submit" class="btn pri">Записать оплату</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',function(b){
+      var am=b.querySelector('#f-amount'),to=b.querySelector('#f-to'),mo=b.querySelector('#f-months'),dt=b.querySelector('#f-date'),box=b.querySelector('#pay-sub'),dirty={};
+      am.addEventListener('input',function(){dirty.a=1});to.addEventListener('input',function(){dirty.t=1});
+      var sync=function(){
+        var w=b.querySelector('#f-what-fee').checked?'fee':'sub',n=Math.max(1,Math.min(60,Math.round(+mo.value||1))),r=payCalc(x,w,validDate(dt.value)?dt.value:t,n);
+        box.hidden=w==='fee';
+        if(!dirty.a)am.value=r.amount||'';
+        if(!dirty.t)to.value=r.to;
+      };
+      ['#f-what-sub','#f-what-fee'].forEach(function(q){b.querySelector(q).addEventListener('change',function(){dirty={};sync()})});
+      mo.addEventListener('input',sync);dt.addEventListener('change',sync);sync();
+    },false);
+}
+function formSales(pid){
+  var p=P(pid);if(!p||ui.ro)return;
+  var s=clSales(p),cl=CURO.slice();if(cl.indexOf(s.cur)<0)cl.unshift(s.cur);
+  var names=CLU.map(function(x){return [x[0]+'|'+x[1],x[0]]}),curN=s.many+'|'+s.one;
+  if(!names.some(function(x){return x[0]===curN}))names.push([curN,s.many]);
+  openSheet('Условия: '+p.name,'<form class="form" data-form="sales" data-id="'+esc(pid)+'">'+
+    fld('Как называть тех, кто платит',sel('unit',names,curN))+
+    '<div class="f2">'+fld('Подписка: цена',inp('price',s.price||'','type="number" min="0" step="0.01" inputmode="decimal"'))+fld('Период',sel('per',[['month','В месяц'],['year','В год']],s.per))+'</div>'+
+    '<div class="f2">'+fld('Подключение: разовая сумма',inp('fee',s.fee||'','type="number" min="0" step="0.01" inputmode="decimal"'))+fld('Валюта',sel('cur',cl.map(function(c){return [c,c+(CUR[c]?' '+CUR[c]:'')]}),s.cur))+'</div>'+
+    fld('Пробный период, дней',inp('trial',s.trial||'','type="number" min="0" max="365" step="1" inputmode="numeric"'))+
+    '<p class="mute">Эти значения подставляются в новую запись. У каждой команды или клиента их можно поменять.</p><div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',null,false);
+}
+
 /* ---------- plan: day, week, month, built from tasks ---------- */
 function weekStart(d){var x=parse(d);x.setDate(x.getDate()-((x.getDay()+6)%7));return iso(x)}
 function monthStart(d){return d.slice(0,8)+'01'}
@@ -2131,7 +2374,7 @@ function formActivity(){
 }
 
 /* ---------- data: what is stored, export to a file, import from a file ---------- */
-var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
 var dlNs=null,dataIn=null;
 function dataDump(){
   var docs={},n=0;
@@ -2978,7 +3221,7 @@ function save(kind,id,v,form){
       var c=k.slice(3);vars[c]=ov[c]&&typeof ov[c]==='object'?copyOf(ov[c]):{text:'',st:'draft'};
       var dv=id?readVar(c):null;if(dv)mergeDeep(vars[c],dv);
     });
-    data={title:v.title,core:(v.core||'').slice(0,6000),pillar:v.pillar||'',project:P(v.project)?v.project:'',date:validDate(v.date)?v.date:'',time:validDate(v.date)?postClock(v.time):'',media:/^https?:\/\//i.test(v.media||'')?v.media.slice(0,600):'',variants:vars,order:oldP?(+oldP.order||0):maxOrder(S.posts)+1};
+    data={title:v.title,core:(v.core||'').slice(0,6000),pillar:v.pillar||'',project:P(v.project)?v.project:'',date:validDate(v.date)?v.date:'',time:validDate(v.date)?postClock(v.time):'',media:/^https?:\/\//i.test(v.media||'')?v.media.slice(0,600):'',variants:vars,week:oldP?(validDate(oldP.week)?oldP.week:''):(validDate(v.week)?v.week:''),order:oldP?(+oldP.order||0):maxOrder(S.posts)+1};
     var pid=id||uid('o');put('posts',pid,data);
     openPost(pid,Object.assign({id:pid},data));
     toast('Пост сохранён');
@@ -2997,6 +3240,29 @@ function save(kind,id,v,form){
     if(!sv.cat)sv.cat='other';
     if(id)patch('services',id,sv);else{sv.order=maxOrder(S.services)+1;sv.project=P('p-hub')?'p-hub':'';put('services',uid('s'),sv);svcDraftClear()}
     toast(sv.st==='published'?'Услуга опубликована':'Услуга сохранена');
+  }else if(kind==='client'){
+    if(!v.name||!P(v.project))return;
+    var num=function(q){return Math.max(0,Math.round((+String(q||'').replace(',','.')||0)*100)/100)};
+    data={name:v.name,group:v.group||'',project:v.project,st:CLS[v.st]?v.st:'on',price:num(v.price),per:v.per==='year'?'year':'month',fee:num(v.fee),cur:String(v.cur||'USD').slice(0,6),start:validDate(v.start)?v.start:'',trialTo:validDate(v.trialTo)?v.trialTo:'',paidTo:validDate(v.paidTo)?v.paidTo:'',feePaid:validDate(v.feePaid)?v.feePaid:'',notes:v.notes||''};
+    if(v.contact!==undefined)data.contact=byId(S.contacts,v.contact)?v.contact:'';
+    if(id)patch('clients',id,data);else{data.order=maxOrder(S.clients)+1;put('clients',uid('k'),data)}
+  }else if(kind==='pay'){
+    var cx=byId(S.clients,id);if(!cx)return;
+    var pa=Math.round((+String(v.amount).replace(',','.')||0)*100)/100;
+    if(!(pa>0)||!validDate(v.date))return;
+    var pw=v.what==='fee'?'fee':'sub',pm=Math.max(1,Math.min(60,Math.round(+v.months||1))),pto=pw==='sub'&&validDate(v.to)?v.to:'';
+    put('money',uid('b'),{kind:'in',amount:pa,cur:String(v.cur||clCur(cx)).slice(0,6),date:v.date,project:P(cx.project)?cx.project:'',cat:pw==='fee'?'Подключение':'Подписка',title:(pw==='fee'?'Подключение: ':'Подписка: ')+(cx.name||'')+(pw==='sub'&&pm>1?', '+pm+(cx.per==='year'?' г.':' мес.'):'')+(v.note?' · '+v.note:''),plan:false,client:id,what:pw,months:pw==='sub'?pm:0,to:pto,method:CLPM.indexOf(v.method)>=0?v.method:''});
+    var cp=pw==='fee'?{feePaid:v.date}:(pto?{paidTo:pto}:{});
+    if(clSt(cx)==='lead')cp.st='on';
+    if(Object.keys(cp).length)patch('clients',id,cp);
+    toast('Оплата записана');
+  }else if(kind==='sales'){
+    if(!P(id))return;
+    var un=String(v.unit||'').split('|'),n2=function(q){return Math.max(0,Math.round((+String(q||'').replace(',','.')||0)*100)/100)};
+    patch('projects',id,{sales:{many:(un[0]||'Клиенты').slice(0,30),one:(un[1]||'Клиент').slice(0,30),price:n2(v.price),per:v.per==='year'?'year':'month',fee:n2(v.fee),cur:String(v.cur||'USD').slice(0,6),trial:Math.max(0,Math.min(365,Math.round(+v.trial||0)))}});
+  }else if(kind==='cycle'){
+    if(!P(id))return;
+    patch('projects',id,{weekGoal:Math.max(0,Math.min(50,Math.round(+v.goal||0)))});
   }else if(kind==='mc'){
     saveSettings({metricoolBlog:String(v.blog||'').replace(/\D/g,'').slice(0,12)});
   }else if(kind==='settings'){
@@ -3007,13 +3273,14 @@ function save(kind,id,v,form){
   closeSheet();
 }
 function removeEntity(kind,id){
-  var map={project:'projects',task:'tasks',milestone:'milestones',event:'events',money:'money',contact:'contacts',message:'messages',note:'log',post:'posts',channel:'channels',service:'services',sub:'subs'},coll=map[kind];if(!coll)return;
+  var map={project:'projects',task:'tasks',milestone:'milestones',event:'events',money:'money',contact:'contacts',message:'messages',note:'log',post:'posts',channel:'channels',service:'services',sub:'subs',client:'clients'},coll=map[kind];if(!coll)return;
   var chain=Promise.resolve();
   if(kind==='project'){
     ['tasks','milestones','events','log','messages'].forEach(function(c){S[c].filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return del(c,x.id)})})});
     S.money.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('money',x.id,{project:''})})});
     S.posts.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('posts',x.id,{project:''})})});
     S.subs.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('subs',x.id,{project:''})})});
+    S.clients.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('clients',x.id,{project:''})})});
     S.contacts.filter(function(x){return cProjects(x).indexOf(id)>=0}).forEach(function(x){chain=chain.then(function(){return patch('contacts',x.id,{projects:cProjects(x).filter(function(q){return q!==id})})})});
     if(ui.project===id)setProject('all',true);
   }
@@ -3061,11 +3328,12 @@ document.addEventListener('click',function(e){
       else if(d.kind==='channel')formChannel(null);
       else if(d.kind==='service')formService(null);
       else if(d.kind==='sub')formSub(null,{project:d.project});
+      else if(d.kind==='client')formClient(null,{project:d.project});
       else if(d.kind==='contact')formContact(null,d.project?{projects:[d.project]}:null);
       else if(d.kind==='message')formMessage(null,{contact:d.contact,project:d.project});
       break;
     case 'edit':
-      if(d.kind==='project')formProject(d.id);else if(d.kind==='task')formTask(d.id);else if(d.kind==='milestone')formMs(d.id);else if(d.kind==='event')formEvent(d.id);else if(d.kind==='money')formMoney(d.id);else if(d.kind==='contact')formContact(d.id);else if(d.kind==='message')formMessage(d.id);else if(d.kind==='post')openPost(d.id);else if(d.kind==='channel')formChannel(d.id);else if(d.kind==='service')formService(d.id);else if(d.kind==='sub')formSub(d.id);
+      if(d.kind==='project')formProject(d.id);else if(d.kind==='task')formTask(d.id);else if(d.kind==='milestone')formMs(d.id);else if(d.kind==='event')formEvent(d.id);else if(d.kind==='money')formMoney(d.id);else if(d.kind==='contact')formContact(d.id);else if(d.kind==='message')formMessage(d.id);else if(d.kind==='post')openPost(d.id);else if(d.kind==='channel')formChannel(d.id);else if(d.kind==='service')formService(d.id);else if(d.kind==='sub')formSub(d.id);else if(d.kind==='client')formClient(d.id);
       break;
     case 'del':
       if(t.dataset.armed){removeEntity(d.kind,d.id)}
@@ -3095,7 +3363,11 @@ document.addEventListener('click',function(e){
     case 'pnav':o=planDay();if(d.v==='0')ui.pday=today();else if(ui.plan==='week')ui.pday=addDays(o,7*(+d.v||0));else if(ui.plan==='month'){o=parse(o);ui.pday=iso(new Date(o.getFullYear(),o.getMonth()+(+d.v||0),1));if(ui.pday.slice(0,7)===today().slice(0,7))ui.pday=today()}else ui.pday=addDays(o,+d.v||0);render();break;
     case 'plan-take':o=byId(S.tasks,d.id);if(o&&!ui.ro&&validDate(d.d))patch('tasks',o.id,{due:d.d});break;
     case 'ms-open':ui.msOpen[d.id]=!ui.msOpen[d.id];render();break;
-    case 'bshow':ui.bshow=d.v==='subs'?'subs':'flow';render();break;
+    case 'bshow':ui.bshow=d.v==='subs'||d.v==='clients'?d.v:'flow';render();break;
+    case 'clf':ui.clf=d.v||'all';render();break;
+    case 'cl-pay':formPay(d.id);break;
+    case 'cl-sales':formSales(d.id);break;
+    case 'cl-all':ui.bshow='clients';ui.clf='all';if(!$('#sheet').hidden)closeSheet();setView('budget');break;
     case 'subf':ui.subf=d.v==='off'||d.v==='all'?d.v:'on';render();break;
     case 'sshow':ui.sshow=SST[d.v]?d.v:'all';render();break;
     case 'sv-tab':o=document.querySelector('.sv-ed');if(o){o.dataset.tab=d.v==='pv'?'pv':'form';Array.prototype.forEach.call(t.parentNode.children,function(x){x.classList.toggle('on',x===t)});$('#sheet-b').scrollTop=0}break;
@@ -3105,6 +3377,12 @@ document.addEventListener('click',function(e){
     case 'sv-clear':svcDraftClear();formService(null);break;
     case 'sv-copy':svcCopy(d.id);break;
     case 'cshow':ui.cshow=d.v==='channels'?'channels':'posts';render();break;
+    case 'cweek':o=weekStart(today());ui.cweek=d.v==='0'?o:addDays(validDate(ui.cweek)?ui.cweek:o,7*(+d.v||0));render();break;
+    case 'cycle-goal':if(!ui.ro)formCycleGoal(d.id);break;
+    case 'cycle-pick':if(!ui.ro)formCyclePick(d.id,d.w);break;
+    case 'cycle-new':if(!ui.ro)formPost({project:d.id,week:d.w});break;
+    case 'cycle-add':if(ui.ro||!byId(S.posts,d.id)||!validDate(d.w))break;patch('posts',d.id,{week:d.w});o=byId(S.posts,d.id);if(o)o.week=d.w;o=$('#cy-pick');if(o)o.innerHTML=cycleList(o.dataset.id,o.dataset.w);render();break;
+    case 'cycle-rm':if(!ui.ro&&byId(S.posts,d.id))patch('posts',d.id,{week:''});break;
     case 'mc-set':formMc();break;
     case 'adapt':adaptOne(d.ch);break;
     case 'adapt-all':adaptAll();break;
