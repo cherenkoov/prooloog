@@ -365,6 +365,22 @@ test('backup to the chat and restore from the file', async () => {
   assert.ok(await db.getDoc('projects', 'p-india'), 'merge keeps the rest');
 });
 
+test('a deletion leaves a mark for later merges', async () => {
+  assert.equal((await call('PUT', '/api/db/tasks/t-gone-1', { token: ownerToken, json: { data: { title: 'to delete', project: 'p-a', u: '2026-11-18T10:00:00.000Z' } } })).status, 200);
+  assert.equal((await call('DELETE', '/api/db/tasks/t-gone-1', { token: ownerToken })).status, 200);
+  const marks = (await call('GET', '/api/db/gone', { token: ownerToken })).json.docs;
+  const m = marks.find((x) => x.id === 'tasks-t-gone-1');
+  assert.ok(m, 'mark exists');
+  assert.equal(m.data.c, 'tasks'); assert.equal(m.data.i, 't-gone-1'); assert.ok(m.data.at > '2026-11-18T10:00:00.000Z');
+  // deleting something that is not there leaves nothing
+  await call('DELETE', '/api/db/tasks/t-never-was', { token: ownerToken });
+  assert.ok(!(await call('GET', '/api/db/gone', { token: ownerToken })).json.docs.some((x) => x.id === 'tasks-t-never-was'));
+  // marks are the owner's only: Eve is a viewer
+  const eve = await call('POST', '/api/auth/telegram', { json: { initData: initData(EVE) } });
+  assert.equal(eve.json.role, 'viewer');
+  assert.equal((await call('GET', '/api/db/gone', { token: eve.json.token })).status, 403);
+});
+
 test('the dashboard can ask the bot to send the copy to the chat', async () => {
   const n = tgCalls.length;
   assert.equal((await call('POST', '/api/backup/send', { token: ownerToken })).status, 200);

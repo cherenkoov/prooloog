@@ -129,8 +129,14 @@ function build() {
   api.delete('/db/:coll/:id', auth.guard('write'), async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
-    await db.deleteDoc(coll, req.params.id);
+    const was = await db.deleteDoc(coll, req.params.id);
     hub.publish(coll, req.params.id, null, 0, srcOf(req));
+    // A deletion leaves a mark: when two copies of the data are merged, the record does not come back.
+    if (was && coll !== 'gone' && coll !== 'activity') {
+      const at = new Date().toISOString();
+      const g = await db.setDoc('gone', (coll + '-' + req.params.id).slice(0, 64), { c: coll, i: req.params.id, at, u: at });
+      hub.publish('gone', g.id, g.data, g.version, srcOf(req));
+    }
     res.json({ ok: true });
   });
 

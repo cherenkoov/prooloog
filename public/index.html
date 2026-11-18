@@ -699,8 +699,8 @@ button.pl-d:hover b{color:var(--accent)}
 'use strict';
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
-var COLLS=CORE.concat(['money','contacts','messages','subs','activity']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],activity:[],settings:{capacity:40}};
+var COLLS=CORE.concat(['money','contacts','messages','subs','activity','gone']);
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],activity:[],gone:[],settings:{capacity:40}};
 var loaded={};
 var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
@@ -792,7 +792,15 @@ function patch(coll,id,data){
   if(!db){var o=byId(S[coll],id);if(o)mergeDeep(o,data);render();return Promise.resolve()}
   return db.collection(coll).doc(id).update(data).catch(fail);
 }
+function goneId(coll,id){return (coll+'-'+id).slice(0,64)}
+function tomb(coll,id){
+  if(!ui.owner||coll==='gone'||coll==='activity')return;
+  var gid=goneId(coll,id),at=new Date().toISOString(),data={c:coll,i:id,at:at,u:at};
+  S.gone=S.gone.filter(function(x){return x.id!==gid});S.gone.push(Object.assign({id:gid},data));
+  if(db)db.collection('gone').doc(gid).set(data).catch(function(){});
+}
 function del(coll,id){
+  tomb(coll,id);
   if(!db){S[coll]=S[coll].filter(function(x){return x.id!==id});render();return Promise.resolve()}
   return db.collection(coll).doc(id).delete().catch(fail);
 }
@@ -2123,7 +2131,7 @@ function formActivity(){
 }
 
 /* ---------- data: what is stored, export to a file, import from a file ---------- */
-var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',activity:'Активность',settings:'Настройки'};
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Майлстоуны',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
 var dlNs=null,dataIn=null;
 function dataDump(){
   var docs={},n=0;
@@ -2154,7 +2162,7 @@ function formData(){
   dataIn=null;
   var h='<p class="dt-sum"><b>'+st.n+'</b> '+plural(st.n,'запись','записи','записей')+' · около '+kb+' КБ'+(dataWhen(st.last)?' · последнее изменение '+esc(dataWhen(st.last)):'')+'</p><p class="sg-out">Хранятся '+(server?'в базе на сервере.':'в базе этой страницы внутри Claude.')+'</p>'+dataGrid(st);
   h+='<div class="chat-h"><h2>Выгрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Один файл со всеми записями: резервная копия или перенос в другую версию дэшборда.</p><div class="acts">'+(dlNs?'<button type="button" class="btn pri" data-act="data-save">Скачать файлом</button>':'')+'<button type="button" class="btn" data-act="data-copy">Скопировать текстом</button><button type="button" class="btn" data-act="data-peek" data-v="out" aria-expanded="false">Показать файл</button></div><p class="sg-out" id="data-out" role="status"></p><pre class="dt-pre" id="data-pre-out" hidden tabindex="0"></pre><textarea id="data-box" class="vh" readonly tabindex="-1" aria-hidden="true"></textarea>';
-  if(!ui.ro)h+='<div class="chat-h"><h2>Загрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Выбери файл копии. Сначала покажу, что в нём, и только потом спрошу, заменять ли данные.</p><div class="acts"><label class="btn" for="data-file">Выбрать файл</label><input type="file" id="data-file" class="vh" accept=".json,application/json,text/plain"><button type="button" class="btn" data-act="data-paste" aria-expanded="false">Вставить текстом</button></div><textarea id="data-in" rows="3" hidden autocomplete="off" spellcheck="false" aria-label="Текст копии данных" placeholder="Вставь сюда текст копии" style="margin-top:8px"></textarea><div id="data-inf"></div><p class="sg-out" id="data-lout" role="status"></p>';
+  if(!ui.ro)h+='<div class="chat-h"><h2>Загрузка</h2></div><p class="sg-out" style="margin:6px 0 10px">Выбери файл копии из другой версии. Покажу, что в нём, и предложу объединить: побеждает более свежая запись, удалённое остаётся удалённым.</p><div class="acts"><label class="btn" for="data-file">Выбрать файл</label><input type="file" id="data-file" class="vh" accept=".json,application/json,text/plain"><button type="button" class="btn" data-act="data-paste" aria-expanded="false">Вставить текстом</button></div><textarea id="data-in" rows="3" hidden autocomplete="off" spellcheck="false" aria-label="Текст копии данных" placeholder="Вставь сюда текст копии" style="margin-top:8px"></textarea><div id="data-inf"></div><p class="sg-out" id="data-lout" role="status"></p>';
   openSheet('Данные',h,function(b){
     var fi=b.querySelector('#data-file'),ti=b.querySelector('#data-in');
     if(fi)fi.addEventListener('change',function(){var f=fi.files&&fi.files[0];fi.value='';if(f)dataRead(f)});
@@ -2199,8 +2207,71 @@ function dataParse(text,label){
   }
   var st=dataStats(o.docs);
   dataIn={copy:o,n:st.n};
+  var pl=dataPlan(o).st,plt=pl.add||pl.upd||pl.del?'При объединении: добавится '+pl.add+', обновится '+pl.upd+', удалится '+pl.del+'.'+(pl.keep?' Твои более свежие записи останутся: '+pl.keep+'.':''):'В копии нет ничего новее, чем здесь.'+(pl.keep?' Твоих более свежих записей: '+pl.keep+'.':'');
   if(out)out.textContent='';
-  inf.innerHTML='<div class="dt-in"><p class="dt-sum"><b>'+esc(excerpt(label,60))+'</b>'+(dataWhen(o.exportedAt)?' · копия от '+esc(dataWhen(o.exportedAt)):'')+' · '+st.n+' '+plural(st.n,'запись','записи','записей')+'</p>'+dataGrid(st)+'<div class="acts"><button type="button" class="btn" data-act="data-peek" data-v="in" aria-expanded="false">Показать файл</button><button type="button" class="btn dng" data-act="data-load" style="margin-left:0">Заменить данные этой копией</button></div><pre class="dt-pre" id="data-pre-in" hidden tabindex="0"></pre></div>';
+  inf.innerHTML='<div class="dt-in"><p class="dt-sum"><b>'+esc(excerpt(label,60))+'</b>'+(dataWhen(o.exportedAt)?' · копия от '+esc(dataWhen(o.exportedAt)):'')+' · '+st.n+' '+plural(st.n,'запись','записи','записей')+'</p>'+dataGrid(st)+'<p class="sg-out" id="data-plan" style="margin:10px 0 0">'+esc(plt)+'</p><div class="acts"><button type="button" class="btn pri" data-act="data-merge">Объединить</button><button type="button" class="btn" data-act="data-peek" data-v="in" aria-expanded="false">Показать файл</button><button type="button" class="btn dng" data-act="data-load">Заменить всё копией</button></div><pre class="dt-pre" id="data-pre-in" hidden tabindex="0"></pre></div>';
+}
+// What a merge would do: the fresher record wins, deletions on either side are kept.
+function dataPlan(copy){
+  var ops=[],st={add:0,upd:0,del:0,keep:0},docs=copy.docs||{};
+  var obj=function(v){return !!v&&typeof v==='object'&&!Array.isArray(v)},okId=function(id){return /^[A-Za-z0-9_-]{1,64}$/.test(id)};
+  var bare=function(x){var d=Object.assign({},x);delete d.id;return d},same=function(a,b){return JSON.stringify(a)===JSON.stringify(b)};
+  var myGone={},theirGone=obj(docs.gone)?docs.gone:{};
+  S.gone.forEach(function(g){myGone[g.id]=g});
+  COLLS.forEach(function(k){
+    if(k==='gone')return;
+    var theirs=obj(docs[k])?docs[k]:{},mine={};
+    S[k].forEach(function(x){mine[x.id]=x});
+    Object.keys(theirs).forEach(function(id){
+      var tv=theirs[id];if(!okId(id)||!obj(tv))return;
+      var mv=mine[id],gid=goneId(k,id),tg=myGone[gid],tu=String(tv.u||'');
+      if(!mv){
+        if(tg&&String(tg.at||'')>=tu){st.keep++;return}
+        ops.push(['set',k,id,tv]);st.add++;
+        if(tg)ops.push(['del','gone',gid]);
+      }else if(!same(bare(mv),tv)){
+        if(tu>String(mv.u||'')){ops.push(['set',k,id,tv]);st.upd++}else st.keep++;
+      }
+    });
+    Object.keys(mine).forEach(function(id){
+      if(Object.prototype.hasOwnProperty.call(theirs,id))return;
+      var g=theirGone[goneId(k,id)];
+      if(obj(g)&&String(g.at||'')>String(mine[id].u||'')){ops.push(['del',k,id]);st.del++}
+    });
+  });
+  Object.keys(theirGone).forEach(function(gid){
+    var g=theirGone[gid];if(!okId(gid)||!obj(g)||typeof g.c!=='string'||typeof g.i!=='string')return;
+    var mg=myGone[gid],live=Array.isArray(S[g.c])?byId(S[g.c],g.i):null;
+    if(live&&String(live.u||'')>=String(g.at||''))return;
+    if(!mg||String(g.at||'')>String(mg.at||''))ops.push(['set','gone',gid,g]);
+  });
+  var sm=obj(docs.settings)&&obj(docs.settings.main)?docs.settings.main:null;
+  if(sm){var cur=bare(S.settings);if(!same(cur,sm)&&String(sm.u||'')>String(cur.u||'')){ops.push(['set','settings','main',sm]);st.upd++}}
+  return {ops:ops,st:st};
+}
+function dataRun(ops,out,done,fail){
+  var i=0;
+  (function next(){
+    if(i>=ops.length){done();return}
+    var op=ops[i++],pr;
+    if(out&&(i%5===0||i===ops.length))out.textContent='Записываю: '+i+' из '+ops.length;
+    if(op[1]==='settings'){var tzb=appTz();if(!db){S.settings=Object.assign({capacity:40},op[3]);tzChanged(tzb)}}
+    else if(!db){S[op[1]]=S[op[1]].filter(function(x){return x.id!==op[2]});if(op[0]==='set')S[op[1]].push(Object.assign({id:op[2]},op[3]))}
+    if(!db)pr=Promise.resolve();
+    else{var ref=db.collection(op[1]).doc(op[2]);pr=op[0]==='del'?ref.delete():ref.set(op[3])}
+    Promise.resolve(pr).then(next,function(){fail(i,ops.length)});
+  })();
+}
+function dataMerge(t){
+  var out=$('#data-lout');if(!dataIn||ui.ro||!out)return;
+  var plan=dataPlan(dataIn.copy),st=plan.st;
+  if(!plan.ops.length){out.textContent='Объединять нечего: всё, что есть в копии, здесь уже не старее.';return}
+  t.disabled=true;out.textContent='Объединяю…';
+  dataRun(plan.ops,out,function(){
+    out.textContent='Готово: добавлено '+st.add+', обновлено '+st.upd+', удалено '+st.del+'. Чтобы вторая сторона получила твои свежие записи, скачай файл здесь и объедини его там.';
+    dataIn=null;var q=$('#data-inf');if(q)q.innerHTML='';var ta=$('#data-in');if(ta)ta.value='';
+    if(!db)render();
+  },function(n,total){out.textContent='Остановился на записи '+n+' из '+total+': она не сохранилась. Объединение можно запустить ещё раз, уже записанное повторно не пишется.';t.disabled=false});
 }
 function dataLoad(t){
   var out=$('#data-lout');if(!dataIn||ui.ro||!out)return;
@@ -2231,7 +2302,7 @@ function dataLoad(t){
       else{S[op[1]]=S[op[1]].filter(function(x){return x.id!==op[2]});if(op[0]==='set')S[op[1]].push(Object.assign({id:op[2]},op[3]))}
       p=Promise.resolve();
     }else{var ref=db.collection(op[1]).doc(op[2]);p=op[0]==='del'?ref.delete():ref.set(op[3])}
-    Promise.resolve(p).then(next,function(){out.textContent='Остановился на записи '+i+' из '+ops.length+': она не сохранилась. Часть данных уже заменена, загрузи копию ещё раз.';t.disabled=false;delete t.dataset.armed;t.textContent='Заменить данные этой копией'});
+    Promise.resolve(p).then(next,function(){out.textContent='Остановился на записи '+i+' из '+ops.length+': она не сохранилась. Часть данных уже заменена, загрузи копию ещё раз.';t.disabled=false;delete t.dataset.armed;t.textContent='Заменить всё копией'});
   })();
   if(!db)render();
 }
@@ -3053,6 +3124,7 @@ document.addEventListener('click',function(e){
     case 'data-peek':dataPeek(t,d.v);break;
     case 'data-paste':o=$('#data-in');if(o){o.hidden=!o.hidden;t.setAttribute('aria-expanded',String(!o.hidden));if(!o.hidden)o.focus()}break;
     case 'data-load':dataLoad(t);break;
+    case 'data-merge':dataMerge(t);break;
     case 'rv-parse':reAnalyze(d.id);break;
   }
 });
@@ -3108,6 +3180,7 @@ function start(){
         S[k]=snap.docs.map(function(x){var o=Object.assign({},x.data()||{});o.id=x.id;return o});
         loaded[k]=true;
         if(k==='activity'){actPaint();return}
+        if(k==='gone')return;
         if(CORE.every(function(n){return loaded[n]})){clearTimeout(timer);ui.mode='ready'}
         render();
         if(ui.open&&loaded.messages&&ui.mode==='ready'){var om=byId(S.messages,ui.open);ui.open='';if(om)setTimeout(function(){viewMessage(om.id)},60)}
