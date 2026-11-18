@@ -34,8 +34,8 @@ const cfg = {
 };
 
 // Collections the dashboard page uses. Anything else is refused.
-cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'settings'];
+cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 'posts', 'channels', 'services', 'money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'gone', 'settings'];
 // Money, people and client messages are for the owner only.
-cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs']);
+cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'gone']);
 
 module.exports = cfg;
