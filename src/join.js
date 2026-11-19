@@ -387,6 +387,50 @@ async function csv(f, project) {
   return { n: list.length, body: Buffer.from('﻿' + rows.join('\r\n'), 'utf8') };
 }
 
+// Everything the onboarding of one project has gathered, as one file: the team form and the invitation together.
+// csv: one row per person per form, the columns are all the questions of these forms; opens in Excel and Google Sheets.
+// json: the same with the questions, the options and the polls spelled out, for another program to read.
+async function exportProject(project, format) {
+  const p = await db.getDoc('projects', project), pname = String((p && p.data.name) || '');
+  const parts = [];
+  for (const f of forms()) {
+    const list = (await entries(f)).filter((d) => d.data.project === project);
+    if (list.length) parts.push({ f, list });
+  }
+  const n = parts.reduce((k, x) => k + x.list.length, 0), kind = (f) => (isCard(f) ? 'invite' : 'team');
+  const isMaster = (f, a) => !!f.master && holds(f.master, a || {});
+  const stamp = new Date().toISOString(), base = 'onboarding-' + project + '-' + stamp.slice(0, 10);
+  if (format === 'json') {
+    const out = {
+      app: 'prooloog', kind: 'onboarding', version: 1, exportedAt: stamp, project: { id: project, name: pname }, people: n,
+      forms: parts.map(({ f, list }) => ({
+        id: f.id, title: f.title, kind: kind(f),
+        questions: questions(f).map((q) => Object.assign({ id: q.id, label: q.label, type: q.t, part: (f.steps.find((s) => s.qs.includes(q)) || {}).part || '', required: !!q.req },
+          Array.isArray(q.opts) ? { options: q.opts.concat(q.other ? [OTHER] : []) } : null, q.when ? { when: q.when } : null)),
+        polls: tally(f, list, '').map((x) => ({ id: x.id, title: x.title, lead: x.lead, voters: x.voters, options: x.opts.map((o) => ({ option: o.t, votes: o.n, who: o.who })) })),
+        people: list.map((d) => {
+          const x = d.data;
+          return { telegramId: x.tg || '', username: x.username || '', name: x.name || '', filledAt: x.at || '', updatedAt: x.u || '', core: !!x.core, more: !!x.more,
+            master: isMaster(f, x.answers), consentAt: x.agreed || '', contact: 'jn-' + x.tg, answers: x.answers || {}, votes: x.votes || {} };
+        }),
+      })),
+    };
+    return { n, filename: base + '.json', body: Buffer.from(JSON.stringify(out, null, 2), 'utf8'), project: pname };
+  }
+  const cell = (v) => '"' + flat(v).replace(/"/g, '""') + '"', cols = [], seen = new Set(), polls = [], seenP = new Set();
+  parts.forEach(({ f }) => {
+    questions(f).forEach((q) => { if (!seen.has(q.id)) { seen.add(q.id); cols.push(q); } });
+    (f.polls || []).forEach((x) => { if (!seenP.has(x.id)) { seenP.add(x.id); polls.push(x); } });
+  });
+  const rows = [['Анкета', 'Дата', 'Изменено', 'Имя в Telegram', 'Telegram', 'Telegram ID', 'Мастер', 'Согласие', 'Расширенная часть'].concat(cols.map((q) => q.id + ' ' + q.label), polls.map((x) => x.title)).map(cell).join(',')];
+  parts.forEach(({ f, list }) => list.forEach((d) => {
+    const x = d.data, a = x.answers || {};
+    rows.push([f.title, String(x.at || '').slice(0, 10), String(x.u || '').slice(0, 10), x.name || '', x.username ? '@' + x.username : '', x.tg || '', isMaster(f, a) ? 'да' : '', String(x.agreed || '').slice(0, 10), x.more ? 'да' : '']
+      .concat(cols.map((q) => a[q.id]), polls.map((k) => (x.votes || {})[k.id])).map(cell).join(','));
+  }));
+  return { n, filename: base + '.csv', body: Buffer.from('\ufeff' + rows.join('\r\n'), 'utf8'), project: pname };
+}
+
 // The onboarding of one project as its owner sees it in the dashboard: the link, who came and what they
 // answered, how the polls stand.
 async function overview(project, botName) {
@@ -461,4 +505,4 @@ async function migrateTeam() {
   return n;
 }
 
-module.exports = { isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };
+module.exports = { exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

@@ -487,7 +487,7 @@ function helpText(role) {
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
     '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу со ссылкой команде проекта.\n' +
-    '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей, /votes — голоса.\n' +
+    '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей (все анкеты), /answers проект и /answers json проект — выгрузка одного проекта в CSV или JSON, /votes — голоса.\n' +
     '• /club проект — приглашение для личных встреч: постоянная ссылка, QR-код и тексты для участника и мастера. Человек заполняет анкету и попадает в контакты проекта.\n' +
     '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
@@ -537,6 +537,15 @@ async function onCommand(m, role, cmd, arg) {
   }
   if (cmd === 'votes') return say(chat, await join.votesText());
   if (cmd === 'answers') {
+    // «/answers проект» or «/answers json проект»: everything the onboarding of one project gathered, as one file
+    const fmt = /^json(\s+|$)/i.test(arg) ? 'json' : 'csv', q = arg.replace(/^(json|csv)(\s+|$)/i, '').trim();
+    if (q || fmt === 'json') {
+      const list = await projects(), mp = q ? matchProject(q, list, false) : { best: null };
+      if (!mp.best) return say(chat, q ? 'Не нашёл проект «' + esc(q) + '». Напиши название точнее.' : 'Для какого проекта? Напиши так: /answers json название проекта');
+      const x = await join.exportProject(mp.best.id, fmt);
+      if (!x.n) return say(chat, 'В проекте <b>' + esc(pname(mp.best)) + '</b> анкету пока никто не заполнил.');
+      return T.sendDocument(chat, x.filename, x.body, 'Онбординг проекта «' + pname(mp.best) + '»: ответов ' + x.n + (fmt === 'csv' ? '. Открывается в Excel и Google Таблицах.' : ', формат JSON.'));
+    }
     let sent = 0;
     for (const f of join.forms()) {
       const t = await join.csv(f);

@@ -1374,6 +1374,29 @@ test('invitation: a standing link with a QR code, a branching form, a card witho
   n = tgCalls.length;
   assert.deepEqual((await call('POST', '/api/onboard/p-club/csv?form=invite', { token: ownerToken })).json, { ok: true, n: 2 });
   assert.match(sinceMark(n, 'sendDocument')[0].params.caption, /ЭкоЧакра: клуб/);
+  // the whole onboarding of the project as one file, csv or json: both forms, this project only
+  const exp = (body, token = ownerToken) => call('POST', '/api/onboard/p-club/export', { token, json: body });
+  const ej = (await exp({ format: 'json' })).json, data = JSON.parse(ej.text);
+  assert.deepEqual([ej.n, /^onboarding-p-club-\d{4}-\d\d-\d\d\.json$/.test(ej.filename), data.project, data.people], [2, true, { id: 'p-club', name: 'Клуб' }, 2]);
+  assert.deepEqual(data.forms.map((f) => [f.id, f.kind, f.people.length]), [['ecochakra-club', 'invite', 2]]);
+  const pIda = data.forms[0].people.find((x) => x.telegramId === String(IDA.id));
+  assert.deepEqual([pIda.username, pIda.answers['3.1'], pIda.contact, /^\d{4}-/.test(pIda.consentAt)], ['ida_body', 'Батуми, Грузия', 'jn-' + IDA.id, true]);
+  assert.ok(data.forms[0].questions.find((q) => q.id === '0.1').options.includes(MASTER));
+  const ec = (await exp({ format: 'csv' })).json, lines = ec.text.split('\r\n');
+  assert.match(ec.filename, /\.csv$/); assert.equal(lines.length, 3);
+  assert.match(lines[0], /^\ufeff"Анкета","Дата"[\s\S]*"0\.1 Кто вы\?"[\s\S]*"3\.1 /); assert.ok(lines.some((l) => /"ЭкоЧакра: клуб".*"@ida_body".*"Батуми, Грузия"/.test(l)));
+  n = tgCalls.length;
+  assert.deepEqual((await exp({ format: 'json', send: true })).json, { ok: true, n: 2, sent: true });
+  assert.match(sinceMark(n, 'sendDocument')[0].params.caption, /Онбординг проекта «Клуб»: ответов 2, формат JSON/);
+  const net = JSON.parse((await call('POST', '/api/onboard/p-net/export', { token: ownerToken, json: { format: 'json' } })).json.text);
+  assert.ok(net.forms.every((f) => f.kind === 'team') && net.forms[0].people.length >= 3 && net.forms[0].polls.length === 2, 'another project: its own people, with the polls');
+  assert.equal((await exp({ format: 'csv' }, bobToken)).status, 403);
+  assert.equal((await call('POST', '/api/onboard/p-india/export', { token: ownerToken, json: {} })).status, 409);
+  n = tgCalls.length;
+  await update(msg(OWNER, { text: '/answers json клуб' }));
+  assert.match(sinceMark(n, 'sendDocument')[0].params.caption, /«Клуб»: ответов 2, формат JSON/);
+  await update(msg(OWNER, { text: '/answers Клуб' }));
+  assert.match(sinceMark(n, 'sendDocument')[1].params.caption, /«Клуб»: ответов 2\. Открывается/);
   // each link is switched off on its own
   assert.equal((await call('DELETE', '/api/onboard/p-club', { token: ownerToken })).json.invite.link.url, v.invite.link.url);
   assert.equal((await call('GET', '/api/join/' + teamTok)).status, 404); assert.equal((await call('GET', '/api/join/' + tok)).status, 200);

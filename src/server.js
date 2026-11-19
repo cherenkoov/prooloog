@@ -369,6 +369,20 @@ function build() {
     } catch (e) { console.error('[onboard]', e.message); res.status(502).json({ error: 'not_sent' }); }
   });
 
+  // all the answers of the project's onboarding as one file, csv or json. {send: true}: the bot sends it to the
+  // owner's chat (inside Telegram a page cannot save files); otherwise the text comes back and the page saves it
+  api.post('/onboard/:project/export', auth.guard('owner'), actLimit, json, async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const fmt = req.body && req.body.format === 'json' ? 'json' : 'csv', x = await join.exportProject(p.id, fmt);
+    if (!x.n) return res.status(409).json({ error: 'empty' });
+    journal.event('acc', 'Выгрузка онбординга (' + fmt.toUpperCase() + '): проект «' + x.project + '», ответов ' + x.n);
+    if (!(req.body && req.body.send)) return res.json({ ok: true, n: x.n, filename: x.filename, text: x.body.toString('utf8') });
+    try {
+      await require('./telegram').sendDocument(req.user.id, x.filename, x.body, 'Онбординг проекта «' + x.project + '»: ответов ' + x.n + (fmt === 'csv' ? '. Открывается в Excel и Google Таблицах.' : ', формат JSON.'));
+      res.json({ ok: true, n: x.n, sent: true });
+    } catch (e) { console.error('[onboard]', e.message); res.status(502).json({ error: 'not_sent' }); }
+  });
+
   api.use((req, res) => res.status(404).json({ error: 'not_found' }));
   app.use('/api', api);
 

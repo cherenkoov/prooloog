@@ -408,6 +408,8 @@ button.lnk{font-weight:500}
 button.lg-b:hover{background:var(--surface)}
 button.lg-b:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .lg-a{--ac:var(--c9);width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:9px;font-weight:700;line-height:1;letter-spacing:0;color:var(--ink);background:color-mix(in srgb,var(--ac) 24%,var(--surface));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ac) 60%,transparent);cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.lg-a{position:relative}
+.lg-p{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;pointer-events:none}
 .lg-a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .lg-a.sm{width:18px;height:18px;font-size:8px}
 .li-d .lg-a{vertical-align:middle;margin:-2px 6px 0 0}
@@ -2546,8 +2548,9 @@ function obSheet(pid,inv){
   else h+=d.people.map(function(u){
     return '<details class="ob-u"><summary><span class="ob-n">'+esc(u.name||'Без имени')+(u.username?' <span class="mute">@'+esc(u.username)+'</span>':'')+(u.master?'<i class="rel mst">Мастер</i>':'')+'</span><span class="mute ob-d">'+esc(fmt(String(u.at||'').slice(0,10)))+(u.more?' · расширенная часть':'')+'</span>'+(u.summary.length?'<span class="ob-s">'+esc(u.summary.slice(0,4).join(' · '))+'</span>':'')+'</summary>'+
       '<div class="ob-a">'+qs.filter(function(k){return obHas(u.answers[k.id])}).map(function(k){var v=u.answers[k.id];return '<div><span class="mute">'+esc(k.label)+'</span><span>'+esc(Array.isArray(v)?v.join('; '):String(v))+'</span></div>'}).join('')+'</div></details>'}).join('');
-  return h+'<div class="acts" style="margin-top:14px">'+(d.people.length?'<button type="button" class="btn" data-act="'+(inv?'inv-csv':'ob-csv')+'" data-id="'+id+'">Таблица ответов в Telegram</button>':'')+'<button type="button" class="btn" data-act="ob-refresh" data-id="'+id+'">Обновить</button></div><p class="sg-out" id="ob-sout" role="status"></p>';
+  return h+'<div class="acts" style="margin-top:14px">'+(obHasAny(pid)&&typeof obNs.file==='function'?'<button type="button" class="btn" data-act="ob-file" data-f="csv" data-id="'+id+'">Выгрузить CSV</button><button type="button" class="btn" data-act="ob-file" data-f="json" data-id="'+id+'">Выгрузить JSON</button>':d.people.length?'<button type="button" class="btn" data-act="'+(inv?'inv-csv':'ob-csv')+'" data-id="'+id+'">Таблица ответов в Telegram</button>':'')+'<button type="button" class="btn" data-act="ob-refresh" data-id="'+id+'">Обновить</button></div>'+(obHasAny(pid)&&typeof obNs.file==='function'?'<p class="sg-out" style="margin-top:8px">В файл попадают все ответы онбординга этого проекта: командная анкета и приглашение. CSV открывается в Excel и Google Таблицах, JSON подходит для других программ.</p>':'')+'<p class="sg-out" id="ob-sout" role="status"></p>';
 }
+function obHasAny(pid){var x=ob[pid],d=x&&x.d;return !!d&&((d.people&&d.people.length>0)||(d.invite&&d.invite.people.length>0))}
 function formOnboard(pid,inv){
   var p=P(pid);if(!p||!obNs)return;
   obLoad(pid,true);
@@ -2565,6 +2568,10 @@ function obAct(t,d){
       Promise.resolve(obNs.off(pid)).then(function(r){obSet(pid,r)},function(){say('#ob-out','Не получилось выключить ссылку.')});break;
     case 'ob-copy':if(v&&v.link)copyText(v.link.url,$('#ob-url')||t).then(function(ok){say('#ob-out',ok?'Ссылка скопирована. Отправь её в командный чат.':'Скопируй ссылку из поля выше.')});break;
     case 'ob-text':if(v&&v.link)copyText(v.link.text,t).then(function(ok){say('#ob-out',ok?'Текст со ссылкой скопирован: его можно вставить в чат как есть.':'Не получилось скопировать текст.')});break;
+    case 'ob-file':
+      t.disabled=true;say('#ob-sout','Готовлю файл…');
+      Promise.resolve(obNs.file(pid,d.f==='json'?'json':'csv')).then(function(r){t.disabled=false;var k=(r&&r.n)||0;say('#ob-sout',r&&r.status==='sent'?'Файл в чате с ботом: ответов '+k+'.':'Файл сохранён'+(r&&r.filename?' ('+r.filename+')':'')+': ответов '+k+'.')},
+        function(e){t.disabled=false;say('#ob-sout',e&&e.code==='empty'?'Выгружать пока нечего: анкету никто не заполнил.':'Не получилось выгрузить. Попробуй ещё раз.')});break;
     case 'inv-open':formOnboard(pid,true);break;
     case 'inv-on':t.disabled=true;say('#inv-out','Создаю ссылку…');Promise.resolve(obNs.on(pid,'invite')).then(function(r){obSet(pid,r)},function(e){t.disabled=false;say('#inv-out',e&&e.code==='no_bot'?'Бот ещё не подключён к серверу.':e&&e.code==='no_form'?'На сервере нет анкеты-приглашения.':'Не получилось создать ссылку. Попробуй ещё раз.')});break;
     case 'inv-off':
@@ -3210,7 +3217,19 @@ function logWho(e,ct){
   var name=(m&&m.name)||(c&&c.name)||by,tg=tgUser((m&&m.username)||(c&&c.tg)||(/^@/.test(by)?by:''));
   return {key:'u:'+(m?m.id:c?c.id:id),kind:'user',name:name,ini:logIni(name),role:m?(m.role==='editor'?'Редактор':'Зритель'):c?(c.rel||c.role||'Контакт'):'Участник',tg:tg,m:m,ct:c,c:logHue(String(m?m.id:c?c.id:id))};
 }
-function logAva(w,big,cls){return '<span class="lg-a'+(big?' big':'')+(cls?' '+cls:'')+'" style="--ac:var(--c'+w.c+')"'+(big?' aria-hidden="true"':' data-who="'+esc(w.key)+'" role="button" tabindex="0" aria-label="Автор: '+esc(w.name)+'. Двойное нажатие открывает карточку" title="'+esc(w.name)+' · двойное нажатие: карточка')+'">'+esc(w.ini)+'</span>'}
+// the photo of an author: the Telegram photo the server keeps on the person (who has access) or on their card,
+// for the owner the one in settings or the one Telegram gives the mini app; no photo, or it fails to load: initials
+var whoBad={};
+function whoPhoto(w){
+  var u='';
+  try{
+    if(w.kind==='user'){u=sPhoto(w.m);if(!u||whoBad[u])u=sPhoto(w.ct)}
+    else if(w.kind==='me'){u=sPhoto(S.settings);if(!u&&ui.owner){var tu=window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initDataUnsafe&&window.Telegram.WebApp.initDataUnsafe.user;u=sPhoto({photo:tu&&tu.photo_url})}}
+  }catch(x){u=''}
+  return u&&!whoBad[u]?u:'';
+}
+document.addEventListener('error',function(e){var t=e.target;if(t&&t.classList&&t.classList.contains('lg-p')){whoBad[t.getAttribute('src')]=1;if(t.parentNode)t.parentNode.removeChild(t)}},true);
+function logAva(w,big,cls){var ph=whoPhoto(w);return '<span class="lg-a'+(big?' big':'')+(cls?' '+cls:'')+'" style="--ac:var(--c'+w.c+')"'+(big?' aria-hidden="true"':' data-who="'+esc(w.key)+'" role="button" tabindex="0" aria-label="Автор: '+esc(w.name)+'. Двойное нажатие открывает карточку" title="'+esc(w.name)+' · двойное нажатие: карточка')+'">'+esc(w.ini)+(ph?'<img class="lg-p" src="'+esc(ph)+'" alt="" draggable="false" referrerpolicy="no-referrer">':'')+'</span>'}
 // the author of a record (a task, a comment, a message): the sender of a message, the record's own "by",
 // the journal entry that added it, then what the id tells (the bot and Claude make ids of their own kind)
 var whoIdx={sig:'',map:{}};
@@ -4538,7 +4557,7 @@ document.addEventListener('click',function(e){
     case 'data':formData();break;
     case 'usage':formUsage();break;
     case 'ob-open':case 'ob-refresh':case 'ob-on':case 'ob-off':case 'ob-copy':case 'ob-text':case 'ob-csv':
-    case 'inv-open':case 'inv-on':case 'inv-off':case 'inv-copy':case 'inv-qr':case 'inv-tg':case 'inv-tm':case 'inv-csv':obAct(t,d);break;
+    case 'ob-file':case 'inv-open':case 'inv-on':case 'inv-off':case 'inv-copy':case 'inv-qr':case 'inv-tg':case 'inv-tm':case 'inv-csv':obAct(t,d);break;
     case 'log-full':logFull(!lg.full);break;
     case 'log-hist':closeSheet();logSub();logFull(true);break;
     case 'who-close':whoClose();break;

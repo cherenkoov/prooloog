@@ -277,7 +277,20 @@
     on: function (pid, form) { return api('POST', '/onboard/' + encodeURIComponent(pid), form ? { form: form } : {}); },
     off: function (pid, form) { return api('DELETE', '/onboard/' + encodeURIComponent(pid) + (form ? '?form=' + encodeURIComponent(form) : '')); },
     csv: function (pid, form) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/csv' + (form ? '?form=' + encodeURIComponent(form) : '')); },
-    qr: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid) + '/qr'); }
+    qr: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid) + '/qr'); },
+    // every answer of the project's onboarding as a file. Inside Telegram the bot sends it to the chat; in a browser it is saved.
+    file: function (pid, format) {
+      var path = '/onboard/' + encodeURIComponent(pid) + '/export';
+      if (inTg) return api('POST', path, { format: format, send: true }).then(function (r) { return { status: 'sent', n: r.n }; });
+      return api('POST', path, { format: format }).then(function (r) {
+        var blob = new Blob([r.text], { type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8' });
+        var url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = r.filename; a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 4000);
+        return { status: 'saved', n: r.n, filename: r.filename };
+      });
+    }
   };
   // Who has access and invite links; for the owner only.
   var shareNs = {
