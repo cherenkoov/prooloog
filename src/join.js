@@ -35,13 +35,36 @@ function forms() {
   try { return fs.readdirSync(FORMS).filter((f) => /^[a-z0-9-]+\.json$/.test(f)).map((f) => form(f.slice(0, -5))).filter(Boolean); } catch (e) { return []; }
 }
 const questions = (f, part) => f.steps.filter((s) => !part || s.part === part).reduce((a, s) => a.concat(s.qs), []);
+// A form with "access": "card" is an invitation: the person becomes a contact of the project and sees its
+// showcase, nothing else. Any other form is a team form: it gives access to the project.
+const isCard = (f) => !!f && f.access === 'card';
+const teamForm = () => forms().find((f) => !isCard(f)) || null;
+const cardForm = () => forms().find(isCard) || null;
+// "when": {"q": id, "in": [options]} on a question or a step: it is asked only when that answer holds one of the options.
+const holds = (w, a) => {
+  if (!w || !w.q) return true;
+  const v = a[w.q], list = Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [String(v)];
+  return (Array.isArray(w.in) ? w.in : []).some((o) => list.includes(o));
+};
 
 const okChoice = (q, v) => typeof v === 'string' && (q.opts.includes(v) || (!!q.other && (v === OTHER || (v.startsWith(OTHER + ': ') && v.length <= 220))));
 // Takes what the page sent and keeps only valid answers of this part. errors lists the questions to fix.
-function clean(f, part, input) {
+// base holds the saved answers of the other part: a condition may look at them. A question whose condition
+// does not hold is not asked: its answer is dropped and it is never an error.
+function clean(f, part, input, base) {
   const answers = {}, errors = [], src = input && typeof input === 'object' ? input : {};
-  for (const q of questions(f, part)) {
-    let v = src[q.id];
+  const known = Object.assign({}, base);
+  for (const st of f.steps.filter((x) => x.part === part)) for (const q of st.qs) {
+    delete known[q.id];
+    if (!holds(st.when, known) || !holds(q.when, known)) continue;
+    const n = errors.length;
+    cleanOne(q, src[q.id], answers, errors);
+    if (errors.length === n && answers[q.id] !== undefined) known[q.id] = answers[q.id];
+  }
+  return { answers, errors };
+}
+function cleanOne(q, v, answers, errors) {
+  {
     if (q.t === 'many') {
       v = Array.isArray(v) ? [...new Set(v.filter((x) => okChoice(q, x)))] : [];
       if ((q.req && !v.length) || (q.max && v.length > q.max)) errors.push(q.id);
@@ -56,7 +79,6 @@ function clean(f, part, input) {
       else if (v) answers[q.id] = v;
     }
   }
-  return { answers, errors };
 }
 const flat = (v) => (Array.isArray(v) ? v.join('; ') : String(v == null ? '' : v));
 
@@ -123,24 +145,38 @@ function summaryLines(f, a) {
 }
 
 // The person becomes a contact of the project: found by Telegram name, otherwise a new one.
-async function saveContact(f, link, user, a) {
+async function saveContact(f, link, user, a, first) {
   const uname = String(user.username || '').toLowerCase(), id0 = 'jn-' + user.id;
   const all = await db.listDocs('contacts');
   const cur = all.find((c) => c.id === id0) || (uname ? all.find((c) => String(c.data.tg || '').replace(/^@/, '').toLowerCase() === uname) : null);
   const mark = 'Анкета «' + f.title + '»', block = mark + ', ' + new Date().toISOString().slice(0, 10) + '\n' + summaryLines(f, a).join('\n');
   const old = cur ? cur.data : {}, notes = String(old.notes || ''), at = notes.indexOf(mark);
+  const card = isCard(f), master = holds(f.master, a) && !!f.master;
+  const team = Array.isArray(old.team) ? old.team : [];
   const data = Object.assign({ rel: '' }, old, {
     name: old.name || flat(a['1.1']) || auth.fullName(user) || 'Без имени',
-    role: old.role || flat(a['2.1']).slice(0, 80),
+    role: old.role || (master && f.master.role ? f.master.role + (a[f.master.by] ? ': ' + flat(a[f.master.by]) : '') : flat(a['2.1'])).slice(0, 80),
     tg: old.tg || (user.username ? '@' + user.username : ''),
     phone: old.phone || flat(a['1.2']), email: old.email || flat(a['1.3']),
     projects: [...new Set((Array.isArray(old.projects) ? old.projects : []).concat([link.project]))],
     notes: ((at >= 0 ? notes.slice(0, at) : notes ? notes + '\n\n' : '') + block).slice(0, 4000),
     u: new Date().toISOString(),
   });
+  // a master is marked on the card and stays marked: the form never takes the mark away
+  if (master) data.master = true;
+  // the first time through a team form puts the person into the team of the project; after that the card
+  // stays where the owner has placed it. An invitation never changes it.
+  if (!card && first) { data.team = [...new Set(team.concat([link.project]))]; if (!data.rel) data.rel = 'Команда'; }
   const d = await db.setDoc('contacts', cur ? cur.id : id0, data);
   hub.publish('contacts', d.id, d.data, d.version, '', cur && cur.data);
   return d.id;
+}
+
+// What a guest may know about the project: its name and the text the owner wrote for guests
+// (the project's field `show`), or the form's own text when the owner has written none.
+function showcase(f, p) {
+  const own = String((p.data && p.data.show) || '').trim(), about = f.about || {};
+  return { title: String(p.data.name || ''), text: (own || String(about.text || '')).slice(0, 4000), points: own ? [] : (Array.isArray(about.points) ? about.points : []).slice(0, 8).map(String) };
 }
 
 // Access to this one project, with editing. Whoever already has access keeps it; the project lists add up.
@@ -165,17 +201,21 @@ function router(botName) {
   };
   const state = async (c) => {
     const list = await entries(c.f), mine = list.find((d) => d.data.tg === String(c.user.id));
+    const joined = !!(mine && mine.data.core), card = isCard(c.f);
     return {
       user: { name: auth.fullName(c.user), username: c.user.username || '' }, owner: c.owner,
-      joined: !!(mine && mine.data.core), more: !!(mine && mine.data.more), answers: mine ? mine.data.answers || {} : {},
-      people: list.filter((d) => d.data.core).length, polls: tally(c.f, list, c.user.id),
+      joined, more: !!(mine && mine.data.more), answers: mine ? mine.data.answers || {} : {}, agreed: !!(mine && mine.data.agreed),
+      // an invitation does not tell a guest how many people came before
+      people: card && !c.owner ? 0 : list.filter((d) => d.data.core && d.data.project === c.link.project).length, polls: tally(c.f, list, c.user.id),
+      // the showcase of the project: what it is, for those who filled in the invitation
+      show: card && (joined || c.owner) ? showcase(c.f, c.p) : null,
     };
   };
 
   r.get('/:token', async (req, res) => {
     const c = await ctx(req, res, false); if (!c) return;
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ form: c.f, project: String(c.p.data.name || ''), app: cfg.appName, bot: botName() });
+    res.json({ form: c.f, project: String(c.p.data.name || ''), app: cfg.appName, bot: botName(), access: isCard(c.f) ? 'card' : 'project' });
   });
   r.post('/:token/me', async (req, res) => {
     const c = await ctx(req, res, true); if (!c) return;
@@ -184,10 +224,13 @@ function router(botName) {
   r.post('/:token/submit', async (req, res) => {
     const c = await ctx(req, res, true); if (!c) return;
     const part = req.body.part === 'more' ? 'more' : 'core';
-    const { answers, errors } = clean(c.f, part, req.body.answers);
-    if (errors.length) return res.status(400).json({ error: 'bad_answers', fields: errors });
     const id = docId(c.f, c.user.id), had = await db.getDoc('joins', id);
+    const other = {}; questions(c.f, part === 'core' ? 'more' : 'core').forEach((q) => { if (had && had.data.answers && had.data.answers[q.id] !== undefined) other[q.id] = had.data.answers[q.id]; });
+    const { answers, errors } = clean(c.f, part, req.body.answers, other);
+    if (errors.length) return res.status(400).json({ error: 'bad_answers', fields: errors });
     if (part === 'more' && !(had && had.data.core)) return res.status(409).json({ error: 'core_first' });
+    // the form asks for consent to keep the data: without it nothing is saved, neither the answers nor the card
+    if (part === 'core' && c.f.agree && req.body.agree !== true) return res.status(400).json({ error: 'no_consent' });
     const now = new Date().toISOString();
     const d = await db.mutateDoc('joins', id, (cur) => {
       // answers of the other part stay; this part is replaced whole, so a cleared answer is cleared
@@ -195,11 +238,11 @@ function router(botName) {
       return Object.assign({}, cur, {
         form: c.f.id, project: c.link.project, tg: String(c.user.id), username: c.user.username || '', name: auth.fullName(c.user),
         answers: Object.assign(keep, answers), core: true, more: part === 'more' ? true : !!cur.more, at: cur.at || now, u: now,
-      });
+      }, part === 'core' && c.f.agree ? { agreed: cur.agreed || now } : null);
     });
     if (part === 'core') {
-      if (!c.owner) await grant(c.user, c.link.project);
-      await saveContact(c.f, c.link, c.user, d.data.answers);
+      if (!c.owner && !isCard(c.f)) await grant(c.user, c.link.project);
+      await saveContact(c.f, c.link, c.user, d.data.answers, !(had && had.data.core));
       if (!(had && had.data.core)) await welcome(c, d.data.answers).catch((e) => console.error('[join] notify failed:', e.message));
     } else if (!(had && had.data.more)) {
       const owner = await auth.ownerId();
@@ -230,6 +273,16 @@ function router(botName) {
 // First time through the form: a word to the person and a word to the owner.
 async function welcome(c, a) {
   const name = auth.fullName(c.user) || 'Участник', pn = String(c.p.data.name || 'проект');
+  if (isCard(c.f)) {
+    const master = !!c.f.master && holds(c.f.master, a);
+    if (!c.owner) await say(c.user.id, 'Анкета принята, спасибо! Мы свяжемся с вами в Telegram.\n\nЧто такое «' + esc(pn) + '», можно посмотреть по кнопке ниже. Там же можно изменить ответы.', appBtn('О проекте «' + pn.slice(0, 40) + '»', '/join/' + c.link.token)).catch(() => {});
+    const owner = await auth.ownerId();
+    if (owner && !c.owner) {
+      await say(owner, '<b>' + esc(name) + '</b>' + (c.user.username ? ' (@' + esc(c.user.username) + ')' : '') + ' заполнил(а) анкету «' + esc(c.f.title) + '»' + (master ? ' как <b>мастер</b>' : '') + '. Карточка лежит в контактах проекта <b>' + esc(pn) + '</b>' + (master ? ' с пометкой «Мастер»' : '') + '; доступа к проекту у человека нет, он видит только витрину.\n\n' +
+        esc(summaryLines(c.f, a).join('\n')) + '\n\nВсе ответы: /answers', appBtn('Открыть ' + cfg.appName, '/'));
+    }
+    return;
+  }
   if (!c.owner) {
     if (https()) await T.tg('setChatMenuButton', { chat_id: c.user.id, menu_button: { type: 'web_app', text: cfg.appName, web_app: { url: cfg.baseUrl + '/' } } }).catch(() => {});
     await say(c.user.id, 'Анкета принята, вы в проекте <b>' + esc(pn) + '</b>. Проект открывается кнопкой ниже: там задачи, вёрсты и комментарии команды.', appBtn('Открыть ' + cfg.appName, '/')).catch(() => {});
@@ -246,7 +299,7 @@ const PLAT = { zoom: 'Zoom', meet: 'Google Meet' };
 // the people of the project's team: those who went through its form, without the owner
 async function teamOf(project) {
   const owner = await auth.ownerId();
-  return (await db.listDocs('joins')).filter((d) => d.data.project === project && d.data.core && d.data.tg && d.data.tg !== owner);
+  return (await db.listDocs('joins')).filter((d) => d.data.project === project && d.data.core && d.data.tg && d.data.tg !== owner && !isCard(form(d.data.form)));
 }
 const announceKb = (eventId, n) => ({ inline_keyboard: [[{ text: 'Разослать команде (' + n + ')', callback_data: 'an:' + eventId }]] });
 // When the meeting is, in words. A meeting set by a poll is told in the poll's own zone, any other in the app's zone.
@@ -298,6 +351,8 @@ async function start(m, token) {
   const f = link && form(link.form), p = link && await db.getDoc('projects', link.project);
   if (!f || !p) return say(m.chat.id, 'Эта ссылка больше не действует. Попросите у организатора новую.');
   const polls = (f.polls || []).length ? f.pollsNote || 'проголосовать' : '';
+  if (isCard(f)) return say(m.chat.id, '<b>' + esc(f.title) + '</b>\n' + esc(f.kicker || 'Анкета') + '\n\n' + esc(f.hello || 'Рады знакомству!') + ' Анкета занимает ' + esc(f.coreTime || 'пару минут') + ': вопросы с вариантами ответа, прямо здесь, в Telegram.' +
+    (https() ? '' : '\n\nУ сервера пока нет публичного адреса, анкету открыть нельзя.'), appBtn('Заполнить анкету', '/join/' + token));
   return say(m.chat.id, '<b>' + esc(f.title) + '</b>\n' + esc(f.kicker || 'Анкета') + '\n\nОсновная часть занимает ' + esc(f.coreTime || 'пару минут') + ': вопросы с вариантами ответа, прямо здесь, в Telegram. После неё вы сразу окажетесь в проекте «' + esc(String(p.data.name || '')) + '»' +
     (polls ? ' и сможете ' + esc(polls) : '') + '.' + (https() ? '' : '\n\nУ сервера пока нет публичного адреса, анкету открыть нельзя.'), appBtn('Заполнить анкету', '/join/' + token));
 }
@@ -335,11 +390,12 @@ async function csv(f, project) {
 // The onboarding of one project as its owner sees it in the dashboard: the link, who came and what they
 // answered, how the polls stand.
 async function overview(project, botName) {
-  const all = forms(), link = (await db.listJoinLinks()).find((l) => l.project === project) || null;
-  const out = { forms: all.map((x) => ({ id: x.id, title: x.title })), link: null, form: null, people: [], polls: [] };
+  const all = forms().filter((x) => !isCard(x)), links = (await db.listJoinLinks()).filter((l) => l.project === project);
+  const link = links.find((l) => !isCard(form(l.form))) || null;
+  const out = { forms: all.map((x) => ({ id: x.id, title: x.title })), link: null, form: null, people: [], polls: [], invite: await inviteView(project, links, botName) };
   // the form of the live link; without a link, the form people of this project have already filled in
   let f = link ? form(link.form) : null;
-  if (!f) { const mine = (await db.listDocs('joins')).find((d) => d.data.project === project); f = (mine && form(mine.data.form)) || all[0] || null; }
+  if (!f) { const mine = (await db.listDocs('joins')).find((d) => d.data.project === project && !isCard(form(d.data.form))); f = (mine && form(mine.data.form)) || all[0] || null; }
   if (!f) return out;
   const list = (await entries(f)).filter((d) => d.data.project === project);
   if (link && botName) {
@@ -362,4 +418,47 @@ async function overview(project, botName) {
   return out;
 }
 
-module.exports = { router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };
+// The invitation of a project: a standing link for meeting people in person. Whoever fills in its form
+// becomes a contact of the project and sees the showcase; the texts are ready to send, one for a guest, one for a master.
+function inviteTexts(f, u) {
+  const t = f.invite || {}, put = (x) => String(x || '').replace(/\{link\}/g, u);
+  return { guest: put(t.guest || 'Анкета «' + f.title + '»: {link}'), master: put(t.master || t.guest || 'Анкета «' + f.title + '»: {link}') };
+}
+async function inviteView(project, links, botName) {
+  const link = links.find((l) => isCard(form(l.form))) || null, f = link ? form(link.form) : cardForm();
+  if (!f) return null;
+  const list = (await entries(f)).filter((d) => d.data.project === project && d.data.core), u = link && botName ? url(botName, link.token) : '';
+  return {
+    form: { id: f.id, title: f.title, questions: questions(f).map((q) => ({ id: q.id, label: q.label })) },
+    link: u ? Object.assign({ url: u, form: f.id }, inviteTexts(f, u)) : null,
+    people: list.map((d) => ({ id: d.id, tg: d.data.tg, name: d.data.name || '', username: d.data.username || '', at: d.data.at || '', core: true, more: !!d.data.more, master: !!f.master && holds(f.master, d.data.answers || {}),
+      summary: summaryLines(f, d.data.answers || {}), answers: d.data.answers || {} })),
+  };
+}
+// The link as a picture, for a meeting in person: the phone's camera opens the bot.
+const QR = require('qrcode');
+const qrSvg = (text) => QR.toString(text, { type: 'svg', margin: 2, errorCorrectionLevel: 'M' });
+const qrPng = (text) => QR.toBuffer(text, { type: 'png', margin: 3, width: 720, errorCorrectionLevel: 'M' });
+
+// People who went through a team form before the team was kept on the card: their cards get the project
+// in `team`, so the «Команда» of each project stays as it was. Runs once.
+async function migrateTeam() {
+  if (await db.kvGet('team.oncard')) return 0;
+  const cs = await db.listDocs('contacts'), owner = await auth.ownerId();
+  let n = 0;
+  for (const d of await db.listDocs('joins')) {
+    const x = d.data;
+    if (!x.core || !x.project || !x.tg || x.tg === owner || isCard(form(x.form)) || !form(x.form)) continue;
+    const un = String(x.username || '').toLowerCase();
+    const c = cs.find((k) => k.id === 'jn-' + x.tg) || (un ? cs.find((k) => String(k.data.tg || '').replace(/^@/, '').toLowerCase() === un) : null);
+    if (!c || (Array.isArray(c.data.team) && c.data.team.includes(x.project))) continue;
+    const prev = c.data, next = await db.mutateDoc('contacts', c.id, (cur) => Object.assign({}, cur, { team: [...new Set((Array.isArray(cur.team) ? cur.team : []).concat([x.project]))], u: new Date().toISOString() }));
+    c.data = next.data;
+    hub.publish('contacts', next.id, next.data, next.version, '', prev);
+    n++;
+  }
+  await db.kvSet('team.oncard', { at: new Date().toISOString(), n });
+  return n;
+}
+
+module.exports = { isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

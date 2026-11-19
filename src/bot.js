@@ -399,22 +399,22 @@ async function googleConnected() {
 /* ---------- onboarding: one link for a whole chat ---------- */
 // «/onboard проект» gives the link, «/onboard off проект» switches it off, «/onboard» lists the live ones.
 async function onboard(chat, arg) {
-  const list = await projects(), forms = join.forms();
-  if (!forms.length) return say(chat, 'На сервере нет ни одной анкеты.');
+  const list = await projects();
+  if (!join.teamForm()) return say(chat, 'На сервере нет ни одной анкеты.');
   if (!botName) return say(chat, 'Бот ещё не подключён, ссылку выдать не могу.');
   const off = /^(off|выкл|стоп)\s+/i.test(arg), query = arg.replace(/^(off|выкл|стоп)\s+/i, '').trim();
   if (!query) {
     const links = await db.listJoinLinks(), lines = [];
     for (const l of links) {
       const p = list.find((x) => x.id === l.project), f = join.form(l.form);
-      if (p && f) lines.push('• <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '», заполнили: ' + (await join.entries(f)).filter((d) => d.data.core).length + '\n' + join.url(botName, l.token));
+      if (p && f && !join.isCard(f)) lines.push('• <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '», заполнили: ' + (await join.entries(f)).filter((d) => d.data.core && d.data.project === l.project).length + '\n' + join.url(botName, l.token));
     }
     return say(chat, (lines.length ? 'Ссылки онбординга:\n' + lines.join('\n') + '\n\n' : '') + 'Выключить ссылку: /onboard off название проекта\nОтветы таблицей: /answers, голоса: /votes\n\nДля какого проекта создать ссылку?', onboardKb(list, []));
   }
   const mp = matchProject(query, list, false);
   if (!mp.best) return say(chat, 'Не нашёл проект «' + esc(query) + '». ' + (off ? 'Напиши название точнее.' : 'Выбери его из списка:'), off ? undefined : onboardKb(list, mp.cands));
   if (off) {
-    const n = await db.revokeJoinLinks(mp.best.id);
+    const n = await db.revokeJoinLinks(mp.best.id, join.forms().filter((f) => !join.isCard(f)).map((f) => f.id));
     return say(chat, n ? 'Ссылка онбординга в <b>' + esc(pname(mp.best)) + '</b> выключена. Те, кто уже вошёл, остаются в проекте: убрать можно в окне «Доступ».' : 'У проекта <b>' + esc(pname(mp.best)) + '</b> нет активной ссылки онбординга.');
   }
   return onboardLink(chat, mp.best);
@@ -426,11 +426,43 @@ function onboardKb(list, cands) {
   return k;
 }
 async function onboardLink(chat, p) {
-  const f = join.forms()[0], link = join.url(botName, await join.linkFor(p.id, f.id));
+  const f = join.teamForm(), link = join.url(botName, await join.linkFor(p.id, f.id));
   await say(chat, 'Ссылка онбординга в <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '». Работает для любого числа людей, пока её не выключить.\n\n' +
     'Каждый, кто заполнит основную часть, сразу получает доступ только к этому проекту с правом вести задачи и попадает в его контакты. Тебе придёт сообщение о каждом.\n\nТекст для чата ниже, его можно переслать как есть.');
   return say(chat, 'Коллеги, анкету «' + esc(f.title) + '» можно заполнить в Telegram: ' + esc(f.coreTime || 'пара минут') + ', вопросы с вариантами ответа.' +
     ((f.polls || []).length ? ' После анкеты можно ' + esc(f.pollsNote || 'проголосовать') + ': видно, кто за что проголосовал.' : '') + '\n\n' + link);
+}
+
+/* ---------- the invitation: a standing link and a QR code for meeting people in person ---------- */
+// «/club проект» gives the link, the QR code and two ready texts (for a guest and for a master);
+// «/club off проект» switches the link off. Whoever fills in the form becomes a contact of the project
+// and sees its showcase: no access to the project itself.
+async function club(chat, arg) {
+  const list = await projects(), f = join.cardForm();
+  if (!f) return say(chat, 'На сервере нет анкеты-приглашения.');
+  if (!botName) return say(chat, 'Бот ещё не подключён, ссылку выдать не могу.');
+  const off = /^(off|выкл|стоп)\s+/i.test(arg), query = arg.replace(/^(off|выкл|стоп)\s+/i, '').trim();
+  const kb = (cands) => { const k = onboardKb(list, cands || []); k.inline_keyboard.forEach((row) => row.forEach((x) => { if (x.callback_data.startsWith('ob:')) x.callback_data = 'cl:' + x.callback_data.slice(3); })); return k; };
+  if (!query) {
+    const live = (await db.listJoinLinks()).filter((l) => join.isCard(join.form(l.form)) && list.some((x) => x.id === l.project));
+    if (live.length === 1) return clubLink(chat, list.find((x) => x.id === live[0].project));
+    return say(chat, 'Для какого проекта приглашение?', kb());
+  }
+  const mp = matchProject(query, list, false);
+  if (!mp.best) return say(chat, 'Не нашёл проект «' + esc(query) + '». ' + (off ? 'Напиши название точнее.' : 'Выбери его из списка:'), off ? undefined : kb(mp.cands));
+  if (off) {
+    const n = await db.revokeJoinLinks(mp.best.id, join.forms().filter((x) => join.isCard(x)).map((x) => x.id));
+    return say(chat, n ? 'Приглашение в <b>' + esc(pname(mp.best)) + '</b> выключено: ссылка и QR-код больше не работают. Карточки тех, кто уже заполнил анкету, остаются.' : 'У проекта <b>' + esc(pname(mp.best)) + '</b> нет активного приглашения.');
+  }
+  return clubLink(chat, mp.best);
+}
+async function clubLink(chat, p) {
+  const f = join.cardForm(), link = join.url(botName, await join.linkFor(p.id, f.id)), t = join.inviteTexts(f, link);
+  await say(chat, 'Приглашение в <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '». Ссылка постоянная, для любого числа людей:\n' + esc(link) + '\n\n' +
+    'Кто заполнит анкету, попадает в контакты проекта (мастера с пометкой «Мастер») и видит витрину проекта; задач и внутренних записей не видит. Тебе придёт сообщение о каждом.\n\nНиже QR-код и два текста: участнику и мастеру. Их можно переслать как есть. Выключить: /club off ' + esc(pname(p)));
+  try { await T.sendPhoto(chat, 'invite-' + p.id + '.png', await join.qrPng(link), 'QR-код приглашения «' + pname(p) + '»: камера телефона открывает бота.'); } catch (e) { console.error('[club] qr failed:', e.message); }
+  await say(chat, esc(t.guest));
+  return say(chat, esc(t.master));
 }
 
 /* ---------- commands ---------- */
@@ -456,6 +488,7 @@ function helpText(role) {
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
     '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу со ссылкой команде проекта.\n' +
     '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей, /votes — голоса.\n' +
+    '• /club проект — приглашение для личных встреч: постоянная ссылка, QR-код и тексты для участника и мастера. Человек заполняет анкету и попадает в контакты проекта.\n' +
     '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
 }
@@ -495,6 +528,7 @@ async function onCommand(m, role, cmd, arg) {
         : 'В этом месяце запросов к Claude с сервера ещё не было.');
   }
   if (cmd === 'onboard') return onboard(chat, arg);
+  if (cmd === 'club') return club(chat, arg);
   if (cmd === 'google') return googleCmd(chat, arg);
   if (cmd === 'announce') {
     const list = await join.announceable();
@@ -620,9 +654,16 @@ async function onCallback(cq) {
   if (data.startsWith('ob:')) {
     const p = (await projects()).find((x) => x.id === data.slice(3));
     await ack();
-    if (!p || !botName || !join.forms().length) return edit(chat, 'Этого проекта уже нет.');
+    if (!p || !botName || !join.teamForm()) return edit(chat, 'Этого проекта уже нет.');
     await edit(chat, 'Проект: <b>' + esc(pname(p)) + '</b>');
     return onboardLink(chat, p);
+  }
+  if (data.startsWith('cl:')) {
+    const p = (await projects()).find((x) => x.id === data.slice(3));
+    await ack();
+    if (!p || !botName || !join.cardForm()) return edit(chat, 'Этого проекта уже нет.');
+    await edit(chat, 'Проект: <b>' + esc(pname(p)) + '</b>');
+    return clubLink(chat, p);
   }
   if (data.startsWith('p:')) {
     const pid = data.slice(2);

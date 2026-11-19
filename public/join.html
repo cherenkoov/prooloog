@@ -90,6 +90,14 @@ textarea{min-height:110px;resize:vertical;line-height:1.4}
 .o.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .o.on .mk{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .opts.row .o.on{background:var(--accent);color:var(--on-accent);font-weight:600}
+.q.sub{margin:2px 0 6px 6px;padding:2px 0 2px 14px;border-left:3px solid color-mix(in srgb,var(--accent) 45%,var(--line))}
+.q-of{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.agree{display:grid;grid-template-columns:22px 1fr;gap:12px;align-items:start;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);width:100%;font-weight:500}
+.agree.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.agree.on .mk{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.agree.bad{border-color:var(--crit)}
+.show ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.show p{white-space:pre-line}
 .tag{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
 .o.nope{animation:nope .3s}
 @keyframes nope{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
@@ -128,7 +136,7 @@ textarea{min-height:110px;resize:vertical;line-height:1.4}
 var tg=window.Telegram&&window.Telegram.WebApp, initData=(tg&&tg.initData)||'';
 var token=(/\/join\/([A-Za-z0-9_-]{12,40})/.exec(location.pathname)||[])[1]||'';
 var app=document.getElementById('app'), KEY='prooloog.join.'+token;
-var F=null, info=null, me=null, A={}, scr='load', part='core', step=0, bad={}, busy=false, note='', seen={};
+var F=null, info=null, me=null, A={}, scr='load', part='core', step=0, bad={}, busy=false, note='', seen={}, agreed=false, card=false;
 var CHECK='<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -141,8 +149,21 @@ function api(method,path,body){
     return r.json().catch(function(){return null}).then(function(j){if(!r.ok){var e=new Error((j&&j.error)||'http_'+r.status);e.code=(j&&j.error)||'';e.fields=(j&&j.fields)||[];throw e}return j});
   },function(){var e=new Error('network');e.code='network';throw e});
 }
-function steps(p){return F.steps.filter(function(s){return s.part===p})}
-function qCount(p){return steps(p).reduce(function(n,s){return n+s.qs.length},0)}
+// a question or a step with "when" is asked only while the answer it points at holds one of the listed options
+function holds(w){
+  if(!w||!w.q)return true;
+  var v=A[w.q], list=Array.isArray(v)?v:(v===undefined||v===null||v==='')?[]:[String(v)];
+  return (w.in||[]).some(function(o){return list.indexOf(o)>=0});
+}
+function steps(p){return F.steps.filter(function(s){return s.part===p&&holds(s.when)})}
+function shown(s){return s.qs.filter(function(q){return holds(q.when)})}
+// follow-ups open right under the option that brings them: they are drawn inside their question, not after it
+function stepOf(q){return F.steps.filter(function(s){return s.qs.indexOf(q)>=0})[0]}
+function nested(q){var s=stepOf(q),par=q.when&&s?s.qs.filter(function(x){return x.id===q.when.q})[0]:null;return par&&par.opts&&!par.row?par:null}
+function under(q,o){var s=stepOf(q);return s?s.qs.filter(function(x){return nested(x)===q&&x.when.in.indexOf(o)>=0&&holds(x.when)}):[]}
+function feeds(qid){return F.steps.some(function(s){return (s.when&&s.when.q===qid)||s.qs.some(function(q){return q.when&&q.when.q===qid})})}
+// the questions everybody gets: follow-ups and branches are not counted in advance
+function qCount(p){return F.steps.filter(function(s){return s.part===p&&!s.when}).reduce(function(n,s){return n+s.qs.filter(function(q){return !q.when}).length},0)}
 function plural(n,a,b,c){var m=n%100,d=n%10;return m>10&&m<20?c:d===1?a:d>1&&d<5?b:c}
 function isOther(v){return typeof v==='string'&&v.indexOf('Другое')===0}
 function otherText(v){return isOther(v)?v.replace(/^Другое(: )?/,''):''}
@@ -166,28 +187,29 @@ function hello(){
   var polls=(F.polls||[]).length?(F.pollsNote||'проголосовать'):'';
   return '<div class="body pad-b"><p class="kick">'+esc(F.kicker||'Анкета')+'</p><h1 class="h1">'+esc(F.title)+'</h1><p class="lead">'+(first?esc(first)+', здравствуйте! ':'')+esc(F.intro||'')+'</p>'+
     '<div class="facts"><div class="fact"><b>1</b><span>'+n+' '+plural(n,'вопрос','вопроса','вопросов')+', '+esc(F.coreTime||'пара минут')+'. Почти везде достаточно нажать на вариант.</span></div>'+
-    '<div class="fact"><b>2</b><span>Сразу после отправки вы в проекте «'+esc(info.project)+'»: видите задачи команды и можете вести свои.</span></div>'+
+    '<div class="fact"><b>2</b><span>'+(card?'Некоторые ответы раскрываются парой уточняющих вопросов. После отправки откроется страница о проекте «'+esc(info.project)+'».':'Сразу после отправки вы в проекте «'+esc(info.project)+'»: видите задачи команды и можете вести свои.')+'</span></div>'+
     (polls?'<div class="fact"><b>3</b><span>В конце можно '+esc(polls)+'.</span></div>':'')+'</div>'+
-    (me.owner?'<p class="small">Вы владелец: анкета сохранится как ваша, доступы не меняются.</p><button class="link" data-act="home">Посмотреть голоса без анкеты</button>':'')+
+    (me.owner?'<p class="small">Вы владелец: анкета сохранится как ваша, доступы не меняются.</p><button class="link" data-act="home">'+(card?'Посмотреть страницу о проекте без анкеты':'Посмотреть голоса без анкеты')+'</button>':'')+
     '</div><div class="foot"><button class="btn pri" data-act="begin">Начать</button></div>';
 }
 function formScr(){
   var ss=steps(part), s=ss[step], last=step===ss.length-1, h='';
   h+='<div class="top"><div class="bar" role="tablist" aria-label="Шаги анкеты">'+ss.map(function(x,i){return '<button type="button" role="tab" aria-selected="'+(i===step)+'" class="seg'+(i===step?' cur':i<step||seen[part+i]?' on':'')+'" data-act="go" data-i="'+i+'" aria-label="Шаг '+(i+1)+': '+esc(x.title)+'"><i></i></button>'}).join('')+'</div><div class="top-t"><b>'+esc(s.title)+'</b><span>'+(part==='more'?'по желанию · ':'')+(step+1)+' из '+ss.length+'</span></div></div>';
-  h+='<div class="body pad-t pad-b"><h1 class="h2">'+esc(s.title)+'</h1>'+s.qs.map(question).join('');
+  h+='<div class="body pad-t pad-b"><h1 class="h2">'+esc(s.title)+'</h1>'+(s.text?'<p class="lead">'+esc(s.text)+'</p>':'')+shown(s).filter(function(q){return !nested(q)}).map(question).join('');
+  if(part==='core'&&last&&F.agree)h+='<button type="button" class="agree'+(agreed?' on':'')+(bad._agree?' bad':'')+'" role="checkbox" aria-checked="'+agreed+'" data-act="agree"><span class="mk">'+CHECK+'</span><span>'+esc(F.agree)+'</span></button>'+(bad._agree?'<p class="q-e" role="alert">'+esc(bad._agree)+'</p>':'');
   if(part==='core'&&last&&F.consent)h+='<p class="small">'+esc(F.consent)+'</p>';
   if(note)h+='<p class="q-e" role="alert">'+esc(note)+'</p>';
   h+='</div><div class="foot"><button class="btn" data-act="back" aria-label="Назад">Назад</button><button class="btn pri" data-act="next"'+(busy?' disabled':'')+'>'+(busy?'Сохраняю…':part==='core'?(last?'Отправить':'Дальше'):(last?'Готово':'Сохранить и дальше'))+'</button></div>';
   return h;
 }
 function question(q){
-  var v=A[q.id], h='<div class="q'+(bad[q.id]?' bad':'')+'" data-q="'+esc(q.id)+'"><label class="q-l"'+(q.opts?'':' for="i-'+esc(q.id)+'"')+'>'+esc(q.label)+(q.req?' <span class="req" aria-hidden="true">*</span>':'')+'</label>';
+  var v=A[q.id], h='<div class="q'+(q.sub?' sub':'')+(bad[q.id]?' bad':'')+'" data-q="'+esc(q.id)+'">'+(q.sub?'<span class="q-of">'+esc(q.sub)+'</span>':'')+'<label class="q-l"'+(q.opts?'':' for="i-'+esc(q.id)+'"')+'>'+esc(q.label)+(q.req?' <span class="req" aria-hidden="true">*</span>':'')+'</label>';
   if(q.hint)h+='<p class="q-h">'+esc(q.hint)+'</p>';
   if(q.opts){
     var arr=q.t==='many'?(Array.isArray(v)?v:[]):(v?[v]:[]), other=arr.filter(isOther)[0];
     h+='<div class="opts'+(q.row?' row':'')+'" role="group">'+q.opts.concat(q.other?['Другое']:[]).map(function(o){
       var on=o==='Другое'&&q.other?other!==undefined:arr.indexOf(o)>=0;
-      return '<button type="button" class="o '+(q.t==='one'?'one':'many')+(on?' on':'')+'" aria-pressed="'+on+'" data-act="pick" data-q="'+esc(q.id)+'" data-o="'+esc(o)+'"><span class="mk">'+CHECK+'</span><span>'+esc(o)+'</span>'+(q.lead&&on&&arr[0]===o?'<span class="tag">основная</span>':'<span></span>')+'</button>';
+      return '<button type="button" class="o '+(q.t==='one'?'one':'many')+(on?' on':'')+'" aria-pressed="'+on+'" data-act="pick" data-q="'+esc(q.id)+'" data-o="'+esc(o)+'"><span class="mk">'+CHECK+'</span><span>'+esc(o)+'</span>'+(q.lead&&on&&arr[0]===o?'<span class="tag">основная</span>':'<span></span>')+'</button>'+(on?under(q,o).map(question).join(''):'');
     }).join('')+'</div>';
     if(q.other&&other!==undefined)h+='<input type="text" id="oth-'+esc(q.id)+'" data-oth="'+esc(q.id)+'" maxlength="200" placeholder="Напишите свой вариант" value="'+esc(otherText(other))+'" aria-label="Свой вариант">';
   }else if(q.t==='area'){
@@ -200,7 +222,12 @@ function question(q){
 }
 function home(){
   var nm=qCount('more'), h='<div class="body">'+(me.joined?'<div class="ok"><svg width="26" height="26" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>':'')+
-    '<h1 class="h2">'+(me.joined?'Вы в проекте «'+esc(info.project)+'»':'Проект «'+esc(info.project)+'»')+'</h1><p class="lead">'+(me.joined?'Анкета принята. Участников в проекте: '+me.people+'.':'Анкету заполнили: '+me.people+'.')+'</p>';
+    '<h1 class="h2">'+(card?(me.joined?'Спасибо! Анкета принята':'Проект «'+esc(info.project)+'»'):me.joined?'Вы в проекте «'+esc(info.project)+'»':'Проект «'+esc(info.project)+'»')+'</h1><p class="lead">'+
+    (card?(me.joined?'Мы свяжемся с вами в Telegram.'+(me.owner?' Анкету заполнили: '+me.people+'.':''):'Анкету заполнили: '+me.people+'.'):me.joined?'Анкета принята. Участников в проекте: '+me.people+'.':'Анкету заполнили: '+me.people+'.')+'</p>';
+  if(card&&me.show){
+    var sw=me.show;
+    h+='<div class="card show"><p class="kick">О проекте</p><h3>'+esc(sw.title)+'</h3>'+(sw.text?'<p>'+esc(sw.text)+'</p>':'')+((sw.points||[]).length?'<ul>'+sw.points.map(function(x){return '<li>'+esc(x)+'</li>'}).join('')+'</ul>':'')+'</div>';
+  }
   (me.polls||[]).forEach(function(p){
     var max=Math.max.apply(null,p.opts.map(function(o){return o.n}).concat([1])), tail=(p.closed?'Голосование закрыто.':p.mine.length?'Ваш голос учтён. Его можно изменить.':p.multi?'Нажмите на все подходящие варианты.':'Нажмите на подходящий вариант.')+' Проголосовали: '+p.voters+'.';
     h+='<div class="card"><h3>'+esc(p.title)+'</h3><p class="small">'+esc(p.q||'')+'</p>';
@@ -221,7 +248,7 @@ function home(){
     }
     h+='<p class="small" id="pn-'+esc(p.id)+'">'+tail+'</p></div>';
   });
-  h+='<div class="hero"><a class="btn pri" style="flex:none" href="/">Открыть проект</a>';
+  h+='<div class="hero">'+(card?'':'<a class="btn pri" style="flex:none" href="/">Открыть проект</a>');
   if(me.joined&&nm)h+='<div class="card"><h3>'+(me.more?'Расширенная анкета':'Расскажите о себе больше')+'</h3><p class="small">'+esc(F.moreIntro||'')+' '+nm+' '+plural(nm,'вопрос','вопроса','вопросов')+', '+esc(F.moreTime||'')+'.</p><button class="btn wide" data-act="more">'+(me.more?'Изменить ответы':'Дополнить анкету')+'</button></div>';
   h+='<button class="link" data-act="edit">'+(me.joined?'Изменить основные ответы':'Заполнить анкету')+'</button></div></div>';
   return h;
@@ -248,7 +275,8 @@ function pick(qid,o,el){
     }
     A[qid]=arr;
   }
-  delete bad[qid];keep();haptic();paint(qid);
+  delete bad[qid];keep();haptic();
+  if(feeds(qid)){var y=window.scrollY;render();window.scrollTo(0,y)}else paint(qid);
   if(o==='Другое'&&q.other){var x=document.getElementById('oth-'+qid);if(x)x.focus()}
 }
 function paint(qid){
@@ -258,7 +286,7 @@ function paint(qid){
 function findQ(id){var r=null;F.steps.forEach(function(s){s.qs.forEach(function(q){if(q.id===id)r=q})});return r}
 function check(s){
   bad={};
-  s.qs.forEach(function(q){
+  shown(s).forEach(function(q){
     var v=A[q.id], empty=q.t==='many'?!(Array.isArray(v)&&v.length):!String(v||'').trim();
     if(q.req&&empty)bad[q.id]=q.opts?'Выберите вариант':'Заполните это поле';
     else if(!empty&&q.t==='email'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim()))bad[q.id]='Проверьте адрес: в нём должны быть @ и точка';
@@ -267,7 +295,7 @@ function check(s){
   });
   return !Object.keys(bad).length;
 }
-function payload(p){var o={};steps(p).forEach(function(s){s.qs.forEach(function(q){if(A[q.id]!==undefined)o[q.id]=A[q.id]})});return o}
+function payload(p){var o={};steps(p).forEach(function(s){shown(s).forEach(function(q){if(A[q.id]!==undefined)o[q.id]=A[q.id]})});return o}
 function toFirstBad(){var el=app.querySelector('.q.bad');if(el)el.scrollIntoView({block:'center',behavior:'smooth'})}
 function next(){
   if(busy)return;
@@ -275,8 +303,9 @@ function next(){
   note='';
   if(!check(s)){haptic('error');render();return toFirstBad()}
   if(part==='core'&&!last){step++;render();return window.scrollTo(0,0)}
+  if(part==='core'&&F.agree&&!agreed){bad._agree='Без согласия анкета не сохраняется. Отметьте эту строку.';haptic('error');return render()}
   busy=true;render();
-  api('POST','/submit',{initData:initData,part:part,answers:payload(part)}).then(function(j){
+  api('POST','/submit',{initData:initData,part:part,answers:payload(part),agree:agreed}).then(function(j){
     busy=false;me=j;A=Object.assign({},A,j.answers);keep();
     if(last){scr='home';haptic('ok')}else step++;
     render();window.scrollTo(0,0);
@@ -286,7 +315,7 @@ function next(){
       e.fields.forEach(function(id){bad[id]='Проверьте этот ответ'});
       var i=ss.findIndex(function(x){return x.qs.some(function(q){return e.fields.indexOf(q.id)>=0})});if(i>=0)step=i;
     }
-    note=e.code==='link_closed'?'Ссылка на анкету больше не действует. Попросите у организатора новую.':e.code==='unauthorized'?'Telegram не подтвердил вход. Закройте окно и откройте анкету из бота ещё раз.':e.code==='network'?'Нет связи с сервером. Ответы сохранены на этом устройстве: попробуйте ещё раз через минуту.':'Не получилось сохранить. Попробуйте ещё раз.';
+    note=e.code==='no_consent'?'Без согласия на хранение данных анкета не сохраняется.':e.code==='link_closed'?'Ссылка на анкету больше не действует. Попросите у организатора новую.':e.code==='unauthorized'?'Telegram не подтвердил вход. Закройте окно и откройте анкету из бота ещё раз.':e.code==='network'?'Нет связи с сервером. Ответы сохранены на этом устройстве: попробуйте ещё раз через минуту.':'Не получилось сохранить. Попробуйте ещё раз.';
     haptic('error');render();toFirstBad();
   });
 }
@@ -334,6 +363,7 @@ app.addEventListener('click',function(e){
   var a=t.getAttribute('data-act');
   if(a==='pick')pick(t.getAttribute('data-q'),t.getAttribute('data-o'),t);
   else if(a==='next')next();
+  else if(a==='agree'){agreed=!agreed;delete bad._agree;haptic();var y=window.scrollY;render();window.scrollTo(0,y)}
   else if(a==='go')go(+t.getAttribute('data-i'));
   else if(a==='back')back();
   else if(a==='begin'||a==='edit')begin('core');
@@ -361,10 +391,10 @@ function fail(e){
 }
 if(!token){note='В ссылке нет кода анкеты.';scr='error';render()}
 else api('GET','').then(function(j){
-  info=j;F=j.form;document.title=F.title;
+  info=j;F=j.form;card=j.access==='card';document.title=F.title;
   if(!initData){scr='gate';return render()}
   return api('POST','/me',{initData:initData}).then(function(m){
-    me=m;A=Object.assign({},kept(),m.answers);
+    me=m;A=Object.assign({},kept(),m.answers);agreed=!!m.agreed;
     scr=m.joined?'home':'hello';render();
   });
 }).catch(fail);

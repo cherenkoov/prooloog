@@ -271,7 +271,13 @@ async function createJoinLink(project, form) {
 }
 async function getJoinLink(token) { const r = await q('SELECT token, project, form FROM join_links WHERE token = $1 AND revoked_at IS NULL', [token]); return r.rows[0] || null; }
 async function listJoinLinks() { const r = await q('SELECT token, project, form FROM join_links WHERE revoked_at IS NULL ORDER BY created_at'); return r.rows; }
-async function revokeJoinLinks(project) { const r = await q('UPDATE join_links SET revoked_at = now() WHERE project = $1 AND revoked_at IS NULL', [project]); return r.rowCount; }
+// forms: only the links of these forms; without it, every link of the project
+async function revokeJoinLinks(project, forms) {
+  const r = Array.isArray(forms)
+    ? await q('UPDATE join_links SET revoked_at = now() WHERE project = $1 AND form = ANY($2) AND revoked_at IS NULL', [project, forms])
+    : await q('UPDATE join_links SET revoked_at = now() WHERE project = $1 AND revoked_at IS NULL', [project]);
+  return r.rowCount;
+}
 
 /* ---------- one-time login links ---------- */
 async function createLoginCode(tgId, minutes = 10) {

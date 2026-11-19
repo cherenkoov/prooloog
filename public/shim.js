@@ -274,9 +274,10 @@
   // Onboarding of a project: the link for a chat, who filled the form in and what they answered. For the owner only.
   var onboardNs = {
     get: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid)); },
-    on: function (pid) { return api('POST', '/onboard/' + encodeURIComponent(pid), {}); },
-    off: function (pid) { return api('DELETE', '/onboard/' + encodeURIComponent(pid)); },
-    csv: function (pid) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/csv'); }
+    on: function (pid, form) { return api('POST', '/onboard/' + encodeURIComponent(pid), form ? { form: form } : {}); },
+    off: function (pid, form) { return api('DELETE', '/onboard/' + encodeURIComponent(pid) + (form ? '?form=' + encodeURIComponent(form) : '')); },
+    csv: function (pid, form) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/csv' + (form ? '?form=' + encodeURIComponent(form) : '')); },
+    qr: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid) + '/qr'); }
   };
   // Who has access and invite links; for the owner only.
   var shareNs = {

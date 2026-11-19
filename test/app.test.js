@@ -38,7 +38,7 @@ test.before(async () => {
       if (st === 'error') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ ok: false, error_code: 400, description: 'Bad Request: member list is inaccessible' })); }
       result = { status: st || 'member', user: { id: params.user_id } };
     }
-    if (method === 'sendMessage' || method === 'editMessageText' || method === 'sendDocument') result = { message_id: 1000 + tgCalls.length };
+    if (method === 'sendMessage' || method === 'editMessageText' || method === 'sendDocument' || method === 'sendPhoto') result = { message_id: 1000 + tgCalls.length };
     if (method === 'getFile') result = { file_id: params.file_id, file_path: 'files/' + params.file_id, file_size: (tgFiles['files/' + params.file_id] || Buffer.alloc(0)).length };
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ok: true, result }));
@@ -1139,6 +1139,7 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   const contact = (await call('GET', '/api/db/contacts', { token: ownerToken })).json.docs.find((d) => d.id === 'jn-' + FAY.id);
   assert.equal(contact.data.name, 'Fay Mason'); assert.equal(contact.data.tg, '@fay_hub'); assert.equal(contact.data.email, 'fay@example.com');
   assert.deepEqual(contact.data.projects, ['p-net']); assert.match(contact.data.notes, /Анкета «ЭкоЧакра»[\s\S]*Сфера: Керамика/);
+  assert.deepEqual([contact.data.team, contact.data.rel], [['p-net'], 'Команда'], 'the team form puts the person into the team of the project');
   // sending the form again changes the answers, the contact stays one, nobody is told twice
   n = tgCalls.length;
   const again = await post(tok, '/submit', { initData: initData(FAY), part: 'core', answers: Object.assign({}, core, { '2.2': 'Керамика и чай' }) });
@@ -1269,6 +1270,129 @@ test('onboarding in the dashboard: the owner sees the link, the people, their an
   assert.equal((await ob('POST', 'p-net', bobToken)).status, 403);
   assert.equal((await ob('GET', 'p-nope')).status, 404);
   await call('DELETE', '/api/db/projects/p-ob2', { token: ownerToken });
+});
+
+test('invitation: a standing link with a QR code, a branching form, a card without access, the showcase', async () => {
+  const join = require('../src/join'), dbm = require('../src/db');
+  const IDA = { id: 777020, first_name: 'Ida', last_name: 'Reed', username: 'ida_body' }, JON = { id: 777021, first_name: 'Jon' }, FAY = { id: 777010, first_name: 'Fay', last_name: 'Mason', username: 'fay_hub' };
+  const MASTER = 'Мастер: телесные практики, терапия';
+  const post = (tok, path, json) => call('POST', '/api/join/' + tok + path, { json });
+  const ob = (m, path, json, token = ownerToken) => call(m, '/api/onboard/' + path, { token, json });
+  const contacts = async () => (await call('GET', '/api/db/contacts', { token: ownerToken })).json.docs;
+  await call('PUT', '/api/db/projects/p-club', { token: ownerToken, json: { data: { name: 'Клуб', status: 'active', order: 70, why: 'внутреннее описание', notes: 'внутренние заметки' } } });
+  await call('PUT', '/api/db/tasks/tc-1', { token: ownerToken, json: { data: { title: 'Внутренняя задача', project: 'p-club' } } });
+  // two kinds of forms: the team form stays the default of /onboard, the invitation has its own command
+  assert.deepEqual([join.teamForm().id, join.cardForm().id], ['ecochakra', 'ecochakra-club']);
+  let n = tgCalls.length;
+  await update(msg(OWNER, { text: '/club клуб' }));
+  const sent = sinceMark(n, 'sendMessage').map((c) => c.params.text);
+  const tok = /start=join_([A-Za-z0-9_-]{12,40})/.exec(sent[0])[1];
+  assert.equal(sinceMark(n, 'sendPhoto').length, 1, 'the QR code comes as a picture');
+  assert.match(sent[1], /клуб «ЭкоЧакра»[\s\S]*start=join_/); assert.match(sent[2], /Система долголетия[\s\S]*выберите «Мастер»[\s\S]*start=join_/);
+  await update(msg(OWNER, { text: '/club Клуб' }));
+  assert.ok(sinceMark(n, 'sendMessage').slice(3).some((c) => c.params.text.includes('start=join_' + tok)), 'the link is the same every time');
+  await update(msg(BOB, { text: '/club Клуб' }));
+  assert.doesNotMatch(lastSay().params.text, /start=join_/);
+  // the team link of the same project is another link with the team form
+  const teamTok = (await ob('POST', 'p-club', {})).json.link.url.split('join_')[1];
+  assert.notEqual(teamTok, tok); assert.equal((await call('GET', '/api/join/' + teamTok)).json.form.id, 'ecochakra');
+  // the dashboard: the invitation with its link, both texts and the QR code
+  const v0 = (await ob('GET', 'p-club')).json;
+  assert.equal(v0.invite.link.url, 'https://t.me/prooloog_test_bot?start=join_' + tok);
+  assert.ok(v0.invite.link.guest.includes(v0.invite.link.url) && v0.invite.link.master.includes(v0.invite.link.url));
+  assert.deepEqual([v0.invite.form.id, v0.invite.people, v0.forms.map((f) => f.id)], ['ecochakra-club', [], ['ecochakra']]);
+  const qr = await ob('GET', 'p-club/qr');
+  assert.match(qr.json.svg, /^<svg[\s\S]*<path/); assert.equal(qr.json.url, v0.invite.link.url);
+  assert.equal((await ob('GET', 'p-club/qr', undefined, bobToken)).status, 403);
+  // the bot greets a stranger without promising the project
+  await update(msg(IDA, { text: '/start join_' + tok }));
+  assert.match(lastSay().params.text, /ЭкоЧакра: клуб/); assert.doesNotMatch(lastSay().params.text, /окажетесь в проекте/);
+  const pub = (await call('GET', '/api/join/' + tok)).json;
+  assert.deepEqual([pub.access, pub.form.id, pub.form.steps[0].qs[0].label, pub.form.steps[pub.form.steps.filter((x) => x.part === 'core').length - 1].title], ['card', 'ecochakra-club', 'Кто вы?', 'Согласие']);
+  const me0 = (await post(tok, '/me', { initData: initData(IDA) })).json;
+  assert.deepEqual([me0.joined, me0.show, me0.people], [false, null, 0], 'no showcase before the form');
+  const base = {
+    '0.1': 'Участник клуба', '1.1': 'Ida Reed', '1.2': '+995 555 00 00 01', '1.3': 'ida@example.com', '1.5': ['Telegram'],
+    '2.1': ['Путешественник / участник сети'], '2.2': 'Телесные практики', '3.1': 'Батуми, Грузия', '3.2': 'Нет, но хочу быть участником сети',
+    '4.1': ['Медиа и продвижение'], '9.3': ['Знания и обучение'], '5.1': ['Обучение и передача знаний'], '6.1': ['Участник сети / путешественник'],
+    '7.1': 'До 2', '8.1': ['Обсуждаемо'], '9.1': 'Пока затрудняюсь ответить', '10.5': 'Пока затрудняюсь ответить',
+  };
+  // without the consent nothing is saved: no answers, no card
+  const noYes = await post(tok, '/submit', { initData: initData(IDA), part: 'core', answers: base });
+  assert.equal(noYes.status, 400); assert.equal(noYes.json.error, 'no_consent');
+  assert.equal(await dbm.getDoc('joins', 'ecochakra-club-' + IDA.id), null);
+  assert.ok(!(await contacts()).some((d) => d.id === 'jn-' + IDA.id));
+  // a master must answer the master's questions; a guest is never asked them
+  const m1 = await post(tok, '/submit', { initData: initData(IDA), part: 'core', agree: true, answers: Object.assign({}, base, { '0.1': MASTER }) });
+  assert.equal(m1.status, 400); assert.deepEqual(m1.json.fields.sort(), ['m.1', 'm.2', 'm.3', 'm.4']);
+  // the follow-ups of an option are kept only while the option is chosen
+  const mast = { '0.1': MASTER, 'm.1': ['Цигун / тайцзи', 'Другое: шиацу'], 'm.2': ['Групповые занятия'], 'm.3': '3–7 лет', 'm.4': 'Да, готов(а)' };
+  n = tgCalls.length;
+  const done = await post(tok, '/submit', { initData: initData(IDA), part: 'core', agree: true, answers: Object.assign({}, base, mast, {
+    '4.1': ['Экспертная помощь: консультации, лекции'], '4.1.e1': ['Наставничество'], '4.1.e2': 'Здоровье спины', '4.1.e3': '3–7 лет', '4.1.m1': 'не выбрано, не должно сохраниться' }) });
+  assert.equal(done.status, 200);
+  assert.deepEqual([done.json.joined, done.json.agreed, done.json.people, done.json.answers['4.1.e2'], done.json.answers['4.1.m1']], [true, true, 0, 'Здоровье спины', undefined]);
+  assert.equal(done.json.show.title, 'Клуб'); assert.match(done.json.show.text, /ЭкоЧакра/); assert.ok(done.json.show.points.length >= 2);
+  assert.doesNotMatch(JSON.stringify(done.json.show), /внутрен/, 'nothing internal in the showcase');
+  // no access to the project: only a card among its contacts, marked as a master
+  assert.equal(await dbm.getMember(String(IDA.id)), null);
+  assert.notEqual((await call('POST', '/api/auth/telegram', { json: { initData: initData(IDA) } })).status, 200);
+  const card = (await contacts()).find((d) => d.id === 'jn-' + IDA.id).data;
+  assert.deepEqual([card.name, card.tg, card.projects, card.master, card.team, card.rel], ['Ida Reed', '@ida_body', ['p-club'], true, undefined, '']);
+  assert.match(card.role, /^Мастер: Цигун/); assert.match(card.notes, /Анкета «ЭкоЧакра: клуб»[\s\S]*Кто вы: Мастер[\s\S]*Направление: Цигун[\s\S]*Город: Батуми/);
+  assert.ok(!(await join.teamOf('p-club')).some((d) => d.data.tg === String(IDA.id)), 'a guest is not in the team the meetings are sent to');
+  const said = sinceMark(n, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text, c.params.reply_markup]);
+  const toIda = said.find((x) => x[0] === String(IDA.id)), toOwner = said.find((x) => x[0] === String(OWNER.id));
+  assert.match(toIda[1], /Анкета принята/); assert.equal(toIda[2].inline_keyboard[0][0].web_app.url, 'https://prooloog.test/join/' + tok);
+  assert.match(toOwner[1], /Ida Reed<\/b> \(@ida_body\)[\s\S]*как <b>мастер<\/b>[\s\S]*доступа к проекту у человека нет/);
+  assert.match((await dbm.getDoc('joins', 'ecochakra-club-' + IDA.id)).data.agreed, /^\d{4}-/);
+  // the owner writes the showcase himself in the project
+  await call('PUT', '/api/db/projects/p-club', { token: ownerToken, json: { data: { name: 'Клуб', status: 'active', order: 70, why: 'внутреннее описание', show: 'Клуб для своих.\nВстречи по субботам.' } } });
+  assert.deepEqual((await post(tok, '/me', { initData: initData(IDA) })).json.show, { title: 'Клуб', text: 'Клуб для своих.\nВстречи по субботам.', points: [] });
+  // sent again as a guest: the option is gone and so are its follow-ups; the card is the same one and keeps the mark
+  n = tgCalls.length;
+  const again = await post(tok, '/submit', { initData: initData(IDA), part: 'core', agree: true, answers: Object.assign({}, base, { 'm.1': ['Йога'], '4.1.e2': 'осталось от прошлого раза' }) });
+  assert.deepEqual([again.json.answers['m.1'], again.json.answers['4.1.e2'], again.json.answers['0.1']], [undefined, undefined, 'Участник клуба']);
+  assert.equal(sinceMark(n, 'sendMessage').length, 0);
+  const cs = (await contacts()).filter((d) => d.id === 'jn-' + IDA.id || d.data.tg === '@ida_body');
+  assert.equal(cs.length, 1); assert.equal(cs[0].data.master, true); assert.equal((cs[0].data.notes.match(/Анкета «ЭкоЧакра: клуб»/g) || []).length, 1);
+  // where the owner has put a card, it stays: a team member who fills in the invitation is still in the team,
+  // and a guest the owner moved into the team keeps the place after sending the form again
+  const fay0 = (await contacts()).find((d) => d.id === 'jn-' + FAY.id).data;
+  await post(tok, '/submit', { initData: initData(FAY), part: 'core', agree: true, answers: Object.assign({}, base, { '1.1': 'Fay Mason' }) });
+  const fay1 = (await contacts()).find((d) => d.id === 'jn-' + FAY.id).data;
+  assert.deepEqual([fay1.team, fay1.rel, fay1.projects.sort(), fay1.name], [fay0.team, fay0.rel, ['p-club', 'p-net'], fay0.name]);
+  assert.deepEqual((await call('POST', '/api/auth/telegram', { json: { initData: initData(FAY) } })).json.projects, ['p-net'], 'the invitation adds no access');
+  await call('PUT', '/api/db/contacts/jn-' + IDA.id, { token: ownerToken, json: { data: Object.assign({}, cs[0].data, { rel: 'Команда', team: ['p-club'] }) } });
+  await post(tok, '/submit', { initData: initData(IDA), part: 'core', agree: true, answers: base });
+  const ida2 = (await contacts()).find((d) => d.id === 'jn-' + IDA.id).data;
+  assert.deepEqual([ida2.rel, ida2.team], ['Команда', ['p-club']]);
+  // the dashboard sees who came by the invitation, apart from the team form
+  const v = (await ob('GET', 'p-club')).json;
+  assert.deepEqual(v.invite.people.map((x) => [x.name, x.master]).sort(), [['Fay Mason', false], ['Ida Reed', false]]);
+  assert.deepEqual(v.people, []);
+  n = tgCalls.length;
+  assert.deepEqual((await call('POST', '/api/onboard/p-club/csv?form=invite', { token: ownerToken })).json, { ok: true, n: 2 });
+  assert.match(sinceMark(n, 'sendDocument')[0].params.caption, /ЭкоЧакра: клуб/);
+  // each link is switched off on its own
+  assert.equal((await call('DELETE', '/api/onboard/p-club', { token: ownerToken })).json.invite.link.url, v.invite.link.url);
+  assert.equal((await call('GET', '/api/join/' + teamTok)).status, 404); assert.equal((await call('GET', '/api/join/' + tok)).status, 200);
+  assert.equal((await call('DELETE', '/api/onboard/p-club?form=invite', { token: ownerToken })).json.invite.link, null);
+  assert.equal((await call('GET', '/api/join/' + tok)).status, 404);
+  assert.equal((await post(tok, '/submit', { initData: initData(JON), part: 'core', agree: true, answers: base })).status, 404);
+  const back = (await ob('POST', 'p-club', { form: 'invite' })).json;
+  assert.match(back.invite.link.url, /start=join_/); assert.notEqual(back.invite.link.url, v.invite.link.url);
+  await update(msg(OWNER, { text: '/club off Клуб' }));
+  assert.match(lastSay().params.text, /Приглашение в <b>Клуб<\/b> выключено/);
+  assert.equal((await ob('GET', 'p-club')).json.invite.link, null);
+  // cards made before the team was kept on the card get it once, by the answers of the team form
+  const gus = (await contacts()).find((d) => d.id === 'jn-777011');
+  await call('PUT', '/api/db/contacts/jn-777011', { token: ownerToken, json: { data: Object.assign({}, gus.data, { team: undefined, rel: '' }) } });
+  await dbm.kvSet('team.oncard', null);
+  assert.ok((await join.migrateTeam()) >= 1);
+  assert.deepEqual((await contacts()).find((d) => d.id === 'jn-777011').data.team, ['p-net']);
+  assert.ok(!(await contacts()).find((d) => d.id === 'jn-' + IDA.id).data.team.includes('p-net'));
+  assert.equal(await join.migrateTeam(), 0, 'only once');
 });
 
 test('call links: a Zoom link appears by itself when a meeting is made', async () => {

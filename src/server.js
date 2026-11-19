@@ -331,24 +331,37 @@ function build() {
   api.get('/onboard/:project', auth.guard('owner'), async (req, res) => { const p = await obProject(req, res); if (p) await obView(req, res, p); });
   api.post('/onboard/:project', auth.guard('owner'), actLimit, json, async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
-    const f = join.form(req.body && req.body.form) || join.forms()[0];
+    // {form: "invite"} is the invitation of the project; a form id picks that form; nothing is the team form
+    const want = req.body && req.body.form;
+    const f = want === 'invite' ? join.cardForm() : join.form(want) || join.teamForm();
     if (!f) return res.status(409).json({ error: 'no_form' });
     if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
     const had = (await db.listJoinLinks()).some((l) => l.project === p.id && l.form === f.id);
     await join.linkFor(p.id, f.id);
-    if (!had) journal.event('acc', 'Онбординг включён: проект «' + String(p.data.name || '') + '», анкета «' + f.title + '»');
+    if (!had) journal.event('acc', (join.isCard(f) ? 'Приглашение включено' : 'Онбординг включён') + ': проект «' + String(p.data.name || '') + '», анкета «' + f.title + '»');
     await obView(req, res, p);
   });
   api.delete('/onboard/:project', auth.guard('owner'), async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
-    if (await db.revokeJoinLinks(p.id)) journal.event('acc', 'Онбординг выключен: проект «' + String(p.data.name || '') + '»');
+    // ?form=invite switches off the invitation alone; without it, the team link alone
+    const card = req.query.form === 'invite', ids = join.forms().filter((f) => join.isCard(f) === card).map((f) => f.id);
+    if (await db.revokeJoinLinks(p.id, ids)) journal.event('acc', (card ? 'Приглашение выключено' : 'Онбординг выключен') + ': проект «' + String(p.data.name || '') + '»');
     await obView(req, res, p);
+  });
+  // the invitation as a QR code, to show from the phone at a meeting
+  api.get('/onboard/:project/qr', auth.guard('owner'), async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const o = await join.overview(p.id, bot.name());
+    if (!o.invite || !o.invite.link) return res.status(409).json({ error: 'no_link' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ url: o.invite.link.url, svg: await join.qrSvg(o.invite.link.url) });
   });
   // the table of answers goes to the owner's chat with the bot: a file is of little use inside Telegram's window
   api.post('/onboard/:project/csv', auth.guard('owner'), actLimit, async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
-    const o = await join.overview(p.id, bot.name()), f = o.form && join.form(o.form.id);
-    if (!f || !o.people.length) return res.status(409).json({ error: 'empty' });
+    const o = await join.overview(p.id, bot.name()), card = req.query.form === 'invite';
+    const f = card ? o.invite && join.form(o.invite.form.id) : o.form && join.form(o.form.id);
+    if (!f || !(card ? o.invite.people : o.people).length) return res.status(409).json({ error: 'empty' });
     const t = await join.csv(f, p.id);
     try {
       await require('./telegram').sendDocument(req.user.id, 'answers-' + f.id + '-' + p.id + '.csv', t.body, 'Анкета «' + f.title + '», проект «' + String(p.data.name || '') + '»: ответов ' + t.n + '. Открывается в Excel и Google Таблицах.');
@@ -394,6 +407,7 @@ async function start() {
   if (!cfg.sessionSecretFixed) console.warn('[auth] SESSION_SECRET is not set: sessions will not survive a restart');
   await db.init(cfg.databaseUrl);
   await seedIfEmpty();
+  await join.migrateTeam().then((n) => { if (n) console.log('[team] ' + n + ' cards got their team'); }).catch((e) => console.error('[team]', e.message));
   const app = build();
   const server = await new Promise((resolve) => { const s = app.listen(cfg.port, '0.0.0.0', () => resolve(s)); });
   console.log('[http] ' + cfg.appName + ' is on port ' + cfg.port + (cfg.baseUrl ? ', public address ' + cfg.baseUrl : ''));

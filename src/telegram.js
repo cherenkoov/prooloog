@@ -28,6 +28,18 @@ async function sendDocument(chatId, filename, buf, caption) {
   return j.result;
 }
 
+// Sends a picture from memory (the QR code of an invitation).
+async function sendPhoto(chatId, filename, buf, caption) {
+  const fd = new FormData();
+  fd.append('chat_id', String(chatId));
+  if (caption) fd.append('caption', caption);
+  fd.append('photo', new Blob([buf], { type: 'image/png' }), filename);
+  const res = await fetch(`${cfg.tgApiRoot}/bot${cfg.botToken}/sendPhoto`, { method: 'POST', body: fd, signal: AbortSignal.timeout(60000) });
+  const j = await res.json().catch(() => null);
+  if (!j || !j.ok) throw Object.assign(new Error(`telegram sendPhoto: ${(j && j.description) || 'HTTP ' + res.status}`), { code: 'tg_error' });
+  return j.result;
+}
+
 // Opens a download stream for a file the bot has received.
 async function openFile(fileId) {
   const f = await tg('getFile', { file_id: fileId });
@@ -44,4 +56,4 @@ async function readFile(fileId, maxBytes) {
   return buf;
 }
 
-module.exports = { tg, sendDocument, openFile, readFile };
+module.exports = { tg, sendDocument, sendPhoto, openFile, readFile };
