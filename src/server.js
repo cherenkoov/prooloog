@@ -18,6 +18,7 @@ const calls = require('./calls');
 const google = require('./google');
 const T = require('./telegram');
 const join = require('./join');
+const avatar = require('./avatar');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const SEED = cfg.seedFile || path.join(__dirname, '..', 'seed', 'initial.json');
@@ -99,7 +100,7 @@ function build() {
   const authLimit = limiter(Math.max(1, +process.env.AUTH_LIMIT || 30), 60000); // sign-in attempts from one address
   const actLimit = limiter(60, 60000);                                         // the owner's actions that reach Telegram
 
-  const session = async (user, role) => ({
+  const session = async (user, role) => (avatar.soon(user.id), { // the person's Telegram photo, without waiting for it
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
     caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly],
     projects: role === 'owner' ? null : await auth.scopeOf(user.id),
@@ -206,9 +207,10 @@ function build() {
   };
   api.get('/share', auth.guard('owner'), async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
+    const members = await db.listMembers(), photos = await Promise.all(members.map((m) => avatar.urlOf(m.id)));
     res.json({
       bot: bot.name(),
-      members: (await db.listMembers()).map((m) => ({ id: m.id, name: m.name, username: m.username, role: m.role === 'editor' ? 'editor' : 'viewer', projects: Array.isArray(m.projects) ? m.projects : null })),
+      members: members.map((m, i) => ({ id: m.id, name: m.name, username: m.username, role: m.role === 'editor' ? 'editor' : 'viewer', projects: Array.isArray(m.projects) ? m.projects : null, photo: photos[i] })),
       links: (await db.listInviteLinks()).map((l) => ({ token: l.token, role: l.role, projects: Array.isArray(l.projects) ? l.projects : null, expires: l.expires_at, url: bot.name() ? 'https://t.me/' + bot.name() + '?start=inv_' + l.token : '' })),
       // invited through the bot by name (/invite @name), have not come in yet: all projects
       names: (await db.listInvites()).map((x) => ({ username: x.username, role: x.role === 'editor' ? 'editor' : 'viewer' })),

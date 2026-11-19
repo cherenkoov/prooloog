@@ -13,6 +13,7 @@ const T = require('./telegram');
 const clock = require('./clock');
 const journal = require('./journal');
 const calls = require('./calls');
+const avatar = require('./avatar');
 
 const FORMS = path.join(__dirname, '..', 'forms');
 const TOKEN_RE = /^[A-Za-z0-9_-]{12,40}$/;
@@ -243,6 +244,7 @@ function router(botName) {
     if (part === 'core') {
       if (!c.owner && !isCard(c.f)) await grant(c.user, c.link.project);
       await saveContact(c.f, c.link, c.user, d.data.answers, !(had && had.data.core));
+      avatar.soon(c.user.id); // the Telegram photo for the card, without waiting for it
       if (!(had && had.data.core)) await welcome(c, d.data.answers).catch((e) => console.error('[join] notify failed:', e.message));
     } else if (!(had && had.data.more)) {
       const owner = await auth.ownerId();

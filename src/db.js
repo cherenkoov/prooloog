@@ -303,6 +303,7 @@ async function putFile(mime, buf, owner) {
   await q('INSERT INTO files (id, mime, bytes, size, owner) VALUES ($1, $2, $3, $4, $5)', [id, mime, buf, buf.length, owner]);
   return id;
 }
+async function deleteFile(id) { const r = await q('DELETE FROM files WHERE id = $1', [id]); return r.rowCount > 0; }
 async function getFile(id) { const r = await q('SELECT mime, bytes FROM files WHERE id = $1', [id]); return r.rows[0] || null; }
 
 module.exports = {
@@ -312,5 +313,5 @@ module.exports = {
   setMemberAccess, removeMember, createInviteLink, listInviteLinks, useInviteLink, dropInviteLink,
   setInvite, takeInvite, listInvites, removeInvite,
   createJoinLink, getJoinLink, listJoinLinks, revokeJoinLinks,
-  createLoginCode, useLoginCode, getState, setState, putFile, getFile,
+  createLoginCode, useLoginCode, getState, setState, putFile, getFile, deleteFile,
 };

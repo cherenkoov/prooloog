@@ -3211,6 +3211,9 @@ function logWho(e,ct){
   if(!by||/^(владелец|owner|я|ты)$/.test(low))return ui.owner?{key:'me',kind:'me',name:'Ты',ini:'Я',role:'Владелец',c:0}:{key:'me',kind:'me',name:'Владелец',ini:'В',role:'Владелец',c:0};
   if(low.indexOf('claude')>=0)return {key:'ai',kind:'ai',name:'Claude',ini:'C',role:'Ассистент: действует из чата, коннектора и сессий в боте',c:1};
   if(/^(бот|bot)([^a-zа-яё]|$)/.test(low)||low.indexOf('prooloog')>=0)return {key:'bot',kind:'bot',name:'Бот Prooloog',ini:'Б',role:'Бот: сохраняет сообщения и напоминает',c:5};
+  // what the server does by itself, and a work chat as a whole, is not a person
+  if(/^(сервер|zoom|google meet|голосование|гость)$/.test(low)||/^чат «[^»]*»$/.test(low))return {key:'sys:'+low,kind:'sys',name:by.charAt(0).toUpperCase()+by.slice(1),ini:by.charAt(0).toUpperCase(),role:low==='гость'?'Гость без имени':low.indexOf('чат')===0?'Рабочий чат':'Автоматически',c:9};
+  var chatBy=/^чат «[^»]*»:\s*(.+)$/i.exec(by);if(chatBy){by=chatBy[1].trim();low=by.toLowerCase();id=low.replace(/^@/,'')}
   var same=function(v){return String(v||'').replace(/^@/,'').trim().toLowerCase()===id};
   var m=(shState&&shState.members||[]).filter(function(x){return same(x.id)||(x.username&&same(x.username))||(x.name&&same(x.name))})[0]||null;
   var c=(m&&byId(S.contacts,'jn-'+m.id))||byId(S.contacts,'jn-'+id)||S.contacts.filter(function(q){return (q.tg&&(same(q.tg)||(m&&m.username&&String(q.tg).replace(/^@/,'').toLowerCase()===String(m.username).toLowerCase())))||(q.name&&same(q.name))})[0]||null;

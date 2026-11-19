@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 
 const PORT = 18080, BOT = '123456:TESTTOKEN', BASE = 'http://127.0.0.1:' + PORT;
-const tgCalls = [], tgFiles = {}, tgMember = {};
+const tgCalls = [], tgFiles = {}, tgMember = {}, tgPhotos = {};
 let aiMode = 'ok';
 const aiScript = []; // answers the Claude stand-in gives next, in order (without stream)
 
@@ -39,6 +39,7 @@ test.before(async () => {
       result = { status: st || 'member', user: { id: params.user_id } };
     }
     if (method === 'sendMessage' || method === 'editMessageText' || method === 'sendDocument' || method === 'sendPhoto') result = { message_id: 1000 + tgCalls.length };
+    if (method === 'getUserProfilePhotos') { const ph = tgPhotos[String(params.user_id)]; result = { total_count: ph ? 1 : 0, photos: ph ? [ph] : [] }; }
     if (method === 'getFile') result = { file_id: params.file_id, file_path: 'files/' + params.file_id, file_size: (tgFiles['files/' + params.file_id] || Buffer.alloc(0)).length };
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ ok: true, result }));
@@ -1700,6 +1701,92 @@ test('the bot dates messages by the time zone chosen in the dashboard', async ()
   const u3 = msg(OWNER, { text: 'от Ravi Kumar, индия: зона с ошибкой', date: at });
   await update(u3);
   assert.equal((await db.getDoc('messages', 'gt' + u3.message.message_id)).data.date, '2026-11-18', 'falls back to the default zone');
+});
+
+test('avatars: the Telegram photo of a person gets to the access list, the contact card and the settings', async () => {
+  const db = require('../src/db'), avatar = require('../src/avatar');
+  const ZOE = 888001, jpeg = (n, fill) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, fill)]);
+  const asked = (from) => sinceMark(from, 'getUserProfilePhotos').length;
+  await db.upsertMember(ZOE, 'zoe_team', 'Zoe Team', 'editor');
+  await db.setDoc('contacts', 'jn-' + ZOE, { name: 'Zoe Team', tg: '@zoe_team', projects: [], notes: '', u: '2026-01-01T00:00:00.000Z' });
+  const card = async () => (await db.getDoc('contacts', 'jn-' + ZOE)).data;
+  const listed = async () => (await call('GET', '/api/share', { token: ownerToken })).json.members.find((m) => m.id === String(ZOE));
+
+  // no photo (or a photo closed by privacy settings): nothing is stored, the page draws initials
+  await avatar.refresh(ZOE);
+  assert.equal(await avatar.urlOf(ZOE), '');
+  assert.equal((await listed()).photo, '');
+  assert.equal((await card()).photo, undefined);
+  assert.equal((await card()).u, '2026-01-01T00:00:00.000Z', 'a card without a photo is not touched');
+
+  // a small photo: kept on the server, on the card as a data URI (the copy inside Claude shows only those)
+  tgFiles['files/zs1'] = jpeg(2000, 1); tgFiles['files/zb1'] = jpeg(90000, 2);
+  tgPhotos[ZOE] = [{ file_id: 'zb1', file_unique_id: 'Ub1', width: 640, height: 640 }, { file_id: 'zs1', file_unique_id: 'Us1', width: 160, height: 160 }];
+  let n = tgCalls.length;
+  await avatar.refresh(ZOE);
+  assert.equal(asked(n), 0, 'asked a moment ago: Telegram is not asked again for a few days');
+  await avatar.refresh(ZOE, { force: true });
+  const url1 = await avatar.urlOf(ZOE);
+  assert.match(url1, /^\/f\/[\w-]{8,40}$/);
+  assert.equal((await listed()).photo, url1);
+  const pic = await fetch(BASE + url1);
+  assert.equal(pic.headers.get('content-type'), 'image/jpeg');
+  assert.ok(Buffer.from(await pic.arrayBuffer()).equals(tgFiles['files/zs1']), 'the smallest size is taken');
+  assert.equal((await card()).photo, 'data:image/jpeg;base64,' + tgFiles['files/zs1'].toString('base64'));
+  assert.ok((await card()).u > '2026-11-01', 'the card counts as changed, so a sync carries the photo');
+  assert.ok(!JSON.stringify(await card()).includes(BOT) && !url1.includes(BOT), 'the bot token never reaches a page');
+
+  // the same photo again: no second copy; the card is left alone
+  const u1 = (await card()).u;
+  n = tgCalls.length;
+  await avatar.refresh(ZOE, { force: true });
+  assert.equal(asked(n), 1);
+  assert.equal(sinceMark(n, 'getFile').length, 0);
+  assert.equal(await avatar.urlOf(ZOE), url1);
+  assert.equal((await card()).u, u1);
+
+  // the owner edits the card in the dashboard: the photo stays
+  await call('PATCH', '/api/db/contacts/jn-' + ZOE, { token: ownerToken, json: { data: { role: 'Дизайнер' } } });
+  assert.match((await card()).photo, /^data:image\/jpeg/);
+
+  // a new photo, too big for a record: the card gets the link, the old file is gone
+  tgFiles['files/zs2'] = jpeg(20000, 3);
+  tgPhotos[ZOE] = [{ file_id: 'zs2', file_unique_id: 'Us2', width: 160, height: 160 }];
+  await avatar.refresh(ZOE, { force: true });
+  const url2 = await avatar.urlOf(ZOE);
+  assert.notEqual(url2, url1);
+  assert.equal((await card()).photo, url2);
+  assert.equal((await fetch(BASE + url1)).status, 404);
+  assert.equal((await fetch(BASE + url2)).status, 200);
+
+  // something that is not a picture is not stored; what was there stays
+  tgFiles['files/zx'] = Buffer.from('<html>not a picture</html>');
+  tgPhotos[ZOE] = [{ file_id: 'zx', file_unique_id: 'Ux', width: 160, height: 160 }];
+  await assert.rejects(avatar.refresh(ZOE, { force: true }), /not a JPEG/);
+  assert.equal(await avatar.urlOf(ZOE), url2);
+
+  // the photo is removed in Telegram: it leaves the card and the list
+  delete tgPhotos[ZOE];
+  await avatar.refresh(ZOE, { force: true });
+  assert.equal(await avatar.urlOf(ZOE), '');
+  assert.equal((await card()).photo, undefined);
+  assert.equal((await fetch(BASE + url2)).status, 404);
+
+  // the owner's own photo goes to the settings; signing in asks for it without holding the sign-in up
+  tgFiles['files/os1'] = jpeg(1500, 4);
+  tgPhotos[OWNER.id] = [{ file_id: 'os1', file_unique_id: 'Uo1', width: 160, height: 160 }];
+  await db.kvSet('avatar:' + OWNER.id, { at: '', uid: '', url: '' });
+  assert.equal((await call('POST', '/api/auth/telegram', { json: { initData: initData(OWNER) } })).status, 200);
+  for (let i = 0; i < 50 && !(await avatar.urlOf(OWNER.id)); i++) await new Promise((r) => setTimeout(r, 40));
+  assert.match(await avatar.urlOf(OWNER.id), /^\/f\//);
+  for (let i = 0; i < 50 && !((await db.getDoc('settings', 'main')).data.photo); i++) await new Promise((r) => setTimeout(r, 40));
+  const st = (await db.getDoc('settings', 'main')).data;
+  assert.equal(st.photo, 'data:image/jpeg;base64,' + tgFiles['files/os1'].toString('base64'));
+  assert.ok(st.tz !== undefined || st.capacity !== undefined || Object.keys(st).length > 2, 'the other settings are kept');
+
+  // a failure on Telegram's side never fails the caller
+  avatar.soon('not-an-id');
+  await db.removeMember(ZOE); await db.deleteDoc('contacts', 'jn-' + ZOE);
 });
 
 test('header parsing', () => {
