@@ -426,7 +426,6 @@ async function googleConnected() {
 // «/onboard проект» gives the link, «/onboard off проект» switches it off, «/onboard» lists the live ones.
 async function onboard(chat, arg) {
   const list = await projects();
-  if (!join.teamForm()) return say(chat, 'На сервере нет ни одной анкеты.');
   if (!botName) return say(chat, 'Бот ещё не подключён, ссылку выдать не могу.');
   const off = /^(off|выкл|стоп)\s+/i.test(arg), query = arg.replace(/^(off|выкл|стоп)\s+/i, '').trim();
   if (!query) {
@@ -452,7 +451,9 @@ function onboardKb(list, cands) {
   return k;
 }
 async function onboardLink(chat, p) {
-  const f = join.teamForm(), link = join.url(botName, await join.linkFor(p.id, f.id));
+  const f = join.teamFormOf(p.id);
+  if (!f) return say(chat, 'У проекта <b>' + esc(pname(p)) + '</b> ещё нет анкеты. Она создаётся в дэшборде: страница проекта → «Онбординг» → «Создать анкету».');
+  const link = join.url(botName, await join.linkFor(p.id, f.id));
   await say(chat, 'Ссылка онбординга в <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '». Работает для любого числа людей, пока её не выключить.\n\n' +
     'Каждый, кто заполнит основную часть, сразу получает доступ только к этому проекту с правом вести задачи и попадает в его контакты. Тебе придёт сообщение о каждом.\n\nТекст для чата ниже, его можно переслать как есть.');
   return say(chat, 'Коллеги, анкету «' + esc(f.title) + '» можно заполнить в Telegram: ' + esc(f.coreTime || 'пара минут') + ', вопросы с вариантами ответа.' +
@@ -464,8 +465,7 @@ async function onboardLink(chat, p) {
 // «/club off проект» switches the link off. Whoever fills in the form becomes a contact of the project
 // and sees its showcase: no access to the project itself.
 async function club(chat, arg) {
-  const list = await projects(), f = join.cardForm();
-  if (!f) return say(chat, 'На сервере нет анкеты-приглашения.');
+  const list = await projects();
   if (!botName) return say(chat, 'Бот ещё не подключён, ссылку выдать не могу.');
   const off = /^(off|выкл|стоп)\s+/i.test(arg), query = arg.replace(/^(off|выкл|стоп)\s+/i, '').trim();
   const kb = (cands) => { const k = onboardKb(list, cands || []); k.inline_keyboard.forEach((row) => row.forEach((x) => { if (x.callback_data.startsWith('ob:')) x.callback_data = 'cl:' + x.callback_data.slice(3); })); return k; };
@@ -483,7 +483,9 @@ async function club(chat, arg) {
   return clubLink(chat, mp.best);
 }
 async function clubLink(chat, p) {
-  const f = join.cardForm(), link = join.url(botName, await join.linkFor(p.id, f.id)), t = join.inviteTexts(f, link);
+  const f = join.cardFormOf(p.id);
+  if (!f) return say(chat, 'У проекта <b>' + esc(pname(p)) + '</b> ещё нет анкеты-приглашения. Она создаётся в дэшборде: страница проекта → «Приглашение» → «Создать анкету».');
+  const link = join.url(botName, await join.linkFor(p.id, f.id)), t = join.inviteTexts(f, link);
   await say(chat, 'Приглашение в <b>' + esc(pname(p)) + '</b>, анкета «' + esc(f.title) + '». Ссылка постоянная, для любого числа людей:\n' + esc(link) + '\n\n' +
     'Кто заполнит анкету, попадает в контакты проекта (мастера с пометкой «Мастер») и видит витрину проекта; задач и внутренних записей не видит. Тебе придёт сообщение о каждом.\n\nНиже QR-код и два текста: участнику и мастеру. Их можно переслать как есть. Выключить: /club off ' + esc(pname(p)));
   try { await T.sendPhoto(chat, 'invite-' + p.id + '.png', await join.qrPng(link), 'QR-код приглашения «' + pname(p) + '»: камера телефона открывает бота.'); } catch (e) { console.error('[club] qr failed:', e.message); }
@@ -767,14 +769,14 @@ async function teamCallback(cq, role, data, chat, ack, edit) {
   if (data.startsWith('ob:')) {
     const p = (await projects()).find((x) => x.id === data.slice(3));
     await ack();
-    if (!p || !botName || !join.teamForm()) return edit(chat, 'Этого проекта уже нет.');
+    if (!p || !botName) return edit(chat, 'Этого проекта уже нет.');
     await edit(chat, 'Проект: <b>' + esc(pname(p)) + '</b>');
     return onboardLink(chat, p);
   }
   if (data.startsWith('cl:')) {
     const p = (await projects()).find((x) => x.id === data.slice(3));
     await ack();
-    if (!p || !botName || !join.cardForm()) return edit(chat, 'Этого проекта уже нет.');
+    if (!p || !botName) return edit(chat, 'Этого проекта уже нет.');
     await edit(chat, 'Проект: <b>' + esc(pname(p)) + '</b>');
     return clubLink(chat, p);
   }

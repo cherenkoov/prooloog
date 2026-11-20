@@ -46,6 +46,7 @@ function initData(user) {
     OWNER_USERNAME: 'alex_owner', SESSION_SECRET: 'dev-session-secret', WEBHOOK_SECRET: 'dev-hook',
     ANTHROPIC_API_KEY: process.env.DEV_NO_AI ? '' : 'sk-dev', AI_API_ROOT: 'http://127.0.0.1:' + ai.address().port,
     SEED_FILE: process.env.DEV_SEED || path.join(__dirname, 'fixture-seed.json'),
+    FORMS_DIR: process.env.DEV_FORMS || path.join(__dirname, 'forms'),
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);

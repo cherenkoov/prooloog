@@ -2527,7 +2527,8 @@ window.addEventListener('message',function(e){
 function pvSend(m){var f=$('#pv-frame');try{if(f&&f.contentWindow)f.contentWindow.postMessage(m,location.origin)}catch(x){}}
 function invPart(p){
   var x=ob[p.id],d=x&&x.d,iv=d&&d.invite,id=esc(p.id);
-  if(!iv)return '';
+  if(!d)return '';
+  if(!iv)return '<div class="ph chat-h"><h2>Приглашение</h2><span class="pbtn"><button type="button" class="btn sm" data-act="inv-new" data-id="'+id+'">Создать анкету</button></span></div><p class="mute">Анкета для личных встреч: человек попадает в контакты проекта и видит только его витрину. «Создать анкету» делает заготовку и открывает её предпросмотр.</p><p class="sg-out" id="inv-out" role="status"></p>';
   var n=iv.people.length,m=iv.people.filter(function(u){return u.master}).length;
   var h='<div class="ph chat-h"><h2>Приглашение</h2><span class="pbtn">'+pvBtn('inv-pv',id,iv.form)+(n?'<button type="button" class="btn sm w" data-act="inv-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+(iv.link?'':'<button type="button" class="btn sm" data-act="inv-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
   if(!iv.link)return h+'<p class="mute">Постоянная ссылка и QR-код для личных встреч. Человек заполняет анкету «'+esc(iv.form.title)+'» в Telegram и попадает в контакты проекта, мастер получает пометку «Мастер». Сам проект он не видит: только витрину.</p><p class="sg-out" id="inv-out" role="status"></p>';
@@ -2550,6 +2551,8 @@ function formInvite(pid){
 function obTeamPart(p){
   var x=ob[p.id],d=x&&x.d,id=esc(p.id);
   if(!d)return '<div class="ph"><h2>Онбординг</h2></div><p class="mute">'+(x&&x.st==='err'?'Не получилось загрузить. <button type="button" class="tlink" data-act="ob-refresh" data-id="'+id+'">Попробовать ещё раз</button>':'Загружаю…')+'</p>';
+  // every project has a form of its own: a project without one gets a short form to start from
+  if(!d.form)return '<div class="ph"><h2>Онбординг</h2><span class="pbtn"><button type="button" class="btn sm" data-act="ob-new" data-id="'+id+'">Создать анкету</button></span></div><p class="mute">У этого проекта ещё нет анкеты. «Создать анкету» делает короткую заготовку и открывает её предпросмотр: там правятся вопросы, их текст и формат ответа. Потом здесь появится ссылка для командного чата.</p><p class="sg-out" id="ob-out" role="status"></p>';
   var n=d.people.filter(function(u){return u.core}).length,m=d.people.filter(function(u){return u.more}).length;
   var h='<div class="ph"><h2>Онбординг</h2><span class="pbtn">'+pvBtn('ob-pv',id,d.form)+(d.people.length?'<button type="button" class="btn sm w" data-act="ob-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+
     (d.link?'':'<button type="button" class="btn sm" data-act="ob-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
@@ -2598,6 +2601,11 @@ function obAct(t,d){
       Promise.resolve(obNs.file(pid,d.f==='json'?'json':'csv')).then(function(r){t.disabled=false;var k=(r&&r.n)||0;say('#ob-sout',r&&r.status==='sent'?'Файл в чате с ботом: ответов '+k+'.':'Файл сохранён'+(r&&r.filename?' ('+r.filename+')':'')+': ответов '+k+'.')},
         function(e){t.disabled=false;say('#ob-sout',e&&e.code==='empty'?'Выгружать пока нечего: анкету никто не заполнил.':'Не получилось выгрузить. Попробуй ещё раз.')});break;
     case 'inv-open':formOnboard(pid,true);break;
+    case 'ob-new':case 'inv-new':
+      if(typeof obNs.create!=='function')break;
+      t.disabled=true;say(d.act==='ob-new'?'#ob-out':'#inv-out','Создаю анкету…');
+      (function(card){Promise.resolve(obNs.create(pid,card?'invite':'team')).then(function(r){obSet(pid,r);formPreview(pid,card)},function(){t.disabled=false;say(card?'#inv-out':'#ob-out','Не получилось создать анкету. Попробуй ещё раз.')})})(d.act==='inv-new');
+      break;
     case 'ob-pv':formPreview(pid,false);break;
     case 'inv-pv':formPreview(pid,true);break;
     case 'pv-edit':pvSend({pv:'edit',on:t.getAttribute('aria-pressed')!=='true'});break;
@@ -4606,7 +4614,7 @@ document.addEventListener('click',function(e){
     case 'data':formData();break;
     case 'usage':formUsage();break;
     case 'ob-open':case 'ob-refresh':case 'ob-on':case 'ob-off':case 'ob-copy':case 'ob-text':case 'ob-csv':
-    case 'ob-pv':case 'inv-pv':case 'pv-again':case 'pv-edit':case 'pv-reset':
+    case 'ob-pv':case 'inv-pv':case 'pv-again':case 'pv-edit':case 'pv-reset':case 'ob-new':case 'inv-new':
     case 'ob-file':case 'inv-open':case 'inv-on':case 'inv-off':case 'inv-copy':case 'inv-qr':case 'inv-tg':case 'inv-tm':case 'inv-csv':obAct(t,d);break;
     case 'log-full':logFull(!lg.full);break;
     case 'log-hist':closeSheet();logSub();logFull(true);break;

@@ -382,7 +382,8 @@ function build() {
     const p = await obProject(req, res); if (!p) return;
     // {form: "invite"} is the invitation of the project; a form id picks that form; nothing is the team form
     const want = req.body && req.body.form;
-    const f = want === 'invite' ? join.cardForm() : join.form(want) || join.teamForm();
+    const named = typeof want === 'string' && want !== 'invite' ? join.form(want) : null;
+    const f = want === 'invite' ? join.cardFormOf(p.id) : (named && join.serves(named, p.id) ? named : null) || join.teamFormOf(p.id);
     if (!f) return res.status(409).json({ error: 'no_form' });
     if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
     const had = (await db.listJoinLinks()).some((l) => l.project === p.id && l.form === f.id);
@@ -400,27 +401,36 @@ function build() {
   // the form as a person will see it, before the link goes out: ?form=invite is the invitation, otherwise the team form
   api.get('/onboard/:project/preview', auth.guard('manage'), async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
-    const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
+    const f = req.query.form === 'invite' ? join.cardFormOf(p.id) : join.teamFormOf(p.id);
     if (!f) return res.status(409).json({ error: 'no_form' });
     res.setHeader('Cache-Control', 'no-store');
     res.json(await join.preview(f, p, bot.name(), await mayEditForm(req.user, f)));
   });
+  // «Создать анкету»: a project without a form gets a short one to start from. {kind: 'team' | 'invite'}
+  api.post('/onboard/:project/form', auth.guard('manage'), json, async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const kind = req.body && req.body.kind === 'invite' ? 'invite' : 'team', had = kind === 'invite' ? join.cardFormOf(p.id) : join.teamFormOf(p.id);
+    const f = had || await join.createForm(p.id, kind, String(p.data.name || ''));
+    if (!had) journal.event('bulk', (kind === 'invite' ? 'Создана анкета-приглашение' : 'Создана анкета') + ': проект «' + String(p.data.name || '') + '»', await who(req));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(Object.assign(await join.overview(p.id, bot.name()), { made: !had, formId: f.id }));
+  });
   // Changing a form from its preview: the wording, and the kind of input of a question. One change per call:
   // {target: 'form' | 'step' | 'q', id, set}. The answer is the preview again, with the change in.
-  api.patch('/onboard/:project/form', auth.guard('manage'), actLimit, json, async (req, res) => {
+  api.patch('/onboard/:project/form', auth.guard('manage'), json, async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
-    const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
+    const f = req.query.form === 'invite' ? join.cardFormOf(p.id) : join.teamFormOf(p.id);
     if (!f) return res.status(409).json({ error: 'no_form' });
     if (!(await mayEditForm(req.user, f))) return res.status(403).json({ error: 'shared_form' });
     const b = req.body || {}, r = await join.editForm(f.id, b.target, String(b.id || ''), b.set);
     if (r.error) return res.status(r.error === 'not_found' ? 404 : 400).json({ error: r.error });
     journal.event('bulk', 'Анкета «' + f.title + '» изменена: ' + r.what, await who(req));
-    res.json(await join.preview(join.form(f.id), p, bot.name(), true));
+    res.json(Object.assign(await join.preview(join.form(f.id), p, bot.name(), true), r.added ? { added: r.added } : null));
   });
-  // back to the form as it is written in its file
+  // back to the form as it was made
   api.delete('/onboard/:project/form', auth.guard('manage'), async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
-    const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
+    const f = req.query.form === 'invite' ? join.cardFormOf(p.id) : join.teamFormOf(p.id);
     if (!f) return res.status(409).json({ error: 'no_form' });
     if (!(await mayEditForm(req.user, f))) return res.status(403).json({ error: 'shared_form' });
     if (await join.resetForm(f.id)) journal.event('bulk', 'Анкета «' + f.title + '» возвращена к исходному виду', await who(req));

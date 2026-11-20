@@ -228,6 +228,8 @@ function editor(){
     if(ch)h+=edField('opts','Варианты, каждый с новой строки',true,3600)+edTog('other','Есть вариант «Другое» со своим текстом')+(d.t==='many'?'<label class="edf"><span>Сколько вариантов можно выбрать (пусто — без ограничения)</span><input type="number" min="1" max="30" inputmode="numeric" data-ed="max" value="'+esc(d.max)+'"></label>':'');
     else if(d.t!=='area')h+=edField('ph','Пример в пустом поле (можно пусто)',false,80);
     h+=edTog('req','Обязательный вопрос');
+    // a question leaves only a form made in the dashboard, and never one that other questions depend on
+    if(info.edit.own&&!fed)h+='<button type="button" class="link" style="color:var(--crit);align-self:flex-start" data-act="ed-del">'+(ed.del?'Точно удалить этот вопрос? Нажми ещё раз':'Удалить вопрос')+'</button>';
   }
   if(info.edit.answers)h+='<p class="small">Анкету уже заполнили: '+info.edit.answers+'. Их ответы не меняются; новый текст и формат увидят те, кто откроет анкету после сохранения.</p>';
   if(edNote)h+='<p class="q-e" role="alert">'+esc(edNote)+'</p>';
@@ -242,7 +244,7 @@ function edDone(j){
 }
 function edFail(e){
   edBusy=false;
-  edNote={empty:'Этот текст нельзя оставить пустым.',need_opts:'Для списка нужно хотя бы два варианта, каждый с новой строки.',branch:'От этого вопроса зависят другие: формат и число вариантов менять нельзя, только слова.',shared_form:'Эту анкету использует ещё один проект, поэтому менять её может только владелец.',bad_type:'Такого формата ответа нет.',not_found:'Этого вопроса в анкете уже нет. Открой предпросмотр заново.'}[e.code]||'Не получилось сохранить. Попробуй ещё раз.';
+  edNote={empty:'Этот текст нельзя оставить пустым.',need_opts:'Для списка нужно хотя бы два варианта, каждый с новой строки.',branch:'От этого вопроса зависят другие: формат и число вариантов менять нельзя, только слова.',shared_form:'Эту анкету использует ещё один проект, поэтому менять её может только владелец.',bad_type:'Такого формата ответа нет.',last:'В анкете должен остаться хотя бы один вопрос.',fixed:'В этой анкете набор вопросов не меняется.',not_found:'Этого вопроса в анкете уже нет. Открой предпросмотр заново.'}[e.code]||'Не получилось сохранить. Попробуй ещё раз.';
   render();
 }
 function edSave(){
@@ -255,6 +257,12 @@ function edSave(){
   }else set=d;
   edBusy=true;edNote='';render();
   api('PATCH','/form',{target:ed.k,id:ed.id,set:set}).then(edDone,edFail);
+}
+function edAdd(sid){if(edBusy)return;edBusy=true;api('PATCH','/form',{target:'q-add',id:sid}).then(function(j){edDone(j);if(j.added)edOpen('q',j.added)},function(e){edBusy=false;note=e.code==='too_many'?'В анкете уже слишком много вопросов.':'Не получилось добавить вопрос. Попробуй ещё раз.';render()})}
+function edDel(){
+  if(edBusy||!ed||ed.k!=='q')return;
+  if(!ed.del){ed.del=true;return render()}
+  edBusy=true;render();api('PATCH','/form',{target:'q-del',id:ed.id}).then(edDone,edFail);
 }
 function edReset(){if(edBusy)return;edBusy=true;render();api('DELETE','/form').then(edDone,edFail)}
 window.addEventListener('message',function(e){
@@ -298,6 +306,7 @@ function formScr(){
     // follow-ups sit inside their question and open on an answer: in editing each gets a button of its own right away
     return question(q)+edBtn('q',q.id,'Изменить вопрос')+(editing?s.qs.filter(function(x){return nested(x)===q}).map(function(x){return edBtn('q',x.id,'Уточняющий: '+String(x.label).slice(0,40))}).join(''):'');
   }).join('');
+  if(canEdit()&&editing&&info.edit.own)h+='<button type="button" class="edb" data-act="ed-add" data-id="'+esc(s.id)+'">+ Вопрос</button>';
   if(part==='core'&&last&&F.agree)h+='<button type="button" class="agree'+(agreed?' on':'')+(bad._agree?' bad':'')+'" role="checkbox" aria-checked="'+agreed+'" data-act="agree"><span class="mk">'+CHECK+'</span><span>'+esc(F.agree)+'</span></button>'+(bad._agree?'<p class="q-e" role="alert">'+esc(bad._agree)+'</p>':'');
   if(part==='core'&&last&&F.consent)h+='<p class="small">'+esc(F.consent)+'</p>';
   if(part==='core'&&last&&(F.consent||F.agree))h+=edBtn('form','','Изменить текст согласия');
@@ -482,6 +491,8 @@ app.addEventListener('click',function(e){
   else if(a==='ed-open')edOpen(t.getAttribute('data-k'),t.getAttribute('data-id'));
   else if(a==='ed-close'){if(!edBusy){ed=null;render()}}
   else if(a==='ed-save')edSave();
+  else if(a==='ed-add')edAdd(t.getAttribute('data-id'));
+  else if(a==='ed-del')edDel();
   else if(a==='ed-reset')edReset();
   else if(a==='ed-tog'){if(ed){var ef=t.getAttribute('data-f');ed.d[ef]=!ed.d[ef];var es=(app.querySelector('.edm')||{}).scrollTop||0;render();var em=app.querySelector('.edm');if(em)em.scrollTop=es}}
   else if(a==='pv-home'){me.joined=true;if(card)me.show=info.show;scr='home';render();window.scrollTo(0,0)}

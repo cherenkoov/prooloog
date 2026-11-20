@@ -15,7 +15,7 @@ const journal = require('./journal');
 const calls = require('./calls');
 const avatar = require('./avatar');
 
-const FORMS = path.join(__dirname, '..', 'forms');
+const FORMS = cfg.formsDir || path.join(__dirname, '..', 'forms');
 const TOKEN_RE = /^[A-Za-z0-9_-]{12,40}$/;
 const OTHER = 'Другое';
 const cache = {};
@@ -26,9 +26,10 @@ const say = (chat, html, markup) => T.tg('sendMessage', { chat_id: chat, text: h
 const appBtn = (text, p) => (https() ? { inline_keyboard: [[{ text, web_app: { url: cfg.baseUrl + p } }]] } : undefined);
 
 /* ---------- forms ---------- */
-// the form as it is written in forms/<id>.json
+// the form as it was made: a project's own form from the database, or forms/<id>.json
 function fileForm(id) {
   if (!/^[a-z0-9-]{1,40}$/.test(String(id || ''))) return null;
+  if (own[id]) return own[id].def;
   if (cache[id] && process.env.NODE_ENV !== 'development') return cache[id];
   try { cache[id] = JSON.parse(fs.readFileSync(path.join(FORMS, id + '.json'), 'utf8')); } catch (e) { return null; }
   return cache[id];
@@ -46,6 +47,9 @@ function form(id) {
 // The edits live in the database (collection `forms`, one record per form: {top, steps, qs}) and are laid over the
 // file. Ids, the order and the conditions never change, so the answers already given still match their questions.
 const edits = {}, merged = {};
+// Every project has a form of its own. `own`: the forms made in the dashboard («Создать анкету»), id → {own, project,
+// kind, def}. `bound`: the projects a file form already serves (a live link, answers), beside those its file names.
+const own = {}, bound = {};
 const TYPES = ['text', 'area', 'tel', 'email', 'url', 'one', 'many'];
 const TOP = { kicker: 80, title: 80, intro: 600, moreIntro: 400, consent: 400, agree: 300 };
 const isChoice = (t) => t === 'one' || t === 'many';
@@ -62,7 +66,7 @@ function applyEdits(base, e) {
       const o = isObj(e.qs) && e.qs[q.id];
       if (!o) continue;
       const was = Array.isArray(q.opts) ? q.opts.slice() : null, t0 = q.t;
-      if (o.label) q.label = o.label;
+      if (o.label) { q.label = o.label; if (q.auto) q.s = short(o.label); }
       for (const k of ['hint', 'ph']) if (typeof o[k] === 'string') { if (o[k]) q[k] = o[k]; else delete q[k]; }
       if (typeof o.req === 'boolean') { if (o.req) q.req = true; else delete q.req; }
       if (TYPES.includes(o.t)) q.t = o.t;
@@ -91,14 +95,57 @@ function applyEdits(base, e) {
 async function loadEdits() {
   for (const k of Object.keys(edits)) delete edits[k];
   for (const k of Object.keys(merged)) delete merged[k];
-  for (const d of await db.listDocs('forms')) if (isObj(d.data)) edits[d.id] = d.data;
+  for (const k of Object.keys(own)) delete own[k];
+  for (const k of Object.keys(bound)) delete bound[k];
+  for (const d of await db.listDocs('forms')) if (isObj(d.data)) { if (d.data.own && isObj(d.data.def)) own[d.id] = d.data; edits[d.id] = d.data; }
+  // a file form keeps the projects that already use it, whatever its file says: nobody loses a form on a deploy
+  const used = (await db.listJoinLinks()).map((l) => [l.form, l.project]).concat((await db.listDocs('joins')).map((d) => [d.data.form, d.data.project]));
+  for (const [f, p] of used) if (f && p && !own[f]) (bound[f] = bound[f] || new Set()).add(p);
+}
+// Does this form belong to the project? A form made in the dashboard: to its project. A file form: to the projects
+// its file names in "projects" (without the list, to every project) and to those that already use it.
+const serves = (f, project) => !!f && (own[f.id] ? own[f.id].project === project : !Array.isArray(f.projects) || f.projects.includes(project) || !!(bound[f.id] && bound[f.id].has(project)));
+// the project's own form first, then a file form that names the project, then one that serves every project
+const pickForm = (project, card) => { const l = forms().filter((f) => isCard(f) === card && serves(f, project)); return l.find((f) => own[f.id]) || l.find((f) => Array.isArray(f.projects)) || l[0] || null; };
+const teamFormOf = (project) => pickForm(project, false);
+const cardFormOf = (project) => pickForm(project, true);
+const short = (s) => String(s || '').replace(/[?!.:]+$/, '').split(/\s+/).slice(0, 3).join(' ').slice(0, 24);
+const rid = () => require('crypto').randomBytes(5).toString('hex');
+// «Создать анкету»: a short form to start from, kept in the database. Its wording, its questions and the kind of
+// each answer are then changed in the preview. kind: 'team' (gives access to the project) or 'invite' (a card and the showcase).
+function starter(kind, name) {
+  const qs = [
+    { id: '1.1', t: 'text', req: true, label: 'Как вас зовут?', s: 'Имя', fill: 'name', ac: 'name' },
+    { id: '1.5', t: 'many', req: true, label: 'Как с вами удобнее связаться?', s: 'Связь', opts: ['Telegram', 'WhatsApp', 'Телефон', 'E-mail'], fill: 'telegram' },
+    { id: '1.2', t: 'tel', label: 'Телефон', s: 'Телефон', ph: '+995 555 12 34 56', ac: 'tel' },
+    { id: '2.1', t: 'text', req: true, label: 'Чем вы занимаетесь?', s: 'Занятие' },
+    { id: '3.1', t: 'area', label: kind === 'invite' ? 'Что вам интересно в проекте?' : 'Чем хотите заниматься в проекте?', s: 'Интерес' },
+  ];
+  if (kind !== 'invite') qs.push({ id: '3.2', t: 'one', label: 'Сколько времени в неделю готовы уделять?', s: 'Время', opts: ['До 2 часов', '2–5 часов', '5–10 часов', 'Больше 10 часов'] });
+  const def = { title: String(name || 'Проект').slice(0, 80), kicker: kind === 'invite' ? 'Анкета гостя' : 'Анкета участника', coreTime: 'около минуты',
+    intro: kind === 'invite' ? 'Расскажите немного о себе: так мы поймём, чем можем быть полезны друг другу.' : 'Ответьте на несколько вопросов, и вы сразу окажетесь в проекте вместе с командой.',
+    summary: ['1.1', '1.5', '2.1', '3.1'], steps: [{ id: 'c1', part: 'core', title: 'Знакомство', qs }] };
+  if (kind === 'invite') { def.access = 'card'; def.agree = 'Я согласен(на) на хранение моих ответов и контактов в базе проекта'; def.about = { text: '', points: [] }; }
+  else def.consent = 'Ответы увидят координаторы проекта. Нажимая «Отправить», вы соглашаетесь передать им эти данные.';
+  return def;
+}
+async function createForm(project, kind, name) {
+  kind = kind === 'invite' ? 'invite' : 'team';
+  const had = kind === 'invite' ? cardFormOf(project) : teamFormOf(project);
+  if (had) return had;
+  const id = 'own-' + rid(), def = Object.assign({ id }, starter(kind, name));
+  const rec = { own: true, project, kind, def, u: new Date().toISOString() };
+  await db.setDoc('forms', id, rec);
+  own[id] = rec; edits[id] = rec; delete merged[id];
+  return form(id);
 }
 const str = (v, max) => String(v == null ? '' : v).replace(/\u0000/g, '').replace(/[ \t]+/g, ' ').trim().slice(0, max);
 // One change. target: 'form' | 'step' | 'q'; id: the step's or the question's id; set: the new values.
 // Returns {error} with a code the page explains, or {ok, what} for the journal.
 async function editForm(formId, target, id, set) {
   const f = form(formId);
-  if (!f || !isObj(set)) return { error: 'bad_request' };
+  const struct = target === 'q-add' || target === 'q-del';   // these take no values
+  if (!f || (!struct && !isObj(set))) return { error: 'bad_request' };
   const e = JSON.parse(JSON.stringify(edits[formId] || {}));
   let what = '';
   if (target === 'form') {
@@ -147,13 +194,42 @@ async function editForm(formId, target, id, set) {
       if (t === 'many' && set.max !== undefined) { const m = Math.floor(+set.max) || 0; o.max = m > 0 && m < opts.length ? m : 0; }
     } else { delete o.opts; delete o.other; delete o.max; }
     e.qs[q.id] = o; what = 'вопрос «' + (o.label || q.label).slice(0, 60) + '»';
+  } else if (target === 'q-add' || target === 'q-del') {
+    // the set of questions changes only in a form made in the dashboard: a file form keeps its questions
+    if (!own[formId]) return { error: 'fixed' };
+    const def = e.def;
+    if (target === 'q-add') {
+      const s = def.steps.find((x) => x.id === id);
+      if (!s) return { error: 'not_found' };
+      if (questions(def).length >= 60) return { error: 'too_many' };
+      const q = { id: 'q' + rid().slice(0, 6), t: 'text', label: 'Новый вопрос', s: 'Новый вопрос', auto: true };
+      s.qs.push(q); what = 'добавлен вопрос'; e.added = q.id;
+    } else {
+      const s = def.steps.find((x) => x.qs.some((q) => q.id === id));
+      if (!s) return { error: 'not_found' };
+      if (feeds(f, id)) return { error: 'branch' };
+      if (questions(def, 'core').length <= 1 && s.part === 'core') return { error: 'last' };
+      what = 'удалён вопрос «' + String(questions(f).find((q) => q.id === id).label).slice(0, 60) + '»';
+      s.qs = s.qs.filter((q) => q.id !== id);
+      if (isObj(e.qs)) delete e.qs[id];
+      if (Array.isArray(def.summary)) def.summary = def.summary.filter((x) => x !== id);
+    }
   } else return { error: 'bad_request' };
+  const added = e.added; delete e.added;
   e.u = new Date().toISOString();
   await db.setDoc('forms', formId, e);
   edits[formId] = e; delete merged[formId];
-  return { ok: true, what };
+  if (e.own) own[formId] = e;
+  return { ok: true, what, added };
 }
 async function resetForm(formId) {
+  // a project's own form goes back to how it was made (with the questions added since): only the rewording is dropped
+  if (own[formId]) {
+    const e = edits[formId], had = !!(e.top || e.steps || e.qs), rec = { own: true, project: e.project, kind: e.kind, def: e.def, u: new Date().toISOString() };
+    await db.setDoc('forms', formId, rec);
+    own[formId] = rec; edits[formId] = rec; delete merged[formId];
+    return had;
+  }
   const had = !!edits[formId];
   await db.deleteDoc('forms', formId);
   delete edits[formId]; delete merged[formId];
@@ -161,19 +237,22 @@ async function resetForm(formId) {
 }
 // the projects that use a form: a link is live or somebody has answered. A form is one for all of them.
 async function formProjects(formId) {
+  if (own[formId]) return [own[formId].project];
   const a = (await db.listJoinLinks()).filter((l) => l.form === formId).map((l) => l.project);
   const b = (await db.listDocs('joins')).filter((d) => d.data.form === formId).map((d) => d.data.project);
   return [...new Set(a.concat(b).filter(Boolean))];
 }
 function forms() {
-  try { return fs.readdirSync(FORMS).filter((f) => /^[a-z0-9-]+\.json$/.test(f)).map((f) => form(f.slice(0, -5))).filter(Boolean); } catch (e) { return []; }
+  let files = [];
+  try { files = fs.readdirSync(FORMS).filter((f) => /^[a-z0-9-]+\.json$/.test(f)).map((f) => f.slice(0, -5)); } catch (e) { files = []; }
+  // a project's own form comes first: it wins over a file form that serves every project
+  return Object.keys(own).concat(files.filter((id) => !own[id])).map(form).filter(Boolean);
 }
 const questions = (f, part) => f.steps.filter((s) => !part || s.part === part).reduce((a, s) => a.concat(s.qs), []);
 // A form with "access": "card" is an invitation: the person becomes a contact of the project and sees its
 // showcase, nothing else. Any other form is a team form: it gives access to the project.
 const isCard = (f) => !!f && f.access === 'card';
-const teamForm = () => forms().find((f) => !isCard(f)) || null;
-const cardForm = () => forms().find(isCard) || null;
+
 // "when": {"q": id, "in": [options]} on a question or a step: it is asked only when that answer holds one of the options.
 const holds = (w, a) => {
   if (!w || !w.q) return true;
@@ -343,7 +422,7 @@ async function preview(f, p, botName, canEdit) {
   return {
     form: f, project: String(p.data.name || ''), app: cfg.appName, bot: botName, access: card ? 'card' : 'project', preview: true,
     // edit.can: this person may change the form here; edit.changed: it differs from its file; edit.fed: the questions other questions depend on
-    edit: { can: !!canEdit, changed: !!edits[f.id], fed: questions(f).filter((q) => feeds(f, q.id)).map((q) => q.id), answers: list.length },
+    edit: { can: !!canEdit, own: !!own[f.id], changed: !!(edits[f.id] && (edits[f.id].top || edits[f.id].steps || edits[f.id].qs)), fed: questions(f).filter((q) => feeds(f, q.id)).map((q) => q.id), answers: list.length },
     me: { user: { name: '', username: '' }, owner: false, joined: false, more: false, answers: {}, agreed: false,
       people: card ? 0 : list.filter((d) => d.data.core && d.data.project === p.id).length, polls: tally(f, list, ''), show: null },
     show: card ? showcase(f, p) : null,
@@ -520,6 +599,7 @@ const url = (botName, token) => 'https://t.me/' + botName + '?start=join_' + tok
 // The owner's link for a project: the same one every time, until it is switched off.
 async function linkFor(project, formId) {
   const cur = (await db.listJoinLinks()).find((l) => l.project === project && l.form === formId);
+  if (!own[formId]) (bound[formId] = bound[formId] || new Set()).add(project);
   return cur ? cur.token : db.createJoinLink(project, formId);
 }
 // only: the projects to count (a coordinator's own); without it, all of them
@@ -596,7 +676,7 @@ async function exportProject(project, format) {
 // The onboarding of one project as its owner sees it in the dashboard: the link, who came and what they
 // answered, how the polls stand.
 async function overview(project, botName) {
-  const all = forms().filter((x) => !isCard(x)), links = (await db.listJoinLinks()).filter((l) => l.project === project);
+  const all = forms().filter((x) => !isCard(x) && serves(x, project)), links = (await db.listJoinLinks()).filter((l) => l.project === project);
   const link = links.find((l) => !isCard(form(l.form))) || null;
   const out = { forms: all.map((x) => ({ id: x.id, title: x.title })), link: null, form: null, people: [], polls: [], invite: await inviteView(project, links, botName) };
   // the form of the live link; without a link, the form people of this project have already filled in
@@ -631,7 +711,7 @@ function inviteTexts(f, u) {
   return { guest: put(t.guest || 'Анкета «' + f.title + '»: {link}'), master: put(t.master || t.guest || 'Анкета «' + f.title + '»: {link}') };
 }
 async function inviteView(project, links, botName) {
-  const link = links.find((l) => isCard(form(l.form))) || null, f = link ? form(link.form) : cardForm();
+  const link = links.find((l) => isCard(form(l.form))) || null, f = link ? form(link.form) : cardFormOf(project);
   if (!f) return null;
   const list = (await entries(f)).filter((d) => d.data.project === project && d.data.core), u = link && botName ? url(botName, link.token) : '';
   return {
@@ -667,4 +747,4 @@ async function migrateTeam() {
   return n;
 }
 
-module.exports = { tell, preview, loadEdits, editForm, resetForm, formProjects, exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };
+module.exports = { tell, preview, loadEdits, editForm, resetForm, formProjects, exportProject, isCard, teamFormOf, cardFormOf, createForm, serves, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

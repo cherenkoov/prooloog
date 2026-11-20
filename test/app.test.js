@@ -85,6 +85,8 @@ test.before(async () => {
     OWNER_USERNAME: 'Alex_Owner', SESSION_SECRET: 'test-session-secret', WEBHOOK_SECRET: 'test-hook+secret/=',
     ANTHROPIC_API_KEY: 'sk-test', AI_API_ROOT: 'http://127.0.0.1:' + aiSrv.address().port, BACKUP_DAYS: '7',
     SEED_FILE: path.join(__dirname, 'fixture-seed.json'), GROUP_ASK_MS: '0', AUTH_LIMIT: '500',
+    // the checks have forms of their own: they serve every project and carry a poll, whatever the live forms say
+    FORMS_DIR: path.join(__dirname, 'forms'),
   });
   const db = require('../src/db');
   await db.init(process.env.DATABASE_URL);
@@ -1316,7 +1318,7 @@ test('invitation: a standing link with a QR code, a branching form, a card witho
   await call('PUT', '/api/db/projects/p-club', { token: ownerToken, json: { data: { name: 'Клуб', status: 'active', order: 70, why: 'внутреннее описание', notes: 'внутренние заметки' } } });
   await call('PUT', '/api/db/tasks/tc-1', { token: ownerToken, json: { data: { title: 'Внутренняя задача', project: 'p-club' } } });
   // two kinds of forms: the team form stays the default of /onboard, the invitation has its own command
-  assert.deepEqual([join.teamForm().id, join.cardForm().id], ['ecochakra', 'ecochakra-club']);
+  assert.deepEqual([join.teamFormOf('p-any').id, join.cardFormOf('p-any').id], ['ecochakra', 'ecochakra-club']);
   let n = tgCalls.length;
   await update(msg(OWNER, { text: '/club клуб' }));
   const sent = sinceMark(n, 'sendMessage').map((c) => c.params.text);
@@ -2183,7 +2185,7 @@ test('a form is edited from its preview: wording and the kind of input, conditio
   await put('projects/p-ed', { name: 'Правка анкеты', status: 'active', order: 80 });
   const edit = (body, q = '', token = ownerToken, pid = 'p-ed') => call('PATCH', '/api/onboard/' + pid + '/form' + q, { token, json: body });
   const Q = (f, id) => f.steps.flatMap((x) => x.qs).find((x) => x.id === id);
-  const team0 = JSON.parse(JSON.stringify(join.teamForm())), card0 = JSON.parse(JSON.stringify(join.cardForm()));
+  const team0 = JSON.parse(JSON.stringify(join.teamFormOf('p-any'))), card0 = JSON.parse(JSON.stringify(join.cardFormOf('p-any')));
   const pv = (await call('GET', '/api/onboard/p-ed/preview?form=invite', { token: ownerToken })).json;
   assert.deepEqual([pv.edit.can, pv.edit.changed], [true, false]);
   assert.ok(pv.edit.fed.includes('0.1') && pv.edit.fed.includes('4.1') && !pv.edit.fed.includes('1.2'));
@@ -2191,7 +2193,7 @@ test('a form is edited from its preview: wording and the kind of input, conditio
   // the wording of the form, of a step and of a question
   let r = await edit({ target: 'form', set: { title: 'ЭкоЧакра: знакомство', intro: 'Пара вопросов о вас.' } });
   assert.equal(r.status, 200); assert.equal(r.json.form.title, 'ЭкоЧакра: знакомство'); assert.equal(r.json.edit.changed, true);
-  assert.equal(join.teamForm().title, 'ЭкоЧакра: знакомство'); assert.equal(join.teamForm().kicker, team0.kicker);
+  assert.equal(join.teamFormOf('p-any').title, 'ЭкоЧакра: знакомство'); assert.equal(join.teamFormOf('p-any').kicker, team0.kicker);
   assert.equal((await edit({ target: 'form', set: { title: '  ' } })).json.error, 'empty');
   r = await edit({ target: 'step', id: 'c1', set: { title: 'Как с вами связаться', text: 'Только для координаторов.' } });
   assert.deepEqual([r.json.form.steps[0].title, r.json.form.steps[0].text], ['Как с вами связаться', 'Только для координаторов.']);
@@ -2209,7 +2211,7 @@ test('a form is edited from its preview: wording and the kind of input, conditio
   q = Q(r.json.form, '1.5');
   assert.deepEqual([q.t, q.opts, q.fill], ['area', undefined, undefined]);
   // the server checks answers by the edited form
-  const c = join.clean(join.teamForm(), 'core', { '1.1': 'Аня', '1.2': '', '1.3': 'a@b.co', '1.4': ['Сайт'], '1.5': 'Пишите в любое время' }, {});
+  const c = join.clean(join.teamFormOf('p-any'), 'core', { '1.1': 'Аня', '1.2': '', '1.3': 'a@b.co', '1.4': ['Сайт'], '1.5': 'Пишите в любое время' }, {});
   assert.deepEqual([c.answers['1.4'], c.answers['1.5'], c.errors.includes('1.2'), c.errors.includes('1.4')], [['Сайт'], 'Пишите в любое время', false, false]);
   r = await edit({ target: 'q', id: '1.5', set: { t: 'many' } });
   assert.deepEqual(Q(r.json.form, '1.5').opts, Q(team0, '1.5').opts, 'back to a list: the original options');
@@ -2221,14 +2223,14 @@ test('a form is edited from its preview: wording and the kind of input, conditio
   const o0 = Q(card0, '0.1').opts, o1 = o0.map((x) => (x === card0.master.in[0] ? 'Мастер практик' : x));
   r = await inv({ target: 'q', id: '0.1', set: { label: 'Кто вы в клубе?', opts: o1 } });
   assert.equal(r.status, 200);
-  const cf = join.cardForm();
+  const cf = join.cardFormOf('p-any');
   assert.deepEqual(cf.master.in, ['Мастер практик']);
   assert.deepEqual(cf.steps.find((x) => x.when && x.when.q === '0.1').when.in, ['Мастер практик'], 'the master step follows the new wording');
   assert.equal(card0.master.in[0], 'Мастер: телесные практики, терапия', 'the file itself is untouched');
 
   // kept in the database: a restart of the forms brings the edits back; the journal has them
   await join.loadEdits();
-  assert.equal(join.teamForm().title, 'ЭкоЧакра: знакомство'); assert.equal(Q(join.cardForm(), '0.1').label, 'Кто вы в клубе?');
+  assert.equal(join.teamFormOf('p-any').title, 'ЭкоЧакра: знакомство'); assert.equal(Q(join.cardFormOf('p-any'), '0.1').label, 'Кто вы в клубе?');
   assert.deepEqual((await db.listDocs('forms')).map((d) => d.id).sort(), ['ecochakra', 'ecochakra-club']);
   assert.equal((await call('GET', '/api/db/forms', { token: ownerToken })).status, 404, 'not a collection of the page');
   await journal.flush();
@@ -2250,10 +2252,10 @@ test('a form is edited from its preview: wording and the kind of input, conditio
 
   // the original comes back, each form on its own
   r = await call('DELETE', '/api/onboard/p-ed/form', { token: ownerToken });
-  assert.equal(r.json.edit.changed, false); assert.deepEqual(join.teamForm(), team0);
-  assert.equal(Q(join.cardForm(), '0.1').label, 'Кто вы в клубе?');
+  assert.equal(r.json.edit.changed, false); assert.deepEqual(join.teamFormOf('p-any'), team0);
+  assert.equal(Q(join.cardFormOf('p-any'), '0.1').label, 'Кто вы в клубе?');
   await call('DELETE', '/api/onboard/p-ed/form?form=invite', { token: ownerToken });
-  assert.deepEqual(join.cardForm(), card0);
+  assert.deepEqual(join.cardFormOf('p-any'), card0);
   assert.deepEqual(await db.listDocs('forms'), []);
 });
 
@@ -2333,6 +2335,86 @@ test('the bot works for the team: a coordinator and an editor do in it what thei
   for (const d of await msgs()) await call('DELETE', '/api/db/messages/' + d.id, { token: ownerToken });
   await call('DELETE', '/api/db/inbox/' + note.id, { token: ownerToken });
   for (const u of [UMA, VIC, WES]) await call('DELETE', '/api/share/members/' + u.id, { token: ownerToken });
+});
+
+test('every project has a form of its own: «Создать анкету» makes one, its questions are added and removed', async () => {
+  const db = require('../src/db'), join = require('../src/join'), fs = require('node:fs');
+  // the live forms belong to EcoChakra alone and no longer speak of the meeting
+  for (const id of ['ecochakra', 'ecochakra-club']) {
+    const f = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'forms', id + '.json'), 'utf8'));
+    assert.deepEqual(f.projects, ['p-ecochakra']); assert.equal(f.polls, undefined); assert.equal(f.pollsNote, undefined);
+    assert.doesNotMatch(JSON.stringify(f), /19 ноября|созвон/);
+    assert.deepEqual([join.serves(f, 'p-ecochakra'), join.serves(f, 'p-other')], [true, false]);
+  }
+  const put = (path2, data) => call('PUT', '/api/db/' + path2, { token: ownerToken, json: { data } });
+  await put('projects/p-shop', { name: 'Керамика', status: 'active', order: 95 });
+  const mk = (kind, token = ownerToken, pid = 'p-shop') => call('POST', '/api/onboard/' + pid + '/form', { token, json: { kind } });
+  const edit = (body, q = '') => call('PATCH', '/api/onboard/p-shop/form' + q, { token: ownerToken, json: body });
+  const shared = join.teamFormOf('p-shop').id;
+  assert.equal(shared, 'ecochakra', 'in the checks the file forms serve every project');
+  // a form of its own is made only where there is none: here the shared one is in the way, so make it directly
+  assert.equal((await mk('team')).json.made, false);
+  const f1 = await join.createForm('p-shop', 'team', 'Керамика');
+  assert.equal(f1.id, shared, 'createForm does not double a form either');
+  // with the shared forms out of the picture (as on the live server), the button makes the project's own form
+  const files = join.forms().filter((f) => !/^own-/.test(f.id));
+  files.forEach((f) => { f.projects = ['p-elsewhere']; });
+  try {
+    assert.equal(join.teamFormOf('p-shop'), null);
+    let o = (await call('GET', '/api/onboard/p-shop', { token: ownerToken })).json;
+    assert.deepEqual([o.form, o.invite, o.link], [null, null, null], 'no form yet: the dashboard offers to make one');
+    await update(msg(OWNER, { text: '/onboard керамика' }));
+    assert.match(lastSay().params.text, /ещё нет анкеты[\s\S]*Создать анкету/);
+    assert.equal((await call('GET', '/api/onboard/p-shop/preview', { token: ownerToken })).status, 409);
+    const made = await mk('team');
+    assert.equal(made.status, 200); assert.equal(made.json.made, true); assert.match(made.json.formId, /^own-[a-f0-9]{10}$/);
+    const id = made.json.formId;
+    assert.deepEqual([made.json.form.id, made.json.form.title, made.json.form.questions.length], [id, 'Керамика', 6]);
+    assert.equal((await mk('team')).json.made, false, 'one team form per project');
+    assert.equal((await mk('team')).json.formId, id);
+    assert.equal(join.teamFormOf('p-shop').id, id); assert.equal(join.teamFormOf('p-hub'), null, 'other projects stay without');
+    const inv = await mk('invite');
+    assert.equal(inv.json.made, true); assert.equal(inv.json.invite.form.title, 'Керамика');
+    assert.equal(join.cardFormOf('p-shop').access, 'card'); assert.ok(join.cardFormOf('p-shop').agree);
+    // the preview says the form is the project's own; its wording is edited like any form's
+    let pv = (await call('GET', '/api/onboard/p-shop/preview', { token: ownerToken })).json;
+    assert.deepEqual([pv.edit.can, pv.edit.own, pv.edit.changed], [true, true, false]);
+    assert.equal((await edit({ target: 'form', set: { title: 'Студия керамики' } })).json.form.title, 'Студия керамики');
+    // a question is added to a step and worded; its short name follows the wording
+    let r = await edit({ target: 'q-add', id: 'c1' });
+    assert.equal(r.status, 200); const qid = r.json.added;
+    assert.match(qid, /^q[a-f0-9]{6}$/);
+    assert.equal(r.json.form.steps[0].qs.length, 7); assert.equal(r.json.form.steps[0].qs[6].id, qid);
+    r = await edit({ target: 'q', id: qid, set: { label: 'Какой у вас опыт с глиной?', t: 'one', opts: ['Новичок', 'Занимался', 'Мастер'], req: true } });
+    const q = r.json.form.steps[0].qs[6];
+    assert.deepEqual([q.label, q.s, q.t, q.opts.length, q.req], ['Какой у вас опыт с глиной?', 'Какой у вас', 'one', 3, true]);
+    assert.equal((await edit({ target: 'q-add', id: 'nope' })).status, 404);
+    // a question is removed; the last one of the main part stays
+    r = await edit({ target: 'q-del', id: '1.2' });
+    assert.equal(r.status, 200); assert.ok(!r.json.form.steps[0].qs.some((x) => x.id === '1.2'));
+    for (const x of ['1.5', '2.1', '3.1', '3.2', qid]) assert.equal((await edit({ target: 'q-del', id: x })).status, 200);
+    assert.equal((await edit({ target: 'q-del', id: '1.1' })).json.error, 'last');
+    // the link and a person: the project's own form is the one people fill in
+    await update(msg(OWNER, { text: '/onboard керамика' }));
+    assert.match(lastSay().params.text, /Студия керамики/);
+    const tok = (await db.listJoinLinks()).find((l) => l.project === 'p-shop' && l.form === id).token;
+    assert.equal((await call('GET', '/api/join/' + tok)).json.form.id, id);
+    const XAN = { id: 777071, first_name: 'Xan', username: 'xan_new' };
+    const sub = await call('POST', '/api/join/' + tok + '/submit', { json: { initData: initData(XAN), part: 'core', answers: { '1.1': 'Ксан' } } });
+    assert.equal(sub.status, 200); assert.equal(sub.json.joined, true);
+    assert.deepEqual((await db.getMember(String(XAN.id))).projects, ['p-shop']);
+    // «the original» of an own form: the rewording goes, the form and its questions stay
+    r = await call('DELETE', '/api/onboard/p-shop/form', { token: ownerToken });
+    assert.deepEqual([r.json.form.title, r.json.form.steps[0].qs.length, r.json.edit.changed], ['Керамика', 1, false]);
+    // kept in the database and in copies; a file form's questions cannot be added or removed
+    await join.loadEdits();
+    assert.equal(join.teamFormOf('p-shop').id, id);
+    assert.ok((await call('GET', '/api/export', { token: ownerToken })).json.docs.forms[id].own);
+    files.forEach((f) => { delete f.projects; });
+    assert.equal((await call('PATCH', '/api/onboard/p-india/form', { token: ownerToken, json: { target: 'q-add', id: 'c1' } })).json.error, 'fixed');
+    assert.equal(join.teamFormOf('p-shop').id, id, 'the own form wins over a shared one');
+    await call('DELETE', '/api/share/members/' + XAN.id, { token: ownerToken });
+  } finally { files.forEach((f) => { delete f.projects; }); }
 });
 
 test('header parsing', () => {

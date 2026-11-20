@@ -26,6 +26,7 @@ const cfg = {
   appName: env.APP_NAME || 'Prooloog',
   seedFile: env.SEED_FILE || '',
   tz: env.APP_TZ || 'Asia/Tbilisi',
+  formsDir: env.FORMS_DIR || '',   // where the forms' files are; the repository's forms/ by default
   backupDays: env.BACKUP_DAYS === undefined ? 7 : Math.max(0, +env.BACKUP_DAYS || 0),
   anthropicKey: env.ANTHROPIC_API_KEY || '',
   aiModel: env.AI_MODEL || 'claude-sonnet-5-5',

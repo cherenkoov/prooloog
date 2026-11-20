@@ -281,6 +281,8 @@
     off: function (pid, form) { return api('DELETE', '/onboard/' + encodeURIComponent(pid) + (form ? '?form=' + encodeURIComponent(form) : '')); },
     csv: function (pid, form) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/csv' + (form ? '?form=' + encodeURIComponent(form) : '')); },
     qr: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid) + '/qr'); },
+    // «Создать анкету»: a project without a form gets a short one to start from; kind is 'team' or 'invite'
+    create: function (pid, kind) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/form', { kind: kind }); },
     // the address of the form's preview, for a frame inside the dashboard; the session goes in the part of the
     // address that is never sent to a server
     preview: function (pid, form) { return '/preview/' + encodeURIComponent(pid) + (form ? '?form=' + encodeURIComponent(form) : '') + '#t=' + encodeURIComponent(token); },
