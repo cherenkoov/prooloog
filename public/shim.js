@@ -281,6 +281,9 @@
     off: function (pid, form) { return api('DELETE', '/onboard/' + encodeURIComponent(pid) + (form ? '?form=' + encodeURIComponent(form) : '')); },
     csv: function (pid, form) { return api('POST', '/onboard/' + encodeURIComponent(pid) + '/csv' + (form ? '?form=' + encodeURIComponent(form) : '')); },
     qr: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid) + '/qr'); },
+    // the address of the form's preview, for a frame inside the dashboard; the session goes in the part of the
+    // address that is never sent to a server
+    preview: function (pid, form) { return '/preview/' + encodeURIComponent(pid) + (form ? '?form=' + encodeURIComponent(form) : '') + '#t=' + encodeURIComponent(token); },
     // every answer of the project's onboarding as a file. Inside Telegram the bot sends it to the chat; in a browser it is saved.
     file: function (pid, format) {
       var path = '/onboard/' + encodeURIComponent(pid) + '/export';

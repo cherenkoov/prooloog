@@ -203,6 +203,18 @@ async function grant(user, project) {
   hub.setAccess(id, 'editor', list);
 }
 
+// The form as a person gets it, for the owner or a coordinator to look through in the dashboard: the same page,
+// nothing is saved. `me` is a newcomer who has answered nothing; `show` is the showcase an invitation opens afterwards.
+async function preview(f, p, botName) {
+  const list = await entries(f), card = isCard(f);
+  return {
+    form: f, project: String(p.data.name || ''), app: cfg.appName, bot: botName, access: card ? 'card' : 'project', preview: true,
+    me: { user: { name: '', username: '' }, owner: false, joined: false, more: false, answers: {}, agreed: false,
+      people: card ? 0 : list.filter((d) => d.data.core && d.data.project === p.id).length, polls: tally(f, list, ''), show: null },
+    show: card ? showcase(f, p) : null,
+  };
+}
+
 /* ---------- API ---------- */
 function router(botName) {
   const r = express.Router();
@@ -518,4 +530,4 @@ async function migrateTeam() {
   return n;
 }
 
-module.exports = { exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };
+module.exports = { preview, exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

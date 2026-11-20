@@ -351,6 +351,7 @@ button.lnk{font-weight:500}
 .sg small{color:var(--mute)}
 .sg-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
 .sg-out{font-size:13px;color:var(--mute);margin:0}
+.pv-frame{display:block;width:100%;max-width:400px;height:min(68vh,720px);margin:12px auto;border:1px solid var(--line);border-radius:16px;background:var(--bg)}
 
 /* comments and chat */
 .tagf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 2px}
@@ -2502,11 +2503,21 @@ function obPanel(p){
 function obInner(p){return obTeamPart(p)+invPart(p)}
 // The invitation: a standing link and a QR code for meeting people in person. Whoever fills in its form becomes
 // a contact of the project (a master is marked) and sees the showcase of the project, not the project itself.
+// Preview: what is made for other people (a form, an invitation, its showcase) opens here the way they will see it,
+// in a frame of a phone's width, and nothing is saved. New things of this kind get the same button.
+function pvBtn(act,id,form){return form&&obNs&&typeof obNs.preview==='function'?'<button type="button" class="btn sm" data-act="'+act+'" data-id="'+id+'">Предпросмотр</button>':''}
+function formPreview(pid,invite){
+  var p=P(pid);if(!p||!obNs||typeof obNs.preview!=='function')return;
+  var src=obNs.preview(pid,invite?'invite':'');
+  openSheet(invite?'Предпросмотр приглашения':'Предпросмотр онбординга','<p class="sg-out">'+(invite?'Так анкету и страницу о проекте видит человек, который открыл приглашение в Telegram.':'Так анкету видит человек, который открыл ссылку онбординга в Telegram.')+' Ответы не сохраняются, шаги можно листать без заполнения.</p>'+
+    '<iframe id="pv-frame" class="pv-frame" title="'+(invite?'Предпросмотр приглашения':'Предпросмотр онбординга')+'" src="'+esc(src)+'"></iframe>'+
+    '<div class="acts" style="justify-content:center"><button type="button" class="btn sm" data-act="pv-again" data-id="'+esc(pid)+'" data-form="'+(invite?'invite':'')+'">Начать сначала</button></div>',null,false,true);
+}
 function invPart(p){
   var x=ob[p.id],d=x&&x.d,iv=d&&d.invite,id=esc(p.id);
   if(!iv)return '';
   var n=iv.people.length,m=iv.people.filter(function(u){return u.master}).length;
-  var h='<div class="ph chat-h"><h2>Приглашение</h2><span class="pbtn">'+(n?'<button type="button" class="btn sm w" data-act="inv-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+(iv.link?'':'<button type="button" class="btn sm" data-act="inv-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
+  var h='<div class="ph chat-h"><h2>Приглашение</h2><span class="pbtn">'+pvBtn('inv-pv',id,iv.form)+(n?'<button type="button" class="btn sm w" data-act="inv-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+(iv.link?'':'<button type="button" class="btn sm" data-act="inv-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
   if(!iv.link)return h+'<p class="mute">Постоянная ссылка и QR-код для личных встреч. Человек заполняет анкету «'+esc(iv.form.title)+'» в Telegram и попадает в контакты проекта, мастер получает пометку «Мастер». Сам проект он не видит: только витрину.</p><p class="sg-out" id="inv-out" role="status"></p>';
   return h+'<input id="inv-url" readonly value="'+esc(iv.link.url)+'" aria-label="Ссылка-приглашение"><div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="inv-copy" data-id="'+id+'">Скопировать ссылку</button><button type="button" class="btn sm" data-act="inv-qr" data-id="'+id+'">QR-код и тексты</button><button type="button" class="btn sm dng" data-act="inv-off" data-id="'+id+'">Выключить ссылку</button></div>'+
     '<p class="sg-out" id="inv-out" role="status" style="margin-top:8px">Анкета «'+esc(iv.form.title)+'» · заполнили: '+n+(m?' · мастеров: '+m:'')+'. Люди попадают в «Контакты» проекта и видят только витрину: её текст пишется в карточке проекта, поле «Витрина».</p>';
@@ -2528,7 +2539,7 @@ function obTeamPart(p){
   var x=ob[p.id],d=x&&x.d,id=esc(p.id);
   if(!d)return '<div class="ph"><h2>Онбординг</h2></div><p class="mute">'+(x&&x.st==='err'?'Не получилось загрузить. <button type="button" class="tlink" data-act="ob-refresh" data-id="'+id+'">Попробовать ещё раз</button>':'Загружаю…')+'</p>';
   var n=d.people.filter(function(u){return u.core}).length,m=d.people.filter(function(u){return u.more}).length;
-  var h='<div class="ph"><h2>Онбординг</h2><span class="pbtn">'+(d.people.length?'<button type="button" class="btn sm w" data-act="ob-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+
+  var h='<div class="ph"><h2>Онбординг</h2><span class="pbtn">'+pvBtn('ob-pv',id,d.form)+(d.people.length?'<button type="button" class="btn sm w" data-act="ob-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+
     (d.link?'':'<button type="button" class="btn sm" data-act="ob-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
   if(!d.link)return h+'<p class="mute">Одна ссылка для командного чата. Человек заполняет анкету'+(d.form?' «'+esc(d.form.title)+'»':'')+' в Telegram и сразу попадает в этот проект с правом вести задачи, а ты получаешь сообщение о каждом.</p><p class="sg-out" id="ob-out" role="status"></p>';
   h+='<input id="ob-url" readonly value="'+esc(d.link.url)+'" aria-label="Ссылка онбординга"><div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="ob-copy" data-id="'+id+'">Скопировать ссылку</button><button type="button" class="btn sm" data-act="ob-text" data-id="'+id+'">Скопировать текст для чата</button><button type="button" class="btn sm dng" data-act="ob-off" data-id="'+id+'">Выключить ссылку</button></div>'+
@@ -2575,6 +2586,9 @@ function obAct(t,d){
       Promise.resolve(obNs.file(pid,d.f==='json'?'json':'csv')).then(function(r){t.disabled=false;var k=(r&&r.n)||0;say('#ob-sout',r&&r.status==='sent'?'Файл в чате с ботом: ответов '+k+'.':'Файл сохранён'+(r&&r.filename?' ('+r.filename+')':'')+': ответов '+k+'.')},
         function(e){t.disabled=false;say('#ob-sout',e&&e.code==='empty'?'Выгружать пока нечего: анкету никто не заполнил.':'Не получилось выгрузить. Попробуй ещё раз.')});break;
     case 'inv-open':formOnboard(pid,true);break;
+    case 'ob-pv':formPreview(pid,false);break;
+    case 'inv-pv':formPreview(pid,true);break;
+    case 'pv-again':var pf=$('#pv-frame');if(pf){var pu=obNs.preview(pid,d.form||'');pf.src=pu.replace('#',(pu.indexOf('?')<0?'?':'&')+'r='+Date.now()+'#')}break;
     case 'inv-on':t.disabled=true;say('#inv-out','Создаю ссылку…');Promise.resolve(obNs.on(pid,'invite')).then(function(r){obSet(pid,r)},function(e){t.disabled=false;say('#inv-out',e&&e.code==='no_bot'?'Бот ещё не подключён к серверу.':e&&e.code==='no_form'?'На сервере нет анкеты-приглашения.':'Не получилось создать ссылку. Попробуй ещё раз.')});break;
     case 'inv-off':
       if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно выключить?';break}
@@ -4566,6 +4580,7 @@ document.addEventListener('click',function(e){
     case 'data':formData();break;
     case 'usage':formUsage();break;
     case 'ob-open':case 'ob-refresh':case 'ob-on':case 'ob-off':case 'ob-copy':case 'ob-text':case 'ob-csv':
+    case 'ob-pv':case 'inv-pv':case 'pv-again':
     case 'ob-file':case 'inv-open':case 'inv-on':case 'inv-off':case 'inv-copy':case 'inv-qr':case 'inv-tg':case 'inv-tm':case 'inv-csv':obAct(t,d);break;
     case 'log-full':logFull(!lg.full);break;
     case 'log-hist':closeSheet();logSub();logFull(true);break;

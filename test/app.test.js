@@ -1936,6 +1936,39 @@ test('coordinator: runs chosen projects next to the owner, without the irreversi
   for (const u of [KIM, MAX]) await call('DELETE', '/api/share/members/' + u.id, { token: ownerToken });
 });
 
+test('preview: the owner and a coordinator see a form as a person will, nothing is saved', async () => {
+  const db = require('../src/db');
+  const PAT = { id: 777041, first_name: 'Pat', username: 'pat_coord' };
+  const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  await put('projects/p-pv', { name: 'Витрина сети', status: 'active', order: 70, show: 'Сеть пространств и мастеров.' });
+  await put('projects/p-pv2', { name: 'Другой', status: 'active', order: 71 });
+  const before = (await db.listDocs('joins')).length, links = (await db.listJoinLinks()).length;
+  // the page itself is the form page; the form comes with a newcomer who has answered nothing
+  assert.match((await call('GET', '/preview/p-pv')).text, /pvProject/);
+  const team = await call('GET', '/api/onboard/p-pv/preview', { token: ownerToken });
+  assert.equal(team.status, 200); assert.equal(team.json.preview, true); assert.equal(team.json.access, 'project');
+  assert.equal(team.json.project, 'Витрина сети'); assert.ok(team.json.form.steps.length > 0);
+  assert.deepEqual([team.json.me.joined, team.json.me.owner, team.json.me.answers], [false, false, {}]);
+  assert.equal(team.json.show, null);
+  assert.ok(team.json.me.polls.every((p) => p.mine.length === 0));
+  // the invitation comes with its showcase: the project's own text for guests
+  const inv = await call('GET', '/api/onboard/p-pv/preview?form=invite', { token: ownerToken });
+  assert.equal(inv.json.access, 'card'); assert.equal(inv.json.show.text, 'Сеть пространств и мастеров.'); assert.equal(inv.json.me.people, 0);
+  // no link is needed and none is made; nothing is written
+  assert.equal((await db.listJoinLinks()).length, links); assert.equal((await db.listDocs('joins')).length, before);
+  // who may look: the owner and the project's coordinator
+  assert.equal((await call('GET', '/api/onboard/p-pv/preview')).status, 401);
+  assert.equal((await call('GET', '/api/onboard/nope/preview', { token: ownerToken })).status, 404);
+  const l = (await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'editor', projects: ['p-pv'] } })).json.token;
+  await update(msg(PAT, { text: '/start inv_' + l }));
+  const ed = (await call('POST', '/api/auth/telegram', { json: { initData: initData(PAT) } })).json.token;
+  assert.equal((await call('GET', '/api/onboard/p-pv/preview', { token: ed })).status, 403, 'an editor has no preview');
+  await call('PATCH', '/api/share/members/' + PAT.id, { token: ownerToken, json: { role: 'manager', projects: ['p-pv'] } });
+  assert.equal((await call('GET', '/api/onboard/p-pv/preview?form=invite', { token: ed })).status, 200);
+  assert.equal((await call('GET', '/api/onboard/p-pv2/preview', { token: ed })).status, 403);
+  await call('DELETE', '/api/share/members/' + PAT.id, { token: ownerToken });
+});
+
 test('header parsing', () => {
   const { parseHeader } = require('../src/bot');
   const list = [{ id: 'p-india', data: { name: 'Кастинги в Индии' } }, { id: 'p-blog', data: { name: 'Личный блог' } }, { id: 'p-hub', data: { name: 'Хаб услуг: канал, бот, мини-приложение' } }];

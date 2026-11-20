@@ -77,6 +77,8 @@ function build() {
   app.get('/shim.js', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(PUBLIC, 'shim.js')); });
   // The onboarding page: a form that ends with the person attached to a project.
   app.get('/join/:token', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
+  // The same page as a preview inside the dashboard: it asks /api/onboard/:project/preview and saves nothing.
+  app.get('/preview/:project', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
   app.get('/robots.txt', (req, res) => res.type('text').send('User-agent: *\nDisallow: /\n'));
 
   /* ---------- Telegram webhook ---------- */
@@ -390,6 +392,14 @@ function build() {
     const card = req.query.form === 'invite', ids = join.forms().filter((f) => join.isCard(f) === card).map((f) => f.id);
     if (await db.revokeJoinLinks(p.id, ids)) journal.event('acc', (card ? 'Приглашение выключено' : 'Онбординг выключен') + ': проект «' + String(p.data.name || '') + '»', await who(req));
     await obView(req, res, p);
+  });
+  // the form as a person will see it, before the link goes out: ?form=invite is the invitation, otherwise the team form
+  api.get('/onboard/:project/preview', auth.guard('manage'), async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
+    if (!f) return res.status(409).json({ error: 'no_form' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await join.preview(f, p, bot.name()));
   });
   // the invitation as a QR code, to show from the phone at a meeting
   api.get('/onboard/:project/qr', auth.guard('manage'), async (req, res) => {

@@ -126,6 +126,8 @@ textarea{min-height:110px;resize:vertical;line-height:1.4}
 .wl b{font-variant-numeric:tabular-nums}
 .wl span{color:var(--mute);overflow-wrap:anywhere}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.prev{margin:0;padding:9px 18px;font-size:13px;line-height:1.4;color:var(--ink);background:var(--surface2);border-bottom:1px solid var(--line)}
+.prev b{font-weight:600}
 </style>
 </head>
 <body>
@@ -135,6 +137,11 @@ textarea{min-height:110px;resize:vertical;line-height:1.4}
 'use strict';
 var tg=window.Telegram&&window.Telegram.WebApp, initData=(tg&&tg.initData)||'';
 var token=(/\/join\/([A-Za-z0-9_-]{12,40})/.exec(location.pathname)||[])[1]||'';
+// Preview: the dashboard shows this page in a frame at /preview/<project>. The form comes from the owner's API,
+// answers stay in the page and nothing is sent or kept.
+var pvProject=(/^\/preview\/([A-Za-z0-9_-]{1,64})/.exec(location.pathname)||[])[1]||'', preview=!!pvProject;
+var pvSession=preview?decodeURIComponent((/[#&]t=([^&]+)/.exec(location.hash||'')||[])[1]||''):'', pvForm=preview&&/[?&]form=invite/.test(location.search||'')?'invite':'';
+if(preview){token='preview';try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}}
 var app=document.getElementById('app'), KEY='prooloog.join.'+token;
 var F=null, info=null, me=null, A={}, scr='load', part='core', step=0, bad={}, busy=false, note='', seen={}, agreed=false, card=false;
 var CHECK='<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -142,10 +149,12 @@ var CHECK='<svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidd
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function theme(){var dark=tg&&tg.colorScheme?tg.colorScheme==='dark':window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches;document.documentElement.setAttribute('data-theme',dark?'dark':'light')}
 function haptic(k){try{if(tg&&tg.HapticFeedback){if(k==='ok'||k==='error')tg.HapticFeedback.notificationOccurred(k==='ok'?'success':'error');else tg.HapticFeedback.selectionChanged()}}catch(e){}}
-function keep(){try{localStorage.setItem(KEY,JSON.stringify(A))}catch(e){}}
-function kept(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){return {}}}
+function keep(){if(preview)return;try{localStorage.setItem(KEY,JSON.stringify(A))}catch(e){}}
+function kept(){if(preview)return {};try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){return {}}}
 function api(method,path,body){
-  return fetch('/api/join/'+token+path,{method:method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}).then(function(r){
+  var url=preview?'/api/onboard/'+pvProject+'/preview'+(pvForm?'?form='+pvForm:''):'/api/join/'+token+path, hd=body?{'Content-Type':'application/json'}:{};
+  if(preview)hd.Authorization='Bearer '+pvSession;
+  return fetch(url,{method:method,headers:hd,body:body?JSON.stringify(body):undefined}).then(function(r){
     return r.json().catch(function(){return null}).then(function(j){if(!r.ok){var e=new Error((j&&j.error)||'http_'+r.status);e.code=(j&&j.error)||'';e.fields=(j&&j.fields)||[];throw e}return j});
   },function(){var e=new Error('network');e.code='network';throw e});
 }
@@ -174,6 +183,7 @@ function render(){
   if(scr==='form')seen[part+step]=true;
   if(scr==='gate')h=gate();else if(scr==='hello')h=hello();else if(scr==='form')h=formScr();else if(scr==='home')h=home();
   else if(scr==='error')h='<div class="body"><h1 class="h2">Не получилось открыть анкету</h1><p class="lead">'+esc(note)+'</p><button class="btn wide" data-act="reload">Обновить</button></div>';
+  if(preview&&scr!=='error')h='<p class="prev" role="note"><b>Предпросмотр.</b> Так анкету видит человек. Ответы не сохраняются, обязательные вопросы можно пропускать.</p>'+h;
   app.innerHTML=h;
   try{if(tg&&tg.BackButton){if(scr==='form')tg.BackButton.show();else tg.BackButton.hide()}}catch(e){}
 }
@@ -189,6 +199,7 @@ function hello(){
     '<div class="facts"><div class="fact"><b>1</b><span>'+n+' '+plural(n,'вопрос','вопроса','вопросов')+', '+esc(F.coreTime||'пара минут')+'. Почти везде достаточно нажать на вариант.</span></div>'+
     '<div class="fact"><b>2</b><span>'+(card?'Некоторые ответы раскрываются парой уточняющих вопросов. После отправки откроется страница о проекте «'+esc(info.project)+'».':'Сразу после отправки вы в проекте «'+esc(info.project)+'»: видите задачи команды и можете вести свои.')+'</span></div>'+
     (polls?'<div class="fact"><b>3</b><span>В конце можно '+esc(polls)+'.</span></div>':'')+'</div>'+
+    (preview?'<button class="link" data-act="pv-home">Показать, что человек видит после анкеты</button>':'')+
     (me.owner?'<p class="small">Вы владелец: анкета сохранится как ваша, доступы не меняются.</p><button class="link" data-act="home">'+(card?'Посмотреть страницу о проекте без анкеты':'Посмотреть голоса без анкеты')+'</button>':'')+
     '</div><div class="foot"><button class="btn pri" data-act="begin">Начать</button></div>';
 }
@@ -301,6 +312,11 @@ function next(){
   if(busy)return;
   var ss=steps(part), s=ss[step], last=step===ss.length-1;
   note='';
+  if(preview){
+    bad={};
+    if(!last)step++;else{me.joined=true;if(part==='more')me.more=true;if(card)me.show=info.show;scr='home'}
+    render();return window.scrollTo(0,0);
+  }
   if(!check(s)){haptic('error');render();return toFirstBad()}
   if(part==='core'&&!last){step++;render();return window.scrollTo(0,0)}
   if(part==='core'&&F.agree&&!agreed){bad._agree='Без согласия анкета не сохраняется. Отметьте эту строку.';haptic('error');return render()}
@@ -325,7 +341,7 @@ function go(i){
   var ss=steps(part);
   if(busy||i===step||i<0||i>=ss.length)return;
   note='';bad={};
-  if(part==='core'&&i>step){
+  if(part==='core'&&i>step&&!preview){
     for(var k=step;k<i;k++){if(!check(ss[k])){step=k;haptic('error');render();return toFirstBad()}}
   }
   step=i;haptic();render();window.scrollTo(0,0);
@@ -337,6 +353,7 @@ function back(){
 }
 function vote(pid,o){
   var p=me.polls.filter(function(x){return x.id===pid})[0];if(!p||busy)return;
+  if(preview){var pn=document.getElementById('pn-'+pid);if(pn)pn.textContent='В предпросмотре голос не сохраняется.';return}
   var picks=p.mine.slice(), i=picks.indexOf(o);
   if(i>=0)picks.splice(i,1);else if(p.multi)picks.push(o);else picks=[o];
   busy=true;haptic();
@@ -370,6 +387,7 @@ app.addEventListener('click',function(e){
   else if(a==='more')begin('more');
   else if(a==='vote')vote(t.getAttribute('data-p'),t.getAttribute('data-o'));
   else if(a==='home'){scr='home';render()}
+  else if(a==='pv-home'){me.joined=true;if(card)me.show=info.show;scr='home';render();window.scrollTo(0,0)}
   else if(a==='reload')location.reload();
 });
 app.addEventListener('input',function(e){
@@ -386,12 +404,13 @@ app.addEventListener('input',function(e){
 theme();
 try{if(tg){tg.ready();tg.expand();if(tg.onEvent)tg.onEvent('themeChanged',theme);if(tg.BackButton)tg.BackButton.onClick(back)}}catch(e){}
 function fail(e){
-  note=e.code==='link_closed'?'Ссылка на анкету больше не действует. Попросите у организатора новую.':e.code==='unauthorized'?'Telegram не подтвердил вход. Закройте окно и откройте анкету из бота ещё раз.':'Сервер не отвечает. После простоя он просыпается около минуты: обновите страницу чуть позже.';
+  note=preview?(e.code==='no_form'?'У этого проекта нет такой анкеты.':'Предпросмотр не открылся. Закрой это окно и открой его из дэшборда ещё раз.'):e.code==='link_closed'?'Ссылка на анкету больше не действует. Попросите у организатора новую.':e.code==='unauthorized'?'Telegram не подтвердил вход. Закройте окно и откройте анкету из бота ещё раз.':'Сервер не отвечает. После простоя он просыпается около минуты: обновите страницу чуть позже.';
   scr='error';render();
 }
 if(!token){note='В ссылке нет кода анкеты.';scr='error';render()}
 else api('GET','').then(function(j){
   info=j;F=j.form;card=j.access==='card';document.title=F.title;
+  if(preview){me=j.me;A={};agreed=false;scr='hello';return render()}
   if(!initData){scr='gate';return render()}
   return api('POST','/me',{initData:initData}).then(function(m){
     me=m;A=Object.assign({},kept(),m.answers);agreed=!!m.agreed;
