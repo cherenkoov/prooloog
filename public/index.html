@@ -1567,7 +1567,7 @@ function drawContacts(){
   var ms=S.messages.filter(function(m){return ui.project==='all'||m.project===ui.project}).sort(msgDesc);
   var h='<div class="b-top"><div class="seg only-m" role="group" aria-label="Что показывать"><button class="'+(ui.pshow==='people'?'on':'')+'" data-act="pshow" data-v="people">Люди <b>'+cs.length+'</b></button><button class="'+(ui.pshow==='msgs'?'on':'')+'" data-act="pshow" data-v="msgs">Сообщения <b>'+ms.length+'</b></button></div><div class="sp w"><button class="btn sm" data-act="new" data-kind="contact">+ Контакт</button><button class="btn sm" data-act="new" data-kind="message">+ Сообщение</button></div></div>';
   h+='<div class="ppl" data-show="'+ui.pshow+'"><section class="s-people">'+relBar+(cs.length?'<div class="pcs">'+cs.map(function(c){return contactCard(c)}).join('')+'</div>':'<div class="panel"><p>Контактов пока нет.</p><p class="mute" style="margin-top:6px;max-width:65ch">Сохраняй здесь полезные контакты для связи: агентов, клиентов, партнёров. Контакт можно привязать к одному или нескольким проектам. Те, кто прошёл онбординг проекта, собраны в разделе «Команда»; карточку можно перенести туда и обратно кнопкой.</p></div>')+'</section>';
-  h+='<section class="s-msgs"><div class="panel"><div class="ph"><h2>Сообщения</h2></div>'+(ms.length?'<div class="msgs">'+ms.slice(0,80).map(msgRow).join('')+'</div>':'<p class="mute">Сообщений пока нет. Добавь ответ клиента текстом или файлом: он сохранится в истории проекта, а изменения в проект попадут только после твоего ревью.</p>')+'</div></section></div>';
+  h+='<section class="s-msgs"><div class="panel"><div class="ph"><h2>Сообщения</h2></div>'+(ms.length?'<div class="msgs">'+ms.slice(0,80).map(msgRow).join('')+'</div>':'<p class="mute">Сообщений пока нет. Добавь ответ клиента текстом или файлом: он сохранится в истории проекта, а изменения в проект попадут только после ревью: его делают те, кто ведёт проект.</p>')+'</div></section></div>';
   return h;
 }
 function peoplePanel(p){
@@ -2551,7 +2551,7 @@ function obTeamPart(p){
   var n=d.people.filter(function(u){return u.core}).length,m=d.people.filter(function(u){return u.more}).length;
   var h='<div class="ph"><h2>Онбординг</h2><span class="pbtn">'+pvBtn('ob-pv',id,d.form)+(d.people.length?'<button type="button" class="btn sm w" data-act="ob-open" data-id="'+id+'">Ответы: '+n+'</button>':'')+
     (d.link?'':'<button type="button" class="btn sm" data-act="ob-on" data-id="'+id+'">Создать ссылку</button>')+'</span></div>';
-  if(!d.link)return h+'<p class="mute">Одна ссылка для командного чата. Человек заполняет анкету'+(d.form?' «'+esc(d.form.title)+'»':'')+' в Telegram и сразу попадает в этот проект с правом вести задачи, а ты получаешь сообщение о каждом.</p><p class="sg-out" id="ob-out" role="status"></p>';
+  if(!d.link)return h+'<p class="mute">Одна ссылка для командного чата. Человек заполняет анкету'+(d.form?' «'+esc(d.form.title)+'»':'')+' в Telegram и сразу попадает в этот проект с правом вести задачи, а те, кто ведёт проект, получают сообщение о каждом.</p><p class="sg-out" id="ob-out" role="status"></p>';
   h+='<input id="ob-url" readonly value="'+esc(d.link.url)+'" aria-label="Ссылка онбординга"><div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="ob-copy" data-id="'+id+'">Скопировать ссылку</button><button type="button" class="btn sm" data-act="ob-text" data-id="'+id+'">Скопировать текст для чата</button><button type="button" class="btn sm dng" data-act="ob-off" data-id="'+id+'">Выключить ссылку</button></div>'+
     '<p class="sg-out" id="ob-out" role="status" style="margin-top:8px">Анкета «'+esc(d.form?d.form.title:'')+'» · заполнили: '+n+(m?' · расширенную часть: '+m:'')+'. Ссылка многоразовая: каждый, кто заполнит анкету, получает доступ только к этому проекту.</p>';
   d.polls.forEach(function(q){if(q.voters)h+='<p class="ob-pl"><b>'+esc(q.title)+'</b> '+q.opts.map(function(o){return esc(o.t)+' — '+o.n}).join(' · ')+'</p>'});
@@ -2658,7 +2658,7 @@ function formChat(id){
     '<div class="ckl" style="max-height:none"><label><input type="checkbox" name="read"'+(x.read!==false?' checked':'')+'><span>Участники видят в чате задачи, вёрсты и события проекта: кнопки под сообщением бота и команда /project</span></label>'+
     '<label><input type="checkbox" name="app"'+(x.app?' checked':'')+'><span>Участники могут открыть проект в приложении, только просмотр</span></label>'+
     '<label><input type="checkbox" name="remind"'+(x.remind?' checked':'')+'><span>Напоминать в чате о событиях проекта, ссылка на созвон приходит за 5 минут</span></label></div>'+
-    '<p class="sg-out">Переписка и предложения участников попадают в «Сообщения» проекта и ждут твоего ревью. Сам проект бот не меняет. Бюджет, контакты и переписку участники не видят.</p>'+
+    '<p class="sg-out">Переписка и предложения участников попадают в «Сообщения» проекта и ждут ревью тех, кто ведёт проект: владельца и координаторов. Сам проект бот не меняет. Бюджет, контакты и переписку видят только они.</p>'+
     (chatNs&&x.on!==false?'<div class="chat-h"><h2>Написать в чат от бота</h2></div><textarea id="chat-txt" rows="3" maxlength="3800" placeholder="Например: созвон переносим на пятницу, 18:00" aria-label="Сообщение в чат"></textarea><div class="ckl" style="max-height:none;border:0;padding:0;margin-top:8px"><label><input type="checkbox" id="chat-btns" checked><span>Добавить кнопки проекта под сообщением</span></label></div><div class="acts" style="margin-top:8px"><button type="button" class="btn" data-act="chat-post" data-id="'+esc(id)+'">Отправить в чат</button></div><p class="sg-out" id="chat-out" role="status"></p>':'')+
     '<div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button>'+(chatNs&&x.on!==false?'<button type="button" class="btn dng" data-act="chat-leave" data-id="'+esc(id)+'">Убрать бота из чата</button>':'')+'</div></form>';
   openSheet(x.title||'Чат',h);
@@ -2745,7 +2745,7 @@ function formShare(pid){
   if(!boss())return;
   var pre=P(pid)?pid:(ui.project!=='all'&&P(ui.project)?ui.project:'');
   if(!shareNs){
-    openSheet('Доступ','<p>Здесь, внутри Claude, доступ к странице выдаётся в самом Claude, в настройках доступа этой страницы. Он открывает её целиком, без деления на проекты.</p><p class="mute" style="margin-top:10px">Доступ к выбранным проектам и ссылка-приглашение работают в версии на сервере. Открой Prooloog в Telegram и нажми там эту же кнопку: выберешь проекты, уровень доступа и получишь ссылку.</p><p class="sg-out" style="margin-top:12px">В любой версии бюджет, контакты, переписка, подписки и клиенты видны только тебе.</p>');
+    openSheet('Доступ','<p>Здесь, внутри Claude, доступ к странице выдаётся в самом Claude, в настройках доступа этой страницы. Он открывает её целиком, без деления на проекты.</p><p class="mute" style="margin-top:10px">Доступ к выбранным проектам и ссылка-приглашение работают в версии на сервере. Открой Prooloog в Telegram и нажми там эту же кнопку: выберешь проекты, уровень доступа и получишь ссылку.</p><p class="sg-out" style="margin-top:12px">В версии на сервере бюджет, контакты, переписку, подписки и клиентов проекта видят те, кто его ведёт: ты и координаторы.</p>');
     return;
   }
   shEdit=null;
@@ -4070,7 +4070,7 @@ function pendingPanel(pid){
   if(!boss())return '';
   var pend=S.messages.filter(function(m){return (isPending(m)||isNew(m))&&(!pid||m.project===pid)}).sort(msgDesc);
   if(!pend.length)return '';
-  return '<section class="panel attn"><div class="ph"><h2>Ждут твоего ревью: '+pend.length+'</h2></div><p class="sg-out" style="margin-bottom:6px">Ответы клиентов, которые ждут разбора или подтверждения изменений. Проект меняется только после твоего подтверждения.</p><div class="msgs">'+pend.slice(0,5).map(msgRow).join('')+'</div></section>';
+  return '<section class="panel attn"><div class="ph"><h2>Ждут ревью: '+pend.length+'</h2></div><p class="sg-out" style="margin-bottom:6px">Ответы клиентов, которые ждут разбора или подтверждения изменений. Проект меняется только после подтверждения: его даёт любой, кто ведёт проект.</p><div class="msgs">'+pend.slice(0,5).map(msgRow).join('')+'</div></section>';
 }
 
 /* reading files picked in the message form */

@@ -499,7 +499,7 @@ async function announceable() {
     const e = d.data;
     if (!e.project || !calls.okLink(e.link) || (!e.repeat && String(e.date || '') < today)) continue;
     const n = (await teamOf(e.project)).length;
-    if (n) out.push({ id: d.id, title: e.title || 'Встреча', when: await pollWhen(d.id, e), n });
+    if (n) out.push({ id: d.id, project: e.project, title: e.title || 'Встреча', when: await pollWhen(d.id, e), n });
   }
   return out;
 }
@@ -522,10 +522,12 @@ async function linkFor(project, formId) {
   const cur = (await db.listJoinLinks()).find((l) => l.project === project && l.form === formId);
   return cur ? cur.token : db.createJoinLink(project, formId);
 }
-async function votesText() {
+// only: the projects to count (a coordinator's own); without it, all of them
+async function votesText(only) {
   const out = [];
   for (const f of forms()) {
-    const list = await entries(f);
+    const list = (await entries(f)).filter((d) => !only || only.includes(d.data.project));
+    if (only && !list.length) continue;
     tally(f, list, '').forEach((p) => {
       out.push('<b>' + esc(p.title) + '</b> · проголосовали: ' + p.voters + (p.zone ? ' · время ' + esc(p.zone) : ''));
       p.opts.filter((o) => o.n || p.opts.length <= 4).forEach((o) => out.push((o.t === p.lead ? '✅ ' : '') + esc(o.t) + ' — ' + o.n + (o.who.length ? ': ' + esc(o.who.join(', ')) : '')));
@@ -665,4 +667,4 @@ async function migrateTeam() {
   return n;
 }
 
-module.exports = { preview, loadEdits, editForm, resetForm, formProjects, exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };
+module.exports = { tell, preview, loadEdits, editForm, resetForm, formProjects, exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

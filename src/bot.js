@@ -1,5 +1,6 @@
 'use strict';
 // The Telegram bot: opens the dashboard, signs people in, saves client replies for review, keeps backups.
+const { AsyncLocalStorage } = require('node:async_hooks');
 const cfg = require('./config');
 const db = require('./db');
 const auth = require('./auth');
@@ -34,11 +35,27 @@ const UNSUPPORTED = 'Пока понимаю текст, пересланные 
 
 /* ---------- projects ---------- */
 const pname = (p) => String((p && p.data && p.data.name) || 'Без названия');
+// Who the bot is talking to in a private chat. The bot works for the whole team, not for the owner alone:
+// the owner has every project, a coordinator or an editor has the projects of their access, and inside those
+// the bot does for them what the dashboard lets them do. Set for the time one message or button is handled.
+const actor = new AsyncLocalStorage();
+const me = () => actor.getStore() || { id: '', role: 'owner', scope: null, name: '' };
+const isLead = () => me().role === 'owner' || me().role === 'manager';
+async function actorOf(from, role) {
+  const m = role === 'owner' ? null : await db.getMember(String(from.id));
+  return { id: String(from.id), role, scope: m && Array.isArray(m.projects) ? m.projects : null, name: role === 'owner' ? '' : auth.fullName(from) || (from.username ? '@' + from.username : 'участник') };
+}
+// the projects of the person the bot is talking to; outside a private chat, all of them
 async function projects() {
   const rank = { active: 0, idea: 1, paused: 2, done: 3 };
   const r = (p) => (rank[p.data.status] === undefined ? 1 : rank[p.data.status]);
-  return (await db.listDocs('projects')).sort((a, b) => r(a) - r(b) || (+a.data.order || 0) - (+b.data.order || 0));
+  const all = (await db.listDocs('projects')).sort((a, b) => r(a) - r(b) || (+a.data.order || 0) - (+b.data.order || 0)), a = actor.getStore();
+  return a && a.scope ? all.filter((p) => a.scope.includes(p.id)) : all;
 }
+const mine = (pid) => { const a = me(); return !a.scope || a.scope.includes(pid); };
+// what the bot says when somebody asks for more than their level gives: it names who can, not «only the owner»
+const LEADS_ONLY = 'Это делают те, кто ведёт проект: владелец и координаторы. Тебе в боте доступны дэшборд, /login и сохранение сообщений клиентов в проект.';
+const WHOLE_ONLY = 'Эта команда относится ко всему дэшборду, а не к одному проекту (копии данных, подключения, сессии с Claude, доступ ко всем проектам), поэтому её выполняет владелец. То, что касается твоих проектов, делается в дэшборде.';
 const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/gi, ' ').trim();
 const stem = (w) => w.slice(0, Math.max(4, w.length - 2));
 function tokensOf(p) { return (norm(pname(p)) + ' ' + norm(p.id.replace(/^p-/, ''))).split(' ').filter(Boolean); }
@@ -119,22 +136,25 @@ async function saveMessage(draft, projectId) {
     project: projectId, contact: c ? c.id : '', from: draft.from || (uname ? '@' + uname : ''), text: draft.text || '', summary: '',
     date: draft.date, channel: 'tg', review: 'pending', proposal: null, applied: [], src: 'bot', u: new Date().toISOString(),
   };
+  if (me().name) data.by = me().name;   // a team member brought it, not the owner
   if (draft.file) data.file = draft.file;
   const doc = await db.setDoc('messages', id, data);
   hub.publish('messages', id, doc.data, doc.version);
-  journal.note('add', 'messages', id, doc.data, null, 'бот');
+  journal.note('add', 'messages', id, doc.data, null, me().name || 'бот');
   return id;
 }
 async function finish(chat, uid, draft, projectId, reply) {
   const p = (await projects()).find((x) => x.id === projectId);
   await db.setState(uid, {});
   if (!p) return (reply || say)(chat, 'Этого проекта уже нет. Пришли сообщение ещё раз и выбери другой.');
-  const id = await saveMessage(draft, projectId);
+  const id = await saveMessage(draft, projectId), a = me();
   if (draft.file && draft.file.kind === 'audio' && !draft.text) stt.later(id);
   const html = 'Сохранил в проект <b>' + esc(pname(p)) + '</b>' + (draft.from ? ' от <b>' + esc(draft.from) + '</b>' : '') + '.\n' +
     (draft.file && draft.file.kind === 'audio' && !draft.text ? (stt.enabled() ? 'Расшифровка голосового появится в сообщении в течение минуты.\n' : 'Это аудио без расшифровки: текст можно вписать в дэшборде.\n') : '') +
-    'Сам проект не менялся: сообщение ждёт твоего ревью.';
-  const b = openBtn('Открыть ревью', '/?open=msg-' + id);
+    (isLead() ? 'Сам проект не менялся: сообщение ждёт ревью' + (a.role === 'owner' ? '.' : ', подтвердить изменения можешь ты или другой координатор.') : 'Сам проект не менялся: сообщение ждёт ревью. Его подтверждают владелец и координаторы проекта, им я написал.');
+  // the others who run the project hear that something waits for them
+  if (a.role !== 'owner') await join.tell(projectId, a.id, '<b>' + esc(a.name) + '</b> сохранил(а) в проект <b>' + esc(pname(p)) + '</b> сообщение' + (draft.from ? ' от <b>' + esc(draft.from) + '</b>' : '') + '. Оно ждёт ревью в дэшборде.').catch(() => {});
+  const b = isLead() ? openBtn('Открыть ревью', '/?open=msg-' + id) : null;
   return (reply || say)(chat, html, b ? kb([b]) : undefined);
 }
 
@@ -165,11 +185,11 @@ async function route(m, draft, headerText) {
     return say(chat, (draft.from ? 'От: <b>' + esc(draft.from) + '</b>\n' : '') + 'В какой проект сохранить?', projectKb(list, []));
   }
   await db.setState(uid, { draft, want: 'kind' });
-  return say(chat, 'Что сделать с этим текстом?', kb([[{ text: 'Ответ клиента', callback_data: 'k:m' }, { text: 'Во входящие', callback_data: 'k:i' }]].concat(ai.enabled() ? [[{ text: 'Спросить Claude', callback_data: 'k:a' }]] : [], [[{ text: 'Отмена', callback_data: 'x' }]])));
+  return say(chat, 'Что сделать с этим текстом?', kb([[{ text: 'Ответ клиента', callback_data: 'k:m' }].concat(!me().scope || me().scope.length === 1 ? [{ text: 'Во входящие', callback_data: 'k:i' }] : [])].concat(ai.enabled() && me().role === 'owner' ? [[{ text: 'Спросить Claude', callback_data: 'k:a' }]] : [], [[{ text: 'Отмена', callback_data: 'x' }]])));
 }
 async function intake(m) {
   // a session with Claude is open: the text goes there, a forwarded message goes with its author
-  if (m.text && (await asks.active())) {
+  if (m.text && me().role === 'owner' && (await asks.active())) {
     const d = m.forward_origin ? draftFrom(m, await appTz()) : null;
     return askClaude(m.chat.id, m.from.id, d ? 'Пересланное сообщение' + (d.from ? ' от ' + d.from : '') + ':\n' + d.text : m.text);
   }
@@ -181,7 +201,7 @@ async function intake(m) {
 /* ---------- files: text, backups ---------- */
 async function onDocument(m, cmd) {
   const d = m.document, name = String(d.file_name || 'file'), chat = m.chat.id;
-  if (/\.json$/i.test(name) && (cmd === 'restore' || /prooloog-backup/i.test(name))) return askRestore(m);
+  if (/\.json$/i.test(name) && (cmd === 'restore' || /prooloog-backup/i.test(name))) return me().role === 'owner' ? askRestore(m) : say(chat, WHOLE_ONLY);
   if (/^text\//.test(d.mime_type || '') || /\.(txt|md|log|csv)$/i.test(name)) {
     if ((+d.file_size || 0) > 512 * 1024) return say(chat, 'Файл больше 512 КБ. Пришли текст покороче или вставь его сообщением.');
     const text = (await T.readFile(d.file_id, 512 * 1024)).toString('utf8').replace(/\u0000/g, '').trim();
@@ -312,7 +332,7 @@ async function inviteJoin(m, tok) {
   // a coordinator's level covers all of their projects, so a link must not add a project to it: the owner does that
   if (cur && auth.memberRole(cur.role, cur.projects) === 'manager') return say(chat, 'Ты координатор, и ссылка-приглашение твой доступ не меняет: новый проект координатору добавляет владелец в окне «Доступ».');
   const inv = await db.useInviteLink(tok, id);
-  if (!inv) return say(chat, 'Эта ссылка-приглашение уже использована или устарела. Попроси у владельца новую.');
+  if (!inv) return say(chat, 'Эта ссылка-приглашение уже использована или устарела. Попроси новую у того, кто её прислал.');
   const role = inv.role === 'editor' ? 'editor' : 'viewer';
   let list = Array.isArray(inv.projects) ? inv.projects : null;
   // someone who already has access keeps it: the project lists add up
@@ -509,8 +529,8 @@ async function feed(chat, arg) {
 }
 
 function closedText(from) {
-  return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ даёт владелец.' +
-    (from.username ? ' Попроси его отправить мне: /invite @' + esc(from.username) : ' Чтобы тебя можно было пригласить, задай имя пользователя в настройках Telegram.');
+  return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ к проекту дают те, кто его ведёт: владелец и координаторы.' +
+    (from.username ? ' Попроси у них ссылку-приглашение или анкету проекта. Владелец может ещё отправить мне: /invite @' + esc(from.username) : ' Чтобы тебя можно было пригласить, задай имя пользователя в настройках Telegram.');
 }
 async function setMenu(chat) {
   if (!https()) return;
@@ -518,7 +538,21 @@ async function setMenu(chat) {
 }
 function helpText(role) {
   const n = esc(cfg.appName);
-  if (role !== 'owner') return '<b>' + n + '</b>\n\nДэшборд открывается кнопкой ниже или кнопкой «' + n + '» рядом с полем ввода.\n/login — ссылка для входа в обычном браузере.';
+  if (role === 'viewer') return '<b>' + n + '</b>\n\nДэшборд открывается кнопкой ниже или кнопкой «' + n + '» рядом с полем ввода.\n/login — ссылка для входа в обычном браузере.';
+  if (role === 'editor') return '<b>' + n + '</b> на связи.\n\n' +
+    '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
+    '• Ответ клиента или партнёра: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст». Я сохраню его в проект и напишу тем, кто проект ведёт.\n' +
+    '• /login — ссылка для входа в обычном браузере.\n\n' +
+    'Сообщение я только сохраняю. Сам проект меняется после ревью: его подтверждают владелец и координаторы проекта.';
+  if (role === 'manager') return '<b>' + n + '</b> на связи. Ты координатор: в своих проектах делаешь в боте то же, что владелец.\n\n' +
+    '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
+    '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
+    '• /onboard проект — ссылка-анкета для командного чата. /club проект — приглашение для личных встреч с QR-кодом.\n' +
+    '• /answers проект и /answers json проект — ответы анкет файлом, /votes — итоги голосований.\n' +
+    '• /announce — разослать встречу со ссылкой команде проекта. /members — у кого есть доступ к твоим проектам.\n' +
+    '• /digest проект — лента проекта из переписки рабочего чата, с предложениями на ревью.\n' +
+    '• /login — ссылка для входа в обычном браузере.\n\n' +
+    'Ответ клиента я только сохраняю. Сам проект меняется после ревью в дэшборде: подтвердить можешь ты, другой координатор или владелец.';
   return '<b>' + n + '</b> на связи.\n\n' +
     '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
     '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
@@ -533,7 +567,7 @@ function helpText(role) {
     '• /digest проект — лента проекта: что нового в переписке рабочего чата и в голосовых, сжато и по дням, с предложениями на ревью. /digest all проект — по всей переписке. В рабочем чате мне нужны права администратора: /admin в чате повторяет просьбу о них.\n' +
     '• /club проект — приглашение для личных встреч: постоянная ссылка, QR-код и тексты для участника и мастера. Человек заполняет анкету и попадает в контакты проекта.\n' +
     '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
-    'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
+    'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после ревью в дэшборде: подтвердить можешь ты или координатор проекта.';
 }
 async function onCommand(m, role, cmd, arg) {
   const chat = m.chat.id, uid = m.from.id;
@@ -550,7 +584,12 @@ async function onCommand(m, role, cmd, arg) {
     return say(chat, 'Ссылка для входа в браузере. Она срабатывает один раз и действует 10 минут. Никому её не пересылай.', kb([[{ text: 'Войти в браузере', url: cfg.baseUrl + '/?k=' + code }]]));
   }
   if (cmd === 'cancel') { await db.setState(uid, {}); return say(chat, 'Отменил.'); }
-  if (!owner) return say(chat, 'Эта команда доступна только владельцу.');
+  // what belongs to a project is for everybody who runs it; what belongs to the whole dashboard is the owner's
+  const LEAD = ['digest', 'onboard', 'club', 'announce', 'votes', 'answers', 'members'];
+  const WHOLE = ['ask', 'end', 'memory', 'forget', 'connect', 'usage', 'google', 'backup', 'restore', 'invite', 'remove', 'admin'];
+  if (!owner && WHOLE.includes(cmd)) return say(chat, WHOLE_ONLY);
+  if (!owner && LEAD.includes(cmd) && role !== 'manager') return say(chat, LEADS_ONLY);
+  if (!owner && !LEAD.includes(cmd)) return say(chat, 'Не знаю такую команду. Список: /help');
   if (cmd === 'digest') return feed(chat, arg);
   if (cmd === 'ask') return askClaude(chat, uid, arg);
   if (cmd === 'end') {
@@ -575,11 +614,11 @@ async function onCommand(m, role, cmd, arg) {
   if (cmd === 'club') return club(chat, arg);
   if (cmd === 'google') return googleCmd(chat, arg);
   if (cmd === 'announce') {
-    const list = await join.announceable();
+    const list = (await join.announceable()).filter((x) => mine(x.project));
     if (!list.length) return say(chat, 'Рассылать пока нечего: нужна предстоящая встреча со ссылкой на созвон в проекте, где есть команда.');
     return say(chat, 'Какую встречу разослать команде?', { inline_keyboard: list.slice(0, 8).map((x) => [{ text: (x.title + ' · ' + x.when).slice(0, 60), callback_data: 'an:' + x.id }]).filter((r) => Buffer.byteLength(r[0].callback_data) <= 64) });
   }
-  if (cmd === 'votes') return say(chat, await join.votesText());
+  if (cmd === 'votes') return say(chat, await join.votesText(me().scope));
   if (cmd === 'answers') {
     // «/answers проект» or «/answers json проект»: everything the onboarding of one project gathered, as one file
     const fmt = /^json(\s+|$)/i.test(arg) ? 'json' : 'csv', q = arg.replace(/^(json|csv)(\s+|$)/i, '').trim();
@@ -590,6 +629,8 @@ async function onCommand(m, role, cmd, arg) {
       if (!x.n) return say(chat, 'В проекте <b>' + esc(pname(mp.best)) + '</b> анкету пока никто не заполнил.');
       return T.sendDocument(chat, x.filename, x.body, 'Онбординг проекта «' + pname(mp.best) + '»: ответов ' + x.n + (fmt === 'csv' ? '. Открывается в Excel и Google Таблицах.' : ', формат JSON.'));
     }
+    // every form in one go carries every project: a coordinator names the project
+    if (!owner) return say(chat, 'Для какого проекта? Напиши так: /answers название проекта');
     let sent = 0;
     for (const f of join.forms()) {
       const t = await join.csv(f);
@@ -603,18 +644,20 @@ async function onCommand(m, role, cmd, arg) {
   if (cmd === 'restore') return say(chat, 'Пришли файл копии (prooloog-backup-….json) с подписью /restore.');
   if (cmd === 'invite') {
     const mm = /^@?([A-Za-z][A-Za-z0-9_]{3,31})(?:\s+(editor|viewer|редактор|зритель))?$/i.exec(arg);
-    if (!mm) return say(chat, 'Напиши так: /invite @имя editor или /invite @имя viewer.\neditor может менять данные, viewer только смотрит. Деньги, контакты и переписку видишь только ты.');
+    if (!mm) return say(chat, 'Напиши так: /invite @имя editor или /invite @имя viewer.\neditor может менять данные, viewer только смотрит. Деньги, контакты и переписку проекта видят те, кто его ведёт: ты и координаторы.');
     const role2 = /^(editor|редактор)$/i.test(mm[2] || '') ? 'editor' : 'viewer';
     await db.setInvite(mm[1].toLowerCase(), role2);
     journal.event('acc', 'Приглашён @' + mm[1] + ': ' + (role2 === 'editor' ? 'редактор' : 'зритель') + ', все проекты');
     return say(chat, 'Пригласил @' + esc(mm[1]) + ' как ' + (role2 === 'editor' ? 'редактора' : 'зрителя') + '. Пусть откроет ' + (botName ? '@' + esc(botName) : 'бота') + ' и нажмёт /start.');
   }
   if (cmd === 'members') {
-    const ms = await db.listMembers(), inv = await db.listInvites(), all = await projects();
+    const sc = me().scope, all = await projects();
+    const ms = (await db.listMembers()).filter((x) => !sc || (String(x.id) !== me().id && Array.isArray(x.projects) && x.projects.some((p) => sc.includes(p)))), inv = sc ? [] : await db.listInvites();
     const scope = (x) => !Array.isArray(x.projects) ? 'все проекты' : all.filter((p) => x.projects.includes(p.id)).map(pname).join(', ') || 'проекты удалены';
     const lines = ms.map((x) => '• ' + esc(x.name || 'без имени') + (x.username ? ' @' + esc(x.username) : '') + ': ' + (auth.memberRole(x.role, x.projects) === 'manager' ? 'координатор' : x.role === 'editor' ? 'редактор' : 'зритель') + ', ' + esc(scope(x)))
       .concat(inv.map((x) => '• @' + esc(x.username) + ': приглашён, ещё не зашёл'));
-    return say(chat, lines.length ? 'Доступ есть у тебя и ещё:\n' + lines.join('\n') + '\n\nУбрать: /remove @имя' : 'Пока доступ есть только у тебя. Пригласить: /invite @имя editor');
+    if (!owner) return say(chat, lines.length ? 'К твоим проектам доступ есть у владельца, у тебя и ещё:\n' + lines.join('\n') + '\n\nИзменить или закрыть доступ: окно «Доступ» в дэшборде.' : 'К твоим проектам доступ пока есть у владельца и у тебя. Пригласить: «Поделиться» в проекте.');
+    return say(chat, lines.length ? 'Доступ есть у тебя и ещё:\n' + lines.join('\n') + '\n\nУбрать: /remove @имя' : 'Пока в команде никого, кроме тебя. Пригласить: /invite @имя editor или «Поделиться» в проекте.');
   }
   if (cmd === 'remove') {
     const mm = /^@?([A-Za-z][A-Za-z0-9_]{3,31})$/.exec(arg);
@@ -643,14 +686,17 @@ async function onMessage(m) {
   if (inv) return inviteJoin(m, inv[1]);
   const jn = cmd && cmd[1].toLowerCase() === 'start' ? /^join_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
   if (jn) return join.start(m, jn[1]);
-  if (cmd) return onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim());
-  if (!role) return say(m.chat.id, closedText(m.from));
-  if (role !== 'owner') return say(m.chat.id, 'Ответы клиентов и заметки принимаю только от владельца. Дэшборд открывается командой /start.');
-  if (m.document) {
-    const cap = /^\/([a-z_]+)/i.exec(String(m.caption || '').trim());
-    return onDocument(m, cap ? cap[1].toLowerCase() : '');
-  }
-  return intake(m);
+  if (!role) return cmd ? onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim()) : say(m.chat.id, closedText(m.from));
+  // from here on the bot knows who it works for: their level and their projects
+  return actor.run(await actorOf(m.from, role), () => {
+    if (cmd) return onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim());
+    if (role === 'viewer') return say(m.chat.id, 'Сообщения клиентов и заметки я принимаю от тех, кто работает в проекте: владельца, координаторов и редакторов. У тебя доступ «смотреть»: дэшборд открывается командой /start.');
+    if (m.document) {
+      const cap = /^\/([a-z_]+)/i.exec(String(m.caption || '').trim());
+      return onDocument(m, cap ? cap[1].toLowerCase() : '');
+    }
+    return intake(m);
+  });
 }
 async function onCallback(cq) {
   const uid = cq.from.id, msg = cq.message, chat = msg && msg.chat && msg.chat.id, data = String(cq.data || '');
@@ -664,7 +710,16 @@ async function onCallback(cq) {
   if (er) return guestToggle(cq, er[1], +er[2]);
   const el = /^el:([A-Za-z0-9_-]{1,40}):([a-z]{2,3})$/.exec(data);
   if (el) return guestLang(cq, el[1], el[2]);
-  if ((await auth.roleOf(cq.from)) !== 'owner') return ack('Доступно только владельцу');
+  const role = await auth.roleOf(cq.from);
+  if (!role) return ack('У тебя нет доступа к дэшборду');
+  return actor.run(await actorOf(cq.from, role), () => teamCallback(cq, role, data, chat, ack, edit));
+}
+// a button in a private chat with somebody of the team
+async function teamCallback(cq, role, data, chat, ack, edit) {
+  const uid = cq.from.id, msg = cq.message;
+  if (data === 'as:end' || data === 'k:a' || data === 'rs:y') { if (role !== 'owner') return ack('Это делает владелец: относится ко всему дэшборду'); }
+  else if (/^(an|ob|cl):/.test(data)) { if (!isLead()) return ack('Это делают владелец и координаторы проекта'); }
+  else if (data !== 'x' && role === 'viewer') return ack('У тебя доступ «смотреть»');
   const st = await db.getState(uid);
   const stale = async () => { await ack('Уже обработано'); return edit(chat, 'Здесь уже нечего сохранять. Пришли сообщение ещё раз.'); };
 
@@ -678,9 +733,12 @@ async function onCallback(cq) {
   if (data === 'k:i') {
     if (!st.draft || !st.draft.text) return stale();
     const id = 'it' + st.draft.mid;
-    const doc = await db.setDoc('inbox', id, { text: st.draft.text.slice(0, 300), u: new Date().toISOString() });
+    // a team member's note lands in their project: the inbox without a project is the owner's
+    const sc = me().scope, note = { text: st.draft.text.slice(0, 300), u: new Date().toISOString() };
+    if (sc) { if (sc.length !== 1) return stale(); note.project = sc[0]; }
+    const doc = await db.setDoc('inbox', id, note);
     hub.publish('inbox', id, doc.data, doc.version);
-    journal.note('add', 'inbox', id, doc.data, null, 'бот');
+    journal.note('add', 'inbox', id, doc.data, null, me().name || 'бот');
     await db.setState(uid, {});
     await ack('Добавил');
     return edit(chat, 'Добавил во входящие.');
@@ -699,6 +757,8 @@ async function onCallback(cq) {
     return edit(chat, 'В какой проект сохранить?', projectKb(await projects(), []));
   }
   if (data.startsWith('an:')) {
+    const evd = await db.getDoc('events', data.slice(3));
+    if (evd && !mine(evd.data.project)) return ack('Эта встреча не из твоих проектов');
     await ack();
     const r = await join.announce(data.slice(3));
     if (r.error) return say(chat, esc(r.error));
@@ -720,6 +780,7 @@ async function onCallback(cq) {
   }
   if (data.startsWith('p:')) {
     const pid = data.slice(2);
+    if (!mine(pid)) return stale();
     if (st.draft && st.want === 'project') { await ack('Сохраняю'); return finish(chat, uid, st.draft, pid, edit); }
     if (st.hdrPending && st.hdrPending.until > now()) {
       const p = (await projects()).find((x) => x.id === pid);
@@ -767,14 +828,15 @@ async function setup() {
     botName = me.username || ''; botId = +me.id || 0; botReadsAll = !!me.can_read_all_group_messages;
     if (!https()) { console.warn('[bot] no public https address: the webhook is not set'); return false; }
     await T.tg('setWebhook', { url: cfg.baseUrl + '/tg/' + cfg.webhookPath, secret_token: cfg.webhookSecret, allowed_updates: ['message', 'callback_query', 'my_chat_member'] });
-    await T.tg('setMyCommands', { commands: [
-      { command: 'start', description: 'Открыть ' + cfg.appName },
-      { command: 'login', description: 'Ссылка для входа в браузере' },
+    // the menu everybody sees holds what everybody can do; the owner's chat gets the owner's commands on top
+    const base = [{ command: 'start', description: 'Открыть ' + cfg.appName }, { command: 'login', description: 'Ссылка для входа в браузере' }, { command: 'help', description: 'Что умеет бот' }];
+    await T.tg('setMyCommands', { commands: base });
+    const boss = await auth.ownerId();
+    if (boss) await T.tg('setMyCommands', { scope: { type: 'chat', chat_id: boss }, commands: base.slice(0, 2).concat([
       { command: 'ask', description: 'Сессия с Claude' },
       { command: 'digest', description: 'Лента проекта из переписки' },
       { command: 'backup', description: 'Копия данных файлом' },
-      { command: 'help', description: 'Что умеет бот' },
-    ] });
+    ], base.slice(2)) }).catch((e) => console.warn('[bot] the owner\'s commands are not set:', e.message));
     await T.tg('setMyCommands', { scope: { type: 'all_group_chats' }, commands: [
       { command: 'project', description: 'Что сейчас по проекту' },
       { command: 'task', description: 'Предложить задачу' },

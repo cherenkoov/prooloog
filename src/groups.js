@@ -474,7 +474,7 @@ async function onCallback(cq) {
   const ack = (text, alert) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: text || undefined, show_alert: !!alert }).catch(() => {});
   const gl = /^gl:(g\d{1,20}):([A-Za-z0-9_-]{1,60})$/.exec(data);
   if (gl) {
-    if (String(await auth.ownerId()) !== String(cq.from.id)) return ack('Доступно только владельцу');
+    if (String(await auth.ownerId()) !== String(cq.from.id)) return ack('Чат к проекту привязывает владелец');
     const doc = await db.getDoc('chats', gl[1]);
     const edit = (html) => T.tg('editMessageText', { chat_id: chat.id, message_id: msg.message_id, text: html, parse_mode: 'HTML' }).catch(() => B.say(chat.id, html));
     if (!doc) { await ack(); return edit('Этого чата у меня уже нет.'); }
@@ -507,7 +507,7 @@ async function onCallback(cq) {
     }
     return;
   }
-  if (!ch.read) return ack('Владелец не открывал проект для этого чата', true);
+  if (!ch.read) return ack('Проект для этого чата не открыт: это включают те, кто ведёт проект', true);
   const kind = gp[1] === 'new' ? 'card' : gp[1], html = await view(kind, ch);
   if (!html) return ack('Проекта уже нет');
   await ack();
