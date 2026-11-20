@@ -125,7 +125,12 @@ h2{font:600 12px/1.2 var(--body);letter-spacing:.07em;text-transform:uppercase;c
 .ck.dia::before{transform:rotate(45deg);border-radius:2px}
 .ck.rnd::before{border-radius:50%}
 .ck.on::before{background:var(--pc,var(--mute))}
-.li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;align-items:start;padding:6px 0}
+.li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:start;padding:6px 0}
+.st{--sc:var(--mute);grid-column:3;align-self:center;font-size:12px}
+.st.s-doing{--sc:var(--accent)}.st.s-done{--sc:var(--pc,var(--accent))}
+.st .sel,.st-b{width:auto;gap:5px;padding:3px 7px 3px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;border:1px solid color-mix(in srgb,var(--sc) 35%,var(--line));background:color-mix(in srgb,var(--sc) 12%,var(--surface));color:color-mix(in srgb,var(--sc) 70%,var(--ink))}
+.st-b{display:inline-block;padding:3px 10px}.st .sel svg{width:12px;height:12px;color:inherit}
+.st select:not(.sel-n){font:inherit;border-radius:999px;padding:3px 8px}
 .li-b{min-width:0;display:flex;flex-direction:column;gap:1px;padding:1px 4px;border-radius:6px}
 .li-b:hover{background:var(--surface2)}
 .li-t{overflow-wrap:anywhere}
@@ -669,7 +674,7 @@ button.pl-d:hover b{color:var(--accent)}
 .pl-tray{display:flex;flex-direction:column;gap:6px}
 .pl-tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
 /* tasks inside a milestone */
-.li-x{grid-column:2;display:flex;flex-direction:column;margin:2px 0 6px;padding-left:8px;border-left:2px solid var(--line)}
+.li-x{grid-column:2/-1;display:flex;flex-direction:column;margin:2px 0 6px;padding-left:8px;border-left:2px solid var(--line)}
 .li-xa{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .li-b[aria-expanded]::after{content:"";position:absolute;right:9px;top:50%;margin-top:-6px;width:7px;height:7px;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:rotate(45deg);transition:transform .15s}
 .li-b[aria-expanded="true"]::after{transform:rotate(-135deg);margin-top:-2px}
@@ -1180,9 +1185,9 @@ function drawOverviewAll(){
 function msLi(m){
   var late=!m.done&&validDate(m.date)&&m.date<today();
   var tot=0,dn=0;S.tasks.forEach(function(t){if(t.milestone===m.id){tot++;if(t.status==='done')dn++}});
-  var meta=(validDate(m.date)?fmt(m.date)+(postClock(m.time)?', '+m.time:'')+(m.done?'':' · '+rel(m.date)):'без даты')+(m.done?' · готово':'')+(tot?' · задач: '+dn+' из '+tot:'');
+  var meta=(validDate(m.date)?fmt(m.date)+(postClock(m.time)?', '+m.time:'')+(m.done?'':' · '+rel(m.date)):'без даты')+(tot?' · задач: '+dn+' из '+tot:'');
   var open=!!ui.msOpen[m.id],ts=open?S.tasks.filter(function(t){return t.milestone===m.id}).sort(planSort):[];
-  return '<li class="li'+(late?' late':'')+'" style="--pc:'+pc(m.project)+'"><button class="ck dia w'+(m.done?' on':'')+'" data-act="tg-ms" data-id="'+esc(m.id)+'" aria-pressed="'+!!m.done+'" aria-label="Верста пройдена"></button><button class="li-b" data-act="ms-open" data-id="'+esc(m.id)+'" aria-expanded="'+open+'"><span class="li-t'+(m.done?' is-done':'')+'">'+esc(m.title)+'</span><span class="li-d">'+esc(meta)+(tot?'':' · задач нет')+'</span></button>'+(open?'<div class="li-x">'+(ts.length?ts.map(taskLi).join(''):'<p class="mute" style="font-size:14px;padding:4px 0">К этой версте задачи пока не привязаны.</p>')+'<div class="li-xa w"><button class="btn sm" data-act="new" data-kind="task" data-project="'+esc(m.project)+'" data-ms="'+esc(m.id)+'">+ Задача</button><button class="btn sm" data-act="edit" data-kind="milestone" data-id="'+esc(m.id)+'">Изменить версту</button></div></div>':'')+'</li>';
+  return '<li class="li'+(late?' late':'')+'" style="--pc:'+pc(m.project)+'"><button class="ck dia w'+(m.done?' on':'')+'" data-act="tg-ms" data-id="'+esc(m.id)+'" aria-pressed="'+!!m.done+'" aria-label="Верста пройдена"></button><button class="li-b" data-act="ms-open" data-id="'+esc(m.id)+'" aria-expanded="'+open+'"><span class="li-t'+(m.done?' is-done':'')+'">'+esc(m.title)+'</span><span class="li-d">'+esc(meta)+(tot?'':' · задач нет')+'</span></button>'+stSel('ms',m.id,m.done?'done':'todo')+(open?'<div class="li-x">'+(ts.length?ts.map(taskLi).join(''):'<p class="mute" style="font-size:14px;padding:4px 0">К этой версте задачи пока не привязаны.</p>')+'<div class="li-xa w"><button class="btn sm" data-act="new" data-kind="task" data-project="'+esc(m.project)+'" data-ms="'+esc(m.id)+'">+ Задача</button><button class="btn sm" data-act="edit" data-kind="milestone" data-id="'+esc(m.id)+'">Изменить версту</button></div></div>':'')+'</li>';
 }
 function drawOverviewOne(p){
   var h=pendingPanel(p.id)+'<section class="panel pinfo" style="--pc:'+pc(p.id)+'"><div class="pinfo-h"><span class="pill st-'+esc(p.status)+'">'+esc(ST[p.status]||'')+'</span><span class="mute">'+esc(p.area||'Без группы')+(+p.hours>0?' · '+(+p.hours)+' ч в неделю':'')+'</span>'+(boss()?'<button class="btn sm" data-act="share" data-id="'+esc(p.id)+'">Поделиться</button>':'')+'<button class="btn sm w" data-act="edit" data-kind="project" data-id="'+esc(p.id)+'">Изменить</button></div>';
@@ -1200,10 +1205,7 @@ function drawOverviewOne(p){
   open.sort(function(a,b){return (a.status==='doing'?0:1)-(b.status==='doing'?0:1)});
   h+='<div class="two"><section class="panel"><div class="ph"><h2>Вёрсты</h2><button class="btn sm w" data-act="new" data-kind="milestone" data-project="'+esc(p.id)+'">+ Верста</button></div>'+(ms.length?'<ol class="tl">'+ms.map(msLi).join('')+'</ol>':'<p class="mute">Пока нет ни одной версты.</p>')+'</section>';
   h+='<section class="panel"><div class="ph"><h2>Открытые задачи</h2><button class="btn sm w" data-act="new" data-kind="task" data-project="'+esc(p.id)+'">+ Задача</button></div>';
-  h+=open.length?'<div>'+open.map(function(t){
-    var late=validDate(t.due)&&t.due<today();
-    return '<div class="li'+(late?' late':'')+'" style="--pc:'+pc(p.id)+'"><button class="ck rnd w" data-act="tg-task" data-id="'+esc(t.id)+'" aria-label="Задача готова"></button><button class="li-b" data-act="edit" data-kind="task" data-id="'+esc(t.id)+'"><span class="li-t">'+esc(t.title)+'</span><span class="li-d">'+recAva('tasks',t)+esc(TS[t.status]||'')+(validDate(t.due)?' · '+dueT(t)+' · '+rel(t.due):'')+'</span></button></div>';
-  }).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
+  h+=open.length?'<div>'+open.map(taskLi).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
   h+='</section></div>';
   h+=cyclePanel(p,true);
   if(boss())h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+teamRow(p)+subsPanel(p);
@@ -2809,9 +2811,15 @@ function dayTimePanel(){
   if(!its.length)return '<section class="panel"><div class="ph"><h2>Время на день</h2></div><p class="mute">Укажи часы в неделю в карточках проектов со статусом «В работе», и здесь появится, сколько минут в день уходит на каждый.</p></section>';
   return '<section class="panel"><div class="ph"><h2>Время на день</h2>'+(ui.project==='all'?'<span class="mute">'+perDay(L.total)+' из '+perDay(L.cap)+'</span>':'')+'</div><div class="rows">'+its.map(function(p){return '<div class="row pl-t" style="--pc:'+pc(p.id)+'"><i class="dot" aria-hidden="true"></i><span class="row-t">'+esc(p.name)+'</span><span class="row-d">'+perDay(p.hours)+'<small>'+(+p.hours)+' ч в неделю</small></span></div>'}).join('')+'</div><p class="sg-out" style="margin-top:8px">Это часы в неделю из карточек проектов, поделённые на семь дней.</p></section>';
 }
+var MSS={todo:'Впереди',done:'Пройдена'};
+function stSel(kind,id,cur){
+  var map=kind==='ms'?MSS:TS,keys=kind==='ms'?['todo','done']:TSO,lbl=kind==='ms'?'Статус версты':'Статус задачи';
+  if(ui.ro)return '<span class="st s-'+cur+'"><span class="st-b">'+esc(map[cur]||'')+'</span></span>';
+  return '<span class="st s-'+cur+'"><select data-st="'+kind+'" data-id="'+esc(id)+'" aria-label="'+lbl+'">'+optsHtml(keys.map(function(k){return [k,map[k]]}),cur)+'</select></span>';
+}
 function taskLi(t){
   var done=t.status==='done',late=!done&&validDate(t.due)&&t.due<today();
-  return '<div class="li'+(late?' late':'')+'" style="--pc:'+pc(t.project)+'"><button class="ck rnd w'+(done?' on':'')+'" data-act="tg-task" data-id="'+esc(t.id)+'" aria-label="'+(done?'Вернуть задачу в работу':'Задача готова')+'"></button><button class="li-b" data-act="edit" data-kind="task" data-id="'+esc(t.id)+'"><span class="li-t'+(done?' is-done':'')+'">'+esc(t.title)+'</span><span class="li-d">'+recAva('tasks',t)+esc(TS[t.status]||'')+(validDate(t.due)?' · '+dueT(t)+(done?'':' · '+rel(t.due)):'')+'</span></button></div>';
+  return '<div class="li'+(late?' late':'')+'" style="--pc:'+pc(t.project)+'"><button class="ck rnd w'+(done?' on':'')+'" data-act="tg-task" data-id="'+esc(t.id)+'" aria-label="'+(done?'Вернуть задачу в работу':'Задача готова')+'"></button><button class="li-b" data-act="edit" data-kind="task" data-id="'+esc(t.id)+'"><span class="li-t'+(done?' is-done':'')+'">'+esc(t.title)+'</span><span class="li-d">'+recAva('tasks',t)+(validDate(t.due)?dueT(t)+(done?'':' · '+rel(t.due)):'без срока')+'</span></button>'+stSel('task',t.id,TS[t.status]?t.status:'todo')+'</div>';
 }
 function planCard(t,showDate){
   var p=P(t.project),done=t.status==='done',c=t.contact?byId(S.contacts,t.contact):null,late=!done&&validDate(t.due)&&t.due<today();
@@ -4484,6 +4492,12 @@ document.addEventListener('click',function(e){
 document.addEventListener('keydown',function(e){
   var r=e.key==='Enter'&&e.target&&e.target.matches&&e.target.matches('#sh-lists .row[data-member]')?e.target:null;
   if(r){e.preventDefault();shCard(r.dataset.member)}
+});
+document.addEventListener('change',function(e){
+  var t=e.target;if(!t||!t.dataset||!t.dataset.st||ui.ro)return;
+  var v=t.value,o;
+  if(t.dataset.st==='ms'){o=byId(S.milestones,t.dataset.id);if(o&&!!o.done!==(v==='done'))patch('milestones',o.id,{done:v==='done'})}
+  else{o=byId(S.tasks,t.dataset.id);if(o&&TS[v]&&o.status!==v)patch('tasks',o.id,{status:v})}
 });
 document.addEventListener('change',function(e){
   var t=e.target;if(!t||t.id!=='ev-lang')return;
