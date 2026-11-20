@@ -53,7 +53,8 @@ function limiter(max, windowMs) {
 function collOf(req, res, write) {
   const coll = req.params.coll;
   if (!cfg.collections.includes(coll)) { res.status(404).json({ error: 'unknown_collection' }); return null; }
-  if (cfg.ownerOnly.has(coll) && req.user.role !== 'owner') { res.status(403).json({ error: 'forbidden' }); return null; }
+  // the owner's collections: a coordinator gets some of them, cut down to their projects
+  if (cfg.ownerOnly.has(coll) && req.user.role !== 'owner' && !(req.user.role === 'manager' && cfg.managed.has(coll))) { res.status(403).json({ error: 'forbidden' }); return null; }
   if (write && req.user.role === 'viewer') { res.status(403).json({ error: 'forbidden' }); return null; }
   if (write && coll === 'audit') { res.status(403).json({ error: 'forbidden' }); return null; } // the journal is written by the server only
   return coll;
@@ -102,7 +103,7 @@ function build() {
 
   const session = async (user, role) => (avatar.soon(user.id), { // the person's Telegram photo, without waiting for it
     token: auth.signSession(user.id), role, user: await auth.profileOf(String(user.id), role),
-    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly],
+    caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly], managed: [...cfg.managed],
     projects: role === 'owner' ? null : await auth.scopeOf(user.id),
   });
   api.post('/auth/telegram', authLimit, json, async (req, res) => {
@@ -122,7 +123,7 @@ function build() {
     res.json(await session({ id }, role));
   });
   api.get('/me', auth.guard(), async (req, res) => {
-    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly], projects: req.user.projects });
+    res.json({ role: req.user.role, user: await auth.profileOf(req.user.id, req.user.role), caps: { ai: ai.enabled(), files: true }, app: { name: cfg.appName, bot: bot.name(), readsAll: bot.readsAll(), zoom: calls.zoomOn(), meet: await google.on() }, ownerOnly: [...cfg.ownerOnly], managed: [...cfg.managed], projects: req.user.projects });
     bot.maybeBackup();
   });
 
@@ -130,7 +131,7 @@ function build() {
     const coll = collOf(req, res, false); if (!coll) return;
     res.setHeader('Cache-Control', 'no-store');
     const docs = await db.listDocs(coll), sc = req.user.projects;
-    res.json({ docs: sc ? docs.filter((d) => auth.sees(sc, coll, d.id, d.data)) : docs });
+    res.json({ docs: sc ? docs.map((d) => ({ id: d.id, version: d.version, data: auth.view(sc, coll, d.id, d.data) })).filter((d) => d.data) : docs });
   });
   // A member with a project list writes only inside those projects and cannot add or remove projects.
   // cur is the record now (or null), next is what it becomes (null for a deletion).
@@ -156,8 +157,9 @@ function build() {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
     const cur = await db.getDoc(coll, req.params.id);
-    if (!mayWrite(req, res, coll, req.params.id, cur, req.body.data)) return;
-    const d = await db.setDoc(coll, req.params.id, req.body.data);
+    const data = coll === 'contacts' && req.user.projects ? auth.cardWrite(req.user.projects, cur && cur.data, req.body.data) : req.body.data;
+    if (!mayWrite(req, res, coll, req.params.id, cur, data)) return;
+    const d = await db.setDoc(coll, req.params.id, data);
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     journal.note(cur ? 'upd' : 'add', coll, d.id, d.data, cur && cur.data, await who(req));
     if (coll === 'events') await calls.ensure(d.id).catch((e) => console.error('[calls]', e.message));
@@ -168,8 +170,9 @@ function build() {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
     const cur = await db.getDoc(coll, req.params.id);
-    if (!mayWrite(req, res, coll, req.params.id, cur, Object.assign({}, cur ? cur.data : {}, req.body.data))) return;
-    const d = await db.updateDoc(coll, req.params.id, req.body.data);
+    const card = coll === 'contacts' && req.user.projects && cur ? auth.cardWrite(req.user.projects, cur.data, Object.assign({}, cur.data, req.body.data)) : null;
+    if (!mayWrite(req, res, coll, req.params.id, cur, card || Object.assign({}, cur ? cur.data : {}, req.body.data))) return;
+    const d = card ? await db.setDoc(coll, req.params.id, card) : await db.updateDoc(coll, req.params.id, req.body.data);
     if (!d) return res.status(404).json({ error: 'not_found' });
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     journal.note('upd', coll, d.id, d.data, cur && cur.data, await who(req));
@@ -182,6 +185,8 @@ function build() {
     if (!ID_RE.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
     const cur = await db.getDoc(coll, req.params.id);
     if (!mayWrite(req, res, coll, req.params.id, cur, null)) return;
+    // a card that also belongs to projects outside the coordinator's list is not theirs to delete
+    if (coll === 'contacts' && req.user.projects && cur && auth.cardProjects(cur.data).some((p) => !req.user.projects.includes(p))) return res.status(403).json({ error: 'forbidden' });
     const was = await db.deleteDoc(coll, req.params.id);
     hub.publish(coll, req.params.id, null, 0, srcOf(req), cur && cur.data);
     if (was) journal.note('del', coll, req.params.id, null, cur && cur.data, await who(req));
@@ -197,61 +202,90 @@ function build() {
   api.get('/stream', auth.guard(), (req, res) => hub.attach(req, res, req.user));
 
   /* ---------- sharing: who has access, invite links ---------- */
-  const cleanAccess = async (b) => {
-    const role = b && b.role === 'editor' ? 'editor' : 'viewer';
-    if (!b || b.projects === null || b.projects === undefined || b.projects === '*') return { role, projects: null };
+  // by: who asks. Only the owner makes a coordinator, and a coordinator always has a list of projects.
+  // A coordinator gives and changes the two lower levels, inside their own projects.
+  const cleanAccess = async (b, by) => {
+    const want = b && b.role, mine = by.role === 'manager' ? by.projects : null;
+    const role = want === 'manager' && by.role === 'owner' ? 'manager' : want === 'editor' ? 'editor' : want === 'manager' ? null : 'viewer';
+    if (!role) return null;
+    if (!b || b.projects === null || b.projects === undefined || b.projects === '*') return role === 'manager' || mine ? null : { role, projects: null };
     if (!Array.isArray(b.projects)) return null;
     const known = new Set((await db.listDocs('projects')).map((p) => p.id));
     const list = [...new Set(b.projects.filter((x) => typeof x === 'string' && known.has(x)))];
+    if (mine && list.some((p) => !mine.includes(p))) return null;
     return list.length ? { role, projects: list } : null;
   };
-  api.get('/share', auth.guard('owner'), async (req, res) => {
+  const LEVEL = { manager: 'координатор', editor: 'редактирует', viewer: 'смотрит' };
+  const inside = (list, mine) => Array.isArray(list) && list.length > 0 && list.every((p) => mine.includes(p));
+  // May this person change or close the access of the member? The owner: anybody's. A coordinator: an editor or
+  // a viewer whose projects are all the coordinator's own; never another coordinator, never themselves.
+  const mayTouch = (by, m) => by.role === 'owner' || (!!m && String(m.id) !== String(by.id) && auth.memberRole(m.role, m.projects) !== 'manager' && inside(m.projects, by.projects));
+  api.get('/share', auth.guard('manage'), async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    const members = await db.listMembers(), photos = await Promise.all(members.map((m) => avatar.urlOf(m.id)));
+    const mine = req.user.role === 'owner' ? null : req.user.projects;
+    const cut = (list) => (mine && Array.isArray(list) ? list.filter((p) => mine.includes(p)) : Array.isArray(list) ? list : null);
+    const members = (await db.listMembers()).filter((m) => !mine || (Array.isArray(m.projects) && m.projects.some((p) => mine.includes(p))));
+    const photos = await Promise.all(members.map((m) => avatar.urlOf(m.id)));
     res.json({
       bot: bot.name(),
-      members: members.map((m, i) => ({ id: m.id, name: m.name, username: m.username, role: m.role === 'editor' ? 'editor' : 'viewer', projects: Array.isArray(m.projects) ? m.projects : null, photo: photos[i] })),
-      links: (await db.listInviteLinks()).map((l) => ({ token: l.token, role: l.role, projects: Array.isArray(l.projects) ? l.projects : null, expires: l.expires_at, url: bot.name() ? 'https://t.me/' + bot.name() + '?start=inv_' + l.token : '' })),
+      // fixed: this person's access is not for the asker to change
+      members: members.map((m, i) => ({ id: m.id, name: m.name, username: m.username, role: auth.memberRole(m.role, m.projects), projects: cut(m.projects), photo: photos[i], fixed: !mayTouch(req.user, m) })),
+      links: (await db.listInviteLinks()).filter((l) => !mine || inside(l.projects, mine)).map((l) => ({ token: l.token, role: l.role, projects: Array.isArray(l.projects) ? l.projects : null, expires: l.expires_at, url: bot.name() ? 'https://t.me/' + bot.name() + '?start=inv_' + l.token : '' })),
       // invited through the bot by name (/invite @name), have not come in yet: all projects
-      names: (await db.listInvites()).map((x) => ({ username: x.username, role: x.role === 'editor' ? 'editor' : 'viewer' })),
+      names: mine ? [] : (await db.listInvites()).map((x) => ({ username: x.username, role: x.role === 'editor' ? 'editor' : 'viewer' })),
     });
   });
-  api.post('/share/links', auth.guard('owner'), actLimit, json, async (req, res) => {
-    const a = await cleanAccess(req.body);
+  api.post('/share/links', auth.guard('manage'), actLimit, json, async (req, res) => {
+    // a link makes an editor or a viewer; a coordinator is named by the owner, person by person
+    const a = req.body && req.body.role === 'manager' ? null : await cleanAccess(req.body, req.user);
     if (!a) return res.status(400).json({ error: 'bad_request' });
     if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
     const token = await db.createInviteLink(a.role, a.projects, 7);
-    journal.event('acc', 'Создана ссылка-приглашение: ' + (a.role === 'editor' ? 'редактировать' : 'смотреть') + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты'));
+    journal.event('acc', 'Создана ссылка-приглашение: ' + (a.role === 'editor' ? 'редактировать' : 'смотреть') + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты'), await who(req));
     res.json({ token, url: 'https://t.me/' + bot.name() + '?start=inv_' + token, role: a.role, projects: a.projects });
   });
-  api.delete('/share/links/:token', auth.guard('owner'), async (req, res) => { res.json({ ok: await db.dropInviteLink(String(req.params.token)) }); });
+  api.delete('/share/links/:token', auth.guard('manage'), async (req, res) => {
+    if (req.user.role !== 'owner') {
+      const l = (await db.listInviteLinks()).find((x) => x.token === String(req.params.token));
+      if (!l || !inside(l.projects, req.user.projects)) return res.status(403).json({ error: 'forbidden' });
+    }
+    res.json({ ok: await db.dropInviteLink(String(req.params.token)) });
+  });
   api.delete('/share/names/:username', auth.guard('owner'), async (req, res) => { res.json({ ok: (await db.removeInvite(String(req.params.username).toLowerCase())) > 0 }); });
-  api.patch('/share/members/:id', auth.guard('owner'), json, async (req, res) => {
-    const a = await cleanAccess(req.body);
+  api.patch('/share/members/:id', auth.guard('manage'), json, async (req, res) => {
+    const a = await cleanAccess(req.body, req.user);
     if (!a || !/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    const was = await db.getMember(req.params.id);
+    if (was && !mayTouch(req.user, was)) return res.status(403).json({ error: 'forbidden' });
     const ok = await db.setMemberAccess(req.params.id, a.role, a.projects);
     if (ok) hub.setAccess(req.params.id, a.role, a.projects);
-    if (ok) { const m = await db.getMember(req.params.id); journal.event('acc', 'Доступ изменён: ' + ((m && (m.name || m.username)) || req.params.id) + ' — ' + (a.role === 'editor' ? 'редактирует' : 'смотрит') + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты')); }
+    if (ok) { const m = await db.getMember(req.params.id); journal.event('acc', 'Доступ изменён: ' + ((m && (m.name || m.username)) || req.params.id) + ' — ' + LEVEL[a.role] + ', ' + (a.projects ? 'проектов: ' + a.projects.length : 'все проекты'), await who(req)); }
+    // a new coordinator hears it from the bot: the dashboard now shows them more
+    if (ok && a.role === 'manager' && auth.memberRole(was.role, was.projects) !== 'manager') {
+      const names = (await db.listDocs('projects')).filter((p) => a.projects.includes(p.id)).map((p) => String(p.data.name || '')).join(', ');
+      await T.tg('sendMessage', { chat_id: req.params.id, text: 'Ты теперь координатор: ' + names + '. В дэшборде открылись деньги, контакты и анкеты, переписка, онбординг и доступ этого проекта.' }).catch(() => {});
+    }
     res.status(ok ? 200 : 404).json({ ok });
   });
-  // The chat with a person who has no name in Telegram: the bot sends the owner a message where the person's
+  // The chat with a person who has no name in Telegram: the bot sends the asker a message where the person's
   // name is a link to their profile. Telegram opens a person by id only from such a message.
-  api.post('/share/members/:id/chat', auth.guard('owner'), actLimit, async (req, res) => {
+  api.post('/share/members/:id/chat', auth.guard('manage'), actLimit, async (req, res) => {
     if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
     const m = await db.getMember(req.params.id);
-    if (!m) return res.status(404).json({ error: 'not_found' });
+    if (!m || (req.user.role !== 'owner' && !(Array.isArray(m.projects) && m.projects.some((p) => req.user.projects.includes(p))))) return res.status(404).json({ error: 'not_found' });
     const name = String(m.name || (m.username ? '@' + m.username : '') || 'Без имени').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     try {
       await T.tg('sendMessage', { chat_id: req.user.id, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, text: 'Чат с человеком: <a href="tg://user?id=' + req.params.id + '">' + name + '</a>\nНажми на имя: откроется профиль, оттуда можно написать.' });
     } catch (e) { return res.status(502).json({ error: 'bot_unavailable' }); }
     res.json({ ok: true });
   });
-  api.delete('/share/members/:id', auth.guard('owner'), async (req, res) => {
+  api.delete('/share/members/:id', auth.guard('manage'), async (req, res) => {
     if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
     const gone = await db.getMember(req.params.id);
+    if (gone && !mayTouch(req.user, gone)) return res.status(403).json({ error: 'forbidden' });
     const ok = await db.removeMember(req.params.id);
     if (ok) hub.dropUser(req.params.id);
-    if (ok) journal.event('acc', 'Доступ закрыт: ' + ((gone && (gone.name || gone.username)) || req.params.id));
+    if (ok) journal.event('acc', 'Доступ закрыт: ' + ((gone && (gone.name || gone.username)) || req.params.id), await who(req));
     res.json({ ok });
   });
 
@@ -259,6 +293,10 @@ function build() {
   /* ---------- work chats: the owner writes through the bot, or takes the bot out ---------- */
   const chatCall = (fn) => async (req, res) => {
     if (!/^g\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
+    if (req.user.role !== 'owner') { // a coordinator: the chats of their projects
+      const ch = await db.getDoc('chats', req.params.id);
+      if (!ch || !auth.manages(req.user, ch.data.project)) return res.status(404).json({ error: 'no_chat' });
+    }
     try { await fn(req); res.json({ ok: true }); } catch (e) {
       if (e.code === 'no_chat') return res.status(404).json({ error: 'no_chat' });
       if (e.code === 'bad_request') return res.status(400).json({ error: 'bad_request' });
@@ -266,8 +304,8 @@ function build() {
       res.status(502).json({ error: 'not_sent' });
     }
   };
-  api.post('/chats/:id/post', auth.guard('owner'), actLimit, json, chatCall((req) => groups.post(req.params.id, req.body && req.body.text, !!(req.body && req.body.buttons))));
-  api.post('/chats/:id/leave', auth.guard('owner'), actLimit, chatCall((req) => groups.leave(req.params.id)));
+  api.post('/chats/:id/post', auth.guard('manage'), actLimit, json, chatCall((req) => groups.post(req.params.id, req.body && req.body.text, !!(req.body && req.body.buttons))));
+  api.post('/chats/:id/leave', auth.guard('manage'), actLimit, chatCall((req) => groups.leave(req.params.id)));
 
   api.post('/files', auth.guard('write'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
@@ -296,8 +334,10 @@ function build() {
   });
 
   // Voice messages the bot has saved: played in the dashboard straight from Telegram.
-  api.get('/tg/file/:fileId', auth.guard('owner'), async (req, res) => {
+  api.get('/tg/file/:fileId', auth.guard('manage'), async (req, res) => {
     if (!/^[A-Za-z0-9_-]{10,200}$/.test(req.params.fileId)) return res.status(400).end();
+    // a coordinator plays only what is attached to a message of their projects
+    if (req.user.role !== 'owner' && !(await db.listDocs('messages')).some((m) => m.data.file && m.data.file.tg === req.params.fileId && auth.manages(req.user, m.data.project))) return res.status(404).end();
     let f;
     try { f = await T.openFile(req.params.fileId); } catch (e) { return res.status(404).end(); }
     const ext = path.extname(f.path).toLowerCase();
@@ -327,11 +367,12 @@ function build() {
   const obProject = async (req, res) => {
     const id = String(req.params.project || ''), p = ID_RE.test(id) ? await db.getDoc('projects', id) : null;
     if (!p) { res.status(404).json({ error: 'no_project' }); return null; }
+    if (!auth.manages(req.user, p.id)) { res.status(403).json({ error: 'forbidden' }); return null; }
     return p;
   };
   const obView = async (req, res, p) => { res.setHeader('Cache-Control', 'no-store'); res.json(await join.overview(p.id, bot.name())); };
-  api.get('/onboard/:project', auth.guard('owner'), async (req, res) => { const p = await obProject(req, res); if (p) await obView(req, res, p); });
-  api.post('/onboard/:project', auth.guard('owner'), actLimit, json, async (req, res) => {
+  api.get('/onboard/:project', auth.guard('manage'), async (req, res) => { const p = await obProject(req, res); if (p) await obView(req, res, p); });
+  api.post('/onboard/:project', auth.guard('manage'), actLimit, json, async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
     // {form: "invite"} is the invitation of the project; a form id picks that form; nothing is the team form
     const want = req.body && req.body.form;
@@ -340,18 +381,18 @@ function build() {
     if (!bot.name()) return res.status(409).json({ error: 'no_bot' });
     const had = (await db.listJoinLinks()).some((l) => l.project === p.id && l.form === f.id);
     await join.linkFor(p.id, f.id);
-    if (!had) journal.event('acc', (join.isCard(f) ? 'Приглашение включено' : 'Онбординг включён') + ': проект «' + String(p.data.name || '') + '», анкета «' + f.title + '»');
+    if (!had) journal.event('acc', (join.isCard(f) ? 'Приглашение включено' : 'Онбординг включён') + ': проект «' + String(p.data.name || '') + '», анкета «' + f.title + '»', await who(req));
     await obView(req, res, p);
   });
-  api.delete('/onboard/:project', auth.guard('owner'), async (req, res) => {
+  api.delete('/onboard/:project', auth.guard('manage'), async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
     // ?form=invite switches off the invitation alone; without it, the team link alone
     const card = req.query.form === 'invite', ids = join.forms().filter((f) => join.isCard(f) === card).map((f) => f.id);
-    if (await db.revokeJoinLinks(p.id, ids)) journal.event('acc', (card ? 'Приглашение выключено' : 'Онбординг выключен') + ': проект «' + String(p.data.name || '') + '»');
+    if (await db.revokeJoinLinks(p.id, ids)) journal.event('acc', (card ? 'Приглашение выключено' : 'Онбординг выключен') + ': проект «' + String(p.data.name || '') + '»', await who(req));
     await obView(req, res, p);
   });
   // the invitation as a QR code, to show from the phone at a meeting
-  api.get('/onboard/:project/qr', auth.guard('owner'), async (req, res) => {
+  api.get('/onboard/:project/qr', auth.guard('manage'), async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
     const o = await join.overview(p.id, bot.name());
     if (!o.invite || !o.invite.link) return res.status(409).json({ error: 'no_link' });
@@ -359,7 +400,7 @@ function build() {
     res.json({ url: o.invite.link.url, svg: await join.qrSvg(o.invite.link.url) });
   });
   // the table of answers goes to the owner's chat with the bot: a file is of little use inside Telegram's window
-  api.post('/onboard/:project/csv', auth.guard('owner'), actLimit, async (req, res) => {
+  api.post('/onboard/:project/csv', auth.guard('manage'), actLimit, async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
     const o = await join.overview(p.id, bot.name()), card = req.query.form === 'invite';
     const f = card ? o.invite && join.form(o.invite.form.id) : o.form && join.form(o.form.id);
@@ -373,11 +414,11 @@ function build() {
 
   // all the answers of the project's onboarding as one file, csv or json. {send: true}: the bot sends it to the
   // owner's chat (inside Telegram a page cannot save files); otherwise the text comes back and the page saves it
-  api.post('/onboard/:project/export', auth.guard('owner'), actLimit, json, async (req, res) => {
+  api.post('/onboard/:project/export', auth.guard('manage'), actLimit, json, async (req, res) => {
     const p = await obProject(req, res); if (!p) return;
     const fmt = req.body && req.body.format === 'json' ? 'json' : 'csv', x = await join.exportProject(p.id, fmt);
     if (!x.n) return res.status(409).json({ error: 'empty' });
-    journal.event('acc', 'Выгрузка онбординга (' + fmt.toUpperCase() + '): проект «' + x.project + '», ответов ' + x.n);
+    journal.event('acc', 'Выгрузка онбординга (' + fmt.toUpperCase() + '): проект «' + x.project + '», ответов ' + x.n, await who(req));
     if (!(req.body && req.body.send)) return res.json({ ok: true, n: x.n, filename: x.filename, text: x.body.toString('utf8') });
     try {
       await require('./telegram').sendDocument(req.user.id, x.filename, x.body, 'Онбординг проекта «' + x.project + '»: ответов ' + x.n + (fmt === 'csv' ? '. Открывается в Excel и Google Таблицах.' : ', формат JSON.'));

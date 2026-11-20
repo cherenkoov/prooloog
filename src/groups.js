@@ -360,6 +360,7 @@ async function openApp(cq, doc, ack) {
   // Telegram answers for certain only to an administrator; in a closed chat the button itself is seen by members only
   if (inside === false || (inside === null && ch.pub)) return ack('Проект открывается только участникам этого чата.', true);
   const cur = await db.getMember(uid);
+  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager' && !cur.projects.includes(ch.project)) return ack('Этот проект координатору открывает владелец в окне «Доступ».', true);
   const role = cur && cur.role === 'editor' ? 'editor' : 'viewer';
   const list = !cur ? [ch.project] : Array.isArray(cur.projects) ? [...new Set(cur.projects.concat([ch.project]))] : null;
   if (!cur || (Array.isArray(cur.projects) && !cur.projects.includes(ch.project))) {

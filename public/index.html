@@ -909,12 +909,14 @@ var CORE=['projects','tasks','milestones','events','inbox','log','posts','channe
 var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','chats','activity','gone']);
 var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],chats:[],activity:[],gone:[],audit:[],settings:{capacity:40}};
 var loaded={};
-var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
+var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mg:false,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
 var ST={idea:'Идея',active:'В работе',paused:'Пауза',done:'Готово'},STO=['idea','active','paused','done'];
 var TS={todo:'Очередь',doing:'В работе',done:'Готово'},TSO=['todo','doing','done'];
 var VIEWS={overview:'Обзор',plan:'План',board:'Борда',calendar:'Календарь',milestones:'Вёрсты',content:'Контент',services:'Услуги',budget:'Бюджет',team:'Команда',contacts:'Контакты'};
-function views(){return Object.keys(VIEWS).filter(function(v){return ui.owner||(v!=='budget'&&v!=='contacts'&&v!=='team')})}
+// the owner, or a coordinator: someone who runs the projects they see (money, people, messages, onboarding, access)
+function boss(){return ui.owner||ui.mg}
+function views(){return Object.keys(VIEWS).filter(function(v){return boss()||(v!=='budget'&&v!=='contacts'&&v!=='team')})}
 var MON=['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
 var MONG=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 var MONP=['январе','феврале','марте','апреле','мае','июне','июле','августе','сентябре','октябре','ноябре','декабре'];
@@ -1182,7 +1184,7 @@ function msLi(m){
   return '<li class="li'+(late?' late':'')+'" style="--pc:'+pc(m.project)+'"><button class="ck dia w'+(m.done?' on':'')+'" data-act="tg-ms" data-id="'+esc(m.id)+'" aria-pressed="'+!!m.done+'" aria-label="Верста пройдена"></button><button class="li-b" data-act="ms-open" data-id="'+esc(m.id)+'" aria-expanded="'+open+'"><span class="li-t'+(m.done?' is-done':'')+'">'+esc(m.title)+'</span><span class="li-d">'+esc(meta)+(tot?'':' · задач нет')+'</span></button>'+(open?'<div class="li-x">'+(ts.length?ts.map(taskLi).join(''):'<p class="mute" style="font-size:14px;padding:4px 0">К этой версте задачи пока не привязаны.</p>')+'<div class="li-xa w"><button class="btn sm" data-act="new" data-kind="task" data-project="'+esc(m.project)+'" data-ms="'+esc(m.id)+'">+ Задача</button><button class="btn sm" data-act="edit" data-kind="milestone" data-id="'+esc(m.id)+'">Изменить версту</button></div></div>':'')+'</li>';
 }
 function drawOverviewOne(p){
-  var h=pendingPanel(p.id)+'<section class="panel pinfo" style="--pc:'+pc(p.id)+'"><div class="pinfo-h"><span class="pill st-'+esc(p.status)+'">'+esc(ST[p.status]||'')+'</span><span class="mute">'+esc(p.area||'Без группы')+(+p.hours>0?' · '+(+p.hours)+' ч в неделю':'')+'</span>'+(ui.owner?'<button class="btn sm" data-act="share" data-id="'+esc(p.id)+'">Поделиться</button>':'')+'<button class="btn sm w" data-act="edit" data-kind="project" data-id="'+esc(p.id)+'">Изменить</button></div>';
+  var h=pendingPanel(p.id)+'<section class="panel pinfo" style="--pc:'+pc(p.id)+'"><div class="pinfo-h"><span class="pill st-'+esc(p.status)+'">'+esc(ST[p.status]||'')+'</span><span class="mute">'+esc(p.area||'Без группы')+(+p.hours>0?' · '+(+p.hours)+' ч в неделю':'')+'</span>'+(boss()?'<button class="btn sm" data-act="share" data-id="'+esc(p.id)+'">Поделиться</button>':'')+'<button class="btn sm w" data-act="edit" data-kind="project" data-id="'+esc(p.id)+'">Изменить</button></div>';
   if(p.why)h+='<p class="why big">'+esc(p.why)+'</p>';
   h+='<div class="kv">';
   if(p.next)h+='<span class="k">Дальше</span><span class="v">'+esc(p.next)+'</span>';
@@ -1203,7 +1205,7 @@ function drawOverviewOne(p){
   }).join('')+'</div>':'<p class="mute">Открытых задач нет.</p>';
   h+='</section></div>';
   h+=cyclePanel(p,true);
-  if(ui.owner)h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+teamRow(p)+subsPanel(p);
+  if(boss())h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+teamRow(p)+subsPanel(p);
   return h+notesPanel(p);
 }
 
@@ -1603,7 +1605,7 @@ function teamOf(pid){
 }
 // One tap moves a card between «Команда» and «Контакты». pid is the project on the screen; without it, every project of the card.
 function teamMove(cid,pid){
-  var c=byId(S.contacts,cid);if(!c||!ui.owner||ui.ro)return;
+  var c=byId(S.contacts,cid);if(!c||!boss()||ui.ro)return;
   var tm=cTeam(c),isIn=pid?tm.indexOf(pid)>=0:teamAny(c),nm=c.name||'Контакт';
   if(isIn){
     var left=pid?tm.filter(function(q){return q!==pid}):[],d={team:left};
@@ -1618,7 +1620,7 @@ function teamMove(cid,pid){
   }
 }
 function teamBtn(c){
-  if(!ui.owner||ui.ro)return '';
+  if(!boss()||ui.ro)return '';
   var pid=ui.project!=='all'&&P(ui.project)?ui.project:'',isIn=pid?inTeam(c,pid):teamAny(c);
   return '<button class="btn sm" data-act="c-team" data-id="'+esc(c.id)+'" data-project="'+esc(pid)+'">'+(isIn?'→ В контакты':'→ В команду')+'</button>';
 }
@@ -1651,7 +1653,7 @@ function drawTeam(){
   return h||'<section class="panel"><p>Ни в одном проекте пока нет команды.</p><p class="mute" style="margin-top:6px;max-width:65ch">'+teamHow()+(obNs?' Открой проект и создай ссылку онбординга.':'')+'</p></section>';
 }
 function teamPanel(p){
-  if(!ui.owner)return '';
+  if(!boss())return '';
   var tm=teamOf(p.id);
   if(!obNs&&!tm.length)return '';
   return '<section class="panel" id="tm-p" data-id="'+esc(p.id)+'"><div class="ph"><h2>Команда'+(tm.length?': '+tm.length:'')+'</h2><span class="pbtn"><button type="button" class="btn sm" data-act="view" data-v="team">Открыть</button></span></div>'+
@@ -2493,7 +2495,7 @@ function obPaint(pid){
   if(ob[pid]&&ob[pid].st==='ok'&&(ui.view==='team'||ui.view==='contacts')&&$('#sheet').hidden)render();
 }
 function obPanel(p){
-  if(!ui.owner||!obNs)return '';
+  if(!boss()||!obNs)return '';
   obLoad(p.id);
   return '<section class="panel" id="ob-p" data-id="'+esc(p.id)+'">'+obInner(p)+'</section>';
 }
@@ -2604,7 +2606,7 @@ function chatRow(x,here){
     (here?'<button type="button" class="btn sm" data-act="chat-link" data-id="'+esc(x.id)+'" data-project="'+esc(here)+'">Привязать сюда</button>':'<button type="button" class="btn sm" data-act="chat-open" data-id="'+esc(x.id)+'">Настроить</button>')+'</div>';
 }
 function chatsPanel(p){
-  if(!ui.owner)return '';
+  if(!boss())return '';
   var its=chatList(p.id),loose=chatNs?chatLoose():[];
   if(!chatNs&&!its.length)return '';
   var url=chatAddUrl(p.id);
@@ -2615,7 +2617,7 @@ function chatsPanel(p){
   return h+'</section>';
 }
 function formChat(id){
-  var x=byId(S.chats,id);if(!x||!ui.owner)return;
+  var x=byId(S.chats,id);if(!x||!boss())return;
   if(!chatNs){
     // inside Claude there is no bot: the record came with a sync, and the chat is run from the server version
     var pj=P(x.project);
@@ -2653,7 +2655,7 @@ function shNames(list){
 function shPick(){
   var all=!!($('#sh-all')||{}).checked,ids=[];
   Array.prototype.forEach.call(document.querySelectorAll('#sh-pl input:checked'),function(x){ids.push(x.value)});
-  return {role:($('#sh-ed')||{}).checked?'editor':'viewer',projects:all?null:ids};
+  return {role:($('#sh-mg')||{}).checked?'manager':($('#sh-ed')||{}).checked?'editor':'viewer',projects:all?null:ids};
 }
 // the chat with a person in Telegram: a link by their name; without a name the bot sends the owner a message
 // where the person's name opens their profile (Telegram opens a person by id only from such a message)
@@ -2668,7 +2670,7 @@ function shChatAsk(id){
 }
 // the card of a person who has access: their contact when there is one (the onboarding form makes it), otherwise a new one, filled in
 function shCard(id){
-  var m=shMember(id);if(!m||!ui.owner)return;
+  var m=shMember(id);if(!m||!boss())return;
   var u=String(m.username||'').toLowerCase();
   var c=byId(S.contacts,'jn-'+m.id)||S.contacts.filter(function(q){return u&&String(q.tg||'').replace(/^@/,'').toLowerCase()===u})[0]||null;
   if(c)formContact(c.id,null,m.id);
@@ -2682,8 +2684,8 @@ function shDraw(){
   var b=$('#sh-lists');if(!b||!shState)return;
   var m=shState.members||[],l=shState.links||[],n=shState.names||[];
   var h='<div class="chat-h"><h2>У кого есть доступ</h2></div>'+(m.length?'<div class="rows">'+m.map(function(x){
-    return shRow(esc(x.name||'Без имени')+(x.username?' <span class="mute">@'+esc(x.username)+'</span>':''),(x.role==='editor'?'Редактирует':'Смотрит')+' · '+esc(shNames(x.projects)),
-      shChatBtn(x.username,x.id,'Написать')+'<button type="button" class="btn sm" data-act="sh-edit" data-id="'+esc(x.id)+'">Изменить</button><button type="button" class="btn sm dng" data-act="sh-drop-member" data-id="'+esc(x.id)+'">Закрыть доступ</button>',x.id);
+    return shRow(esc(x.name||'Без имени')+(x.username?' <span class="mute">@'+esc(x.username)+'</span>':''),(x.role==='manager'?'Координатор':x.role==='editor'?'Редактирует':'Смотрит')+' · '+esc(shNames(x.projects)),
+      shChatBtn(x.username,x.id,'Написать')+(x.fixed?'':'<button type="button" class="btn sm" data-act="sh-edit" data-id="'+esc(x.id)+'">Изменить</button><button type="button" class="btn sm dng" data-act="sh-drop-member" data-id="'+esc(x.id)+'">Закрыть доступ</button>'),x.id);
   }).join('')+'</div><p class="sg-out" style="margin-top:6px">Двойное нажатие на человека открывает его карточку. «Написать» открывает чат с ним в Telegram.</p>':'<p class="mute">Пока доступ есть только у тебя.</p>');
   if(l.length||n.length)h+='<div class="chat-h"><h2>Приглашения, которыми ещё не воспользовались</h2></div><div class="rows">'+l.map(function(x){
     return shRow((x.role==='editor'?'Редактировать':'Смотреть')+' · '+esc(shNames(x.projects)),'ссылка действует до '+esc(fmt(String(x.expires||'').slice(0,10))),
@@ -2703,9 +2705,9 @@ function shMode(){
 }
 function shSync(){
   var pl=$('#sh-pl'),lv=$('#sh-lv');if(!pl||!lv)return;
-  var all=$('#sh-all').checked,ed=$('#sh-ed').checked;
+  var all=$('#sh-all').checked,ed=$('#sh-ed').checked,mg=!!($('#sh-mg')||{}).checked;
   pl.hidden=all;
-  lv.textContent=all
+  lv.textContent=mg?'Координатор ведёт выбранные проекты вместе с тобой: видит их деньги, контакты и анкеты, переписку и рабочие чаты, подтверждает изменения на ревью, ведёт онбординг и даёт доступ редакторам и зрителям. Не может удалить проект, назначить координатора, закрыть доступ тебе или другому координатору. Назначается человеку, у которого доступ уже есть: «Изменить» рядом с его именем.':all
     ?(ed?'Человек видит и меняет все проекты, включая те, что появятся позже: может создавать и удалять проекты, задачи, события.':'Человек видит все проекты, включая те, что появятся позже. Менять ничего не может.')
     :(ed?'Человек видит только выбранные проекты и может менять в них задачи, вёрсты, события и заметки. Создавать и удалять проекты он не может.':'Человек видит только выбранные проекты: задачи, календарь, вёрсты. Менять ничего не может.');
 }
@@ -2714,7 +2716,7 @@ function shLoad(){
   Promise.resolve(shareNs.list()).then(function(r){shState=r||{};shDraw();shMode()}).catch(function(){var b=$('#sh-lists');if(b)b.innerHTML='<p class="sg-out">Не получилось загрузить список доступа.</p>'});
 }
 function formShare(pid){
-  if(!ui.owner)return;
+  if(!boss())return;
   var pre=P(pid)?pid:(ui.project!=='all'&&P(ui.project)?ui.project:'');
   if(!shareNs){
     openSheet('Доступ','<p>Здесь, внутри Claude, доступ к странице выдаётся в самом Claude, в настройках доступа этой страницы. Он открывает её целиком, без деления на проекты.</p><p class="mute" style="margin-top:10px">Доступ к выбранным проектам и ссылка-приглашение работают в версии на сервере. Открой Prooloog в Telegram и нажми там эту же кнопку: выберешь проекты, уровень доступа и получишь ссылку.</p><p class="sg-out" style="margin-top:12px">В любой версии бюджет, контакты, переписка, подписки и клиенты видны только тебе.</p>');
@@ -2722,11 +2724,11 @@ function formShare(pid){
   }
   shEdit=null;
   var list=sorted(S.projects);
-  var h='<div class="form"><p class="sg-out" id="sh-who" hidden></p><div class="f" role="radiogroup" aria-label="Что открыть"><span class="f-l">Что открыть</span><div class="kindsw"><label><input type="radio" name="sh-scope" id="sh-some" checked><span>Выбранные проекты</span></label><label><input type="radio" name="sh-scope" id="sh-all"><span>Все проекты</span></label></div></div>'+
+  var h='<div class="form"><p class="sg-out" id="sh-who" hidden></p><div class="f" role="radiogroup" aria-label="Что открыть"'+(ui.owner?'':' hidden')+'><span class="f-l">Что открыть</span><div class="kindsw"><label><input type="radio" name="sh-scope" id="sh-some" checked><span>Выбранные проекты</span></label><label><input type="radio" name="sh-scope" id="sh-all"><span>Все проекты</span></label></div></div>'+
     '<div class="ckl" id="sh-pl">'+list.map(function(p){return '<label><input type="checkbox" value="'+esc(p.id)+'"'+(p.id===pre?' checked':'')+'><span>'+esc(p.name)+'</span></label>'}).join('')+'</div>'+
-    '<div class="f" role="radiogroup" aria-label="Уровень доступа"><span class="f-l">Уровень доступа</span><div class="kindsw"><label><input type="radio" name="sh-role" id="sh-vw" checked><span>Смотреть</span></label><label><input type="radio" name="sh-role" id="sh-ed"><span>Редактировать</span></label></div><p class="sg-out" id="sh-lv"></p></div>'+
+    '<div class="f" role="radiogroup" aria-label="Уровень доступа"><span class="f-l">Уровень доступа</span><div class="kindsw"><label><input type="radio" name="sh-role" id="sh-vw" checked><span>Смотреть</span></label><label><input type="radio" name="sh-role" id="sh-ed"><span>Редактировать</span></label>'+(ui.owner?'<label><input type="radio" name="sh-role" id="sh-mg"><span>Координатор</span></label>':'')+'</div><p class="sg-out" id="sh-lv"></p></div>'+
     '<div class="acts"><button type="button" class="btn pri" id="sh-make" data-act="sh-make">Создать ссылку-приглашение</button><button type="button" class="btn" id="sh-cancel" data-act="sh-cancel" hidden>Отмена</button></div><div id="sh-link"></div><p class="sg-out" id="sh-out" role="status"></p>'+
-    '<p class="sg-out">Бюджет, контакты, переписка, подписки и клиенты видны только тебе, какой бы доступ ты ни дал.</p></div><div id="sh-lists"><p class="sg-out" style="margin-top:14px">Загружаю список…</p></div>';
+    '<p class="sg-out">'+(ui.owner?'Бюджет, контакты, переписка, подписки и клиенты проекта видны только тебе и его координаторам.':'Ты координатор: даёшь доступ к своим проектам на уровнях «Смотреть» и «Редактировать». Координаторов назначает владелец.')+'</p></div><div id="sh-lists"><p class="sg-out" style="margin-top:14px">Загружаю список…</p></div>';
   openSheet('Доступ',h,function(b){
     Array.prototype.forEach.call(b.querySelectorAll('input[type=radio]'),function(x){x.addEventListener('change',shSync)});
     shSync();
@@ -2739,14 +2741,17 @@ function shEditStart(id){
   var all=!Array.isArray(m.projects);
   $('#sh-all').checked=all;$('#sh-some').checked=!all;
   Array.prototype.forEach.call(document.querySelectorAll('#sh-pl input'),function(x){x.checked=!all&&m.projects.indexOf(x.value)>=0});
-  $('#sh-ed').checked=m.role==='editor';$('#sh-vw').checked=m.role!=='editor';
+  var smg=$('#sh-mg');if(smg)smg.checked=m.role==='manager';
+  $('#sh-ed').checked=m.role==='editor';$('#sh-vw').checked=m.role!=='editor'&&m.role!=='manager';
   $('#sh-link').innerHTML='';$('#sh-out').textContent='';
   shSync();shMode();
   var w=$('#sh-who');if(w&&w.scrollIntoView)w.scrollIntoView({block:'nearest'});
 }
 function shMake(t){
   var out=$('#sh-out'),box=$('#sh-link'),a=shPick();if(!shareNs||!out||!box)return;
-  if(a.projects&&!a.projects.length){out.textContent='Отметь хотя бы один проект или выбери «Все проекты».';return}
+  if(a.projects&&!a.projects.length){out.textContent=ui.owner?'Отметь хотя бы один проект или выбери «Все проекты».':'Отметь хотя бы один проект.';return}
+  if(a.role==='manager'&&!shEdit){out.textContent='Координатором назначают человека, у которого доступ уже есть: нажми «Изменить» рядом с его именем.';return}
+  if(a.role==='manager'&&!a.projects){out.textContent='Координатору нужны выбранные проекты, не «Все проекты».';return}
   t.disabled=true;
   if(shEdit){
     out.textContent='Сохраняю…';
@@ -2853,7 +2858,7 @@ function mnList(){
   var out=[];
   function add(k,id,name,x){name=String(name||'').replace(/\s+/g,' ').trim();if(name.length>=2&&name.length<=80)out.push({k:k,id:id,n:name,l:name.toLowerCase(),x:String(x||'')})}
   S.projects.forEach(function(p){add('project',p.id,p.name,p.area)});
-  if(ui.owner){
+  if(boss()){
     S.contacts.forEach(function(c){add('contact',c.id,c.name,c.role);var tg=tgUser(c.tg);if(tg)add('contact',c.id,tg,c.name)});
     S.clients.forEach(function(c){add('client',c.id,c.name,c.group)});
   }
@@ -3154,7 +3159,7 @@ function logFlush(){
 }
 function logSub(){
   if(lg.sub)return;lg.sub=true;
-  if(!db||!ui.owner){lg.ready=true;return}
+  if(!db||!boss()){lg.ready=true;return}
   logMem();
   db.collection('audit').onSnapshot(function(snap){
     var was=whoIdx.sig;
@@ -3206,7 +3211,7 @@ function logWho(e,ct){
   var by=String(e.by||'').trim(),low=by.toLowerCase(),id=low.replace(/^@/,'');
   if(ct){
     var cm=(shState&&shState.members||[]).filter(function(x){return ct.id==='jn-'+x.id||(x.username&&tgUser(ct.tg).toLowerCase()===String(x.username).toLowerCase())})[0]||null;
-    return {key:'u:'+(cm?cm.id:ct.id),kind:'user',name:ct.name||'Без имени',ini:logIni(ct.name||'?'),role:cm?(cm.role==='editor'?'Редактор':'Зритель'):(ct.rel||ct.role||'Контакт'),tg:tgUser((cm&&cm.username)||ct.tg),m:cm,ct:ct,c:logHue(String(cm?cm.id:ct.id))};
+    return {key:'u:'+(cm?cm.id:ct.id),kind:'user',name:ct.name||'Без имени',ini:logIni(ct.name||'?'),role:cm?(cm.role==='manager'?'Координатор':cm.role==='editor'?'Редактор':'Зритель'):(ct.rel||ct.role||'Контакт'),tg:tgUser((cm&&cm.username)||ct.tg),m:cm,ct:ct,c:logHue(String(cm?cm.id:ct.id))};
   }
   if(!by||/^(владелец|owner|я|ты)$/.test(low))return ui.owner?{key:'me',kind:'me',name:'Ты',ini:'Я',role:'Владелец',c:0}:{key:'me',kind:'me',name:'Владелец',ini:'В',role:'Владелец',c:0};
   if(low.indexOf('claude')>=0)return {key:'ai',kind:'ai',name:'Claude',ini:'C',role:'Ассистент: действует из чата, коннектора и сессий в боте',c:1};
@@ -3218,7 +3223,7 @@ function logWho(e,ct){
   var m=(shState&&shState.members||[]).filter(function(x){return same(x.id)||(x.username&&same(x.username))||(x.name&&same(x.name))})[0]||null;
   var c=(m&&byId(S.contacts,'jn-'+m.id))||byId(S.contacts,'jn-'+id)||S.contacts.filter(function(q){return (q.tg&&(same(q.tg)||(m&&m.username&&String(q.tg).replace(/^@/,'').toLowerCase()===String(m.username).toLowerCase())))||(q.name&&same(q.name))})[0]||null;
   var name=(m&&m.name)||(c&&c.name)||by,tg=tgUser((m&&m.username)||(c&&c.tg)||(/^@/.test(by)?by:''));
-  return {key:'u:'+(m?m.id:c?c.id:id),kind:'user',name:name,ini:logIni(name),role:m?(m.role==='editor'?'Редактор':'Зритель'):c?(c.rel||c.role||'Контакт'):'Участник',tg:tg,m:m,ct:c,c:logHue(String(m?m.id:c?c.id:id))};
+  return {key:'u:'+(m?m.id:c?c.id:id),kind:'user',name:name,ini:logIni(name),role:m?(m.role==='manager'?'Координатор':m.role==='editor'?'Редактор':'Зритель'):c?(c.rel||c.role||'Контакт'):'Участник',tg:tg,m:m,ct:c,c:logHue(String(m?m.id:c?c.id:id))};
 }
 // the photo of an author: the Telegram photo the server keeps on the person (who has access) or on their card,
 // for the owner the one in settings or the one Telegram gives the mini app; no photo, or it fails to load: initials
@@ -3258,7 +3263,7 @@ function recWho(coll,o){
   return w;
 }
 function recAva(coll,o){var w;try{w=recWho(coll,o)}catch(x){w=null}if(!w)return '';lg.whoMap[w.key]=w;return logAva(w,false,'sm')}
-function logMem(){if(shareNs&&ui.owner&&!shState&&!lg.mem){lg.mem=true;Promise.resolve(shareNs.list()).then(function(r){if(!shState)shState=r||{};logPaint();render()}).catch(function(){})}}
+function logMem(){if(shareNs&&boss()&&!shState&&!lg.mem){lg.mem=true;Promise.resolve(shareNs.list()).then(function(r){if(!shState)shState=r||{};logPaint();render()}).catch(function(){})}}
 // the card of an author: who it is, how much they did, their latest actions
 function whoCard(key){
   var w=lg.whoMap[key];if(!w)return;
@@ -3270,7 +3275,7 @@ function whoCard(key){
   h+='<p class="wc-s">'+(its.length?logCount(its.length)+' за '+LOG_KEEP+' дней'+(last?' · последнее '+(last.d===td?'сегодня':esc(fmt(last.d)))+' в '+esc(last.t):''):'Действий в истории нет')+'</p>';
   if(its.length)h+='<div class="wc-l">'+its.slice(0,5).map(function(e){var c=logClock(e.t);return '<div><span>'+(c.d===td?'':esc(fmt(c.d))+' ')+esc(c.t)+'</span><span>'+logText(e,false)+'</span></div>'}).join('')+'</div>';
   h+='<div class="acts">'+(its.length?'<button type="button" class="btn sm pri" data-act="who-only" data-id="'+esc(key)+'">Только действия автора</button>':'');
-  if(w.kind==='user'&&ui.owner){
+  if(w.kind==='user'&&boss()){
     h+='<button type="button" class="btn sm" data-act="who-contact" data-id="'+esc(key)+'">'+(w.ct?'Открыть контакт':'Завести контакт')+'</button>';
     h+=w.tg?'<a class="btn sm" href="https://t.me/'+esc(w.tg)+'" target="_blank" rel="noopener noreferrer">Написать</a>':(w.m?shChatBtn('',w.m.id,'Написать'):'');
   }
@@ -3282,7 +3287,7 @@ function whoOpen(){var el=$('#whocard');return !!(el&&!el.hidden)}
 function whoClose(){var el=$('#whocard');if(el){el.hidden=true;el.innerHTML=''}}
 function whoOnly(key){whoClose();lg.who=key;if(!lg.full){closeSheet();logSub();logFull(true)}else logPaint()}
 function whoContact(key){
-  var w=lg.whoMap[key];if(!w||!ui.owner)return;
+  var w=lg.whoMap[key];if(!w||!boss())return;
   whoClose();logFull(false);
   if(w.ct)formContact(w.ct.id,null,w.m?w.m.id:undefined);
   else formContact(null,{name:w.name||'',tg:w.tg?'@'+w.tg:'',projects:w.m&&Array.isArray(w.m.projects)?w.m.projects.filter(function(q){return P(q)}):[]},w.m?w.m.id:undefined);
@@ -3598,7 +3603,7 @@ function render(){if(pending)return;pending=setTimeout(function(){pending=0;draw
 function draw(){
   if(ui.dragging){ui.needDraw=true;return}
   mnCache=null;
-  if(!ui.owner&&(ui.view==='budget'||ui.view==='contacts'||ui.view==='team'))ui.view='overview';
+  if(!boss()&&(ui.view==='budget'||ui.view==='contacts'||ui.view==='team'))ui.view='overview';
   if(ui.mode==='ready'&&ui.project!=='all'&&!P(ui.project))ui.project='all';
   var keep={},a=document.activeElement,aid=a&&a.classList&&a.classList.contains('keep')?a.id:null,s0,s1;
   Array.prototype.forEach.call(document.querySelectorAll('#view .keep'),function(el){keep[el.id]=el.value});
@@ -3686,7 +3691,7 @@ function formProject(id){
 function formTask(id,pre){
   var t=id?byId(S.tasks,id):null;if(id&&!t)return;if(needProject())return;
   t=t||merge({title:'',project:defProject(),status:'todo',due:'',milestone:'',notes:'',contact:''},pre);
-  var hasC=ui.owner&&S.contacts.length>0;
+  var hasC=boss()&&S.contacts.length>0;
   openSheet(id?'Задача':'Новая задача',formHtml('task',id,
     fld('Что сделать',inp('title',t.title,'required maxlength="200"'))+
     '<div class="f2">'+fld('Проект',sel('project',projOpts(),t.project))+fld('Статус',sel('status',TSO.map(function(s){return [s,TS[s]]}),t.status))+'</div>'+
@@ -3723,14 +3728,14 @@ function formEvent(id,pre){
   openSheet(id?'Событие':'Новое событие',formHtml('event',id,
     fld('Что будет',inp('title',e.title,'required maxlength="200"'))+
     fld('Проект',sel('project',projOpts(true),e.project||''))+
-    (ui.owner&&S.contacts.length?fld('С кем',sel('contact',cOpts(e.project||'',e.contact),byId(S.contacts,e.contact)?e.contact:'')):'')+
+    (boss()&&S.contacts.length?fld('С кем',sel('contact',cOpts(e.project||'',e.contact),byId(S.contacts,e.contact)?e.contact:'')):'')+
     '<div class="f2">'+fld('Дата',inp('date',e.date,'type="date" required'))+fld('Время',inp('time',e.time,'type="time"'))+'</div>'+
     '<div class="f2">'+fld('Повтор',sel('repeat',[['','Не повторять'],['daily','Каждый день'],['weekly','Каждую неделю']],e.repeat||''))+fld('Повторять до',inp('until',e.until,'type="date"'))+'</div>'+
     '<div class="f2">'+fld('Созвон',sel('call',[['','Не созвон']].concat(Object.keys(CALLS).map(function(k){return [k,CALLS[k]]})),CALLS[e.call]?e.call:''))+fld('Ссылка на созвон',inp('link',e.link||'','type="url" maxlength="500" placeholder="https://" autocomplete="off"'))+'</div>'+
     '<p class="sg-out" id="ev-link-n" role="status"></p>'+
     '<div class="f"><span class="f-l">Уведомления бота: за сколько до начала</span><div id="ev-rem" class="rem-l"></div><div class="acts" style="margin-top:2px"><button type="button" class="btn sm" id="ev-rem-add">+ Уведомление</button></div></div>'+
     '<p class="sg-out">'+(bot?'Бот @'+esc(bot)+' пришлёт напоминания в Telegram. Если у события есть ссылка на созвон, за 5 минут до начала придёт ещё и она.':'Напоминания присылает бот серверной версии. Здесь правила сохраняются и уйдут на сервер при синхронизации.')+'</p>'+
-    (id&&bot&&ui.owner?'<div class="chat-h"><h2>Участнику встречи</h2></div><div id="ev-share">'+evShareBox(e)+'</div>':'')),function(b){
+    (id&&bot&&boss()?'<div class="chat-h"><h2>Участнику встречи</h2></div><div id="ev-share">'+evShareBox(e)+'</div>':'')),function(b){
       var list=b.querySelector('#ev-rem'),add=b.querySelector('#ev-rem-add'),cs=b.querySelector('#f-call'),ln=b.querySelector('#f-link'),note=b.querySelector('#ev-link-n');
       var row=function(m){
         var u=m%1440===0?1440:m%60===0?60:1,d=document.createElement('div');d.className='rem-r';
@@ -4036,7 +4041,7 @@ function reAnalyze(id){
   });
 }
 function pendingPanel(pid){
-  if(!ui.owner)return '';
+  if(!boss())return '';
   var pend=S.messages.filter(function(m){return (isPending(m)||isNew(m))&&(!pid||m.project===pid)}).sort(msgDesc);
   if(!pend.length)return '';
   return '<section class="panel attn"><div class="ph"><h2>Ждут твоего ревью: '+pend.length+'</h2></div><p class="sg-out" style="margin-bottom:6px">Ответы клиентов, которые ждут разбора или подтверждения изменений. Проект меняется только после твоего подтверждения.</p><div class="msgs">'+pend.slice(0,5).map(msgRow).join('')+'</div></section>';
@@ -4265,7 +4270,7 @@ function msKey(e){
 }
 
 function addMenu(){
-  openSheet('Добавить','<div class="menu"><button data-act="new" data-kind="task">Задача<small>Шаг в проекте</small></button><button data-act="new" data-kind="milestone">Верста<small>Результат с датой</small></button><button data-act="new" data-kind="event">Событие<small>Встреча, эфир, занятие</small></button><button data-act="new" data-kind="project">Проект<small>Новая карточка</small></button><button data-act="new" data-kind="post">Пост<small>Тема и варианты по каналам</small></button><button data-act="new" data-kind="service">Услуга<small>Карточка для хаба</small></button>'+(ui.owner?'<button data-act="new" data-kind="money">Доход или расход<small>Запись в бюджет</small></button><button data-act="new" data-kind="sub">Подписка<small>Регулярный платёж</small></button><button data-act="new" data-kind="message">Ответ клиента<small>Текст, файл или аудио</small></button><button data-act="new" data-kind="contact">Контакт<small>Человек в проектах</small></button>':'')+'</div>');
+  openSheet('Добавить','<div class="menu"><button data-act="new" data-kind="task">Задача<small>Шаг в проекте</small></button><button data-act="new" data-kind="milestone">Верста<small>Результат с датой</small></button><button data-act="new" data-kind="event">Событие<small>Встреча, эфир, занятие</small></button><button data-act="new" data-kind="project">Проект<small>Новая карточка</small></button><button data-act="new" data-kind="post">Пост<small>Тема и варианты по каналам</small></button><button data-act="new" data-kind="service">Услуга<small>Карточка для хаба</small></button>'+(boss()?'<button data-act="new" data-kind="money">Доход или расход<small>Запись в бюджет</small></button><button data-act="new" data-kind="sub">Подписка<small>Регулярный платёж</small></button><button data-act="new" data-kind="message">Ответ клиента<small>Текст, файл или аудио</small></button><button data-act="new" data-kind="contact">Контакт<small>Человек в проектах</small></button>':'')+'</div>');
 }
 
 function save(kind,id,v,form){
@@ -4301,16 +4306,17 @@ function save(kind,id,v,form){
     if(!(amt>0)||!validDate(v.date))return;
     data={kind:v.kind==='in'?'in':'out',amount:amt,cur:String(v.cur||'USD').slice(0,6),date:v.date,project:P(v.project)?v.project:'',cat:v.cat||'',title:v.title||'',plan:!!v.plan};
     if(id)patch('money',id,data);else put('money',uid('b'),data);
-    if(data.cur!==S.settings.currency)saveSettings({currency:data.cur});
+    if(ui.owner&&data.cur!==S.settings.currency)saveSettings({currency:data.cur});
     ui.cur=data.cur;if(ui.budMonth!=='all')ui.budMonth=data.date.slice(0,7);
   }else if(kind==='contact'){
     if(!v.name)return;
     var pj=[];Object.keys(v).forEach(function(k){if(k.indexOf('pj:')===0&&v[k]&&P(k.slice(3)))pj.push(k.slice(3))});
+    if(ui.mg&&!pj.length){var dpj=ui.project!=='all'&&P(ui.project)?ui.project:(sorted(S.projects)[0]||{}).id;if(dpj)pj.push(dpj)}
     data={name:v.name,role:v.role||'',rel:(v.rel||'').replace(/\s+/g,' ').slice(0,40),tg:v.tg||'',phone:v.phone||'',email:v.email||'',projects:pj,notes:v.notes||''};
     // the role «Команда» and the list of team projects go together: choosing the role puts the card into the team
     // of its projects, taking the role away takes the card out; a project that is unticked leaves the team list too
     var was=id?byId(S.contacts,id):null,tm0=was?cTeam(was):[],wasT=was?cRel(was)==='Команда':false,nowT=data.rel==='Команда';
-    if(ui.owner)data.team=nowT&&!wasT?pj.slice():!nowT&&wasT?[]:tm0.filter(function(q){return pj.indexOf(q)>=0});
+    if(boss())data.team=nowT&&!wasT?pj.slice():!nowT&&wasT?[]:tm0.filter(function(q){return pj.indexOf(q)>=0});
     if(id)patch('contacts',id,data);else put('contacts',uid('c'),data);
   }else if(kind==='message'){
     if(!v.text||!P(v.project)||!validDate(v.date))return;
@@ -4547,7 +4553,7 @@ document.addEventListener('click',function(e){
     case 'adapt':adaptOne(d.ch);break;
     case 'adapt-all':adaptAll();break;
     case 'v-save':case 'v-ready':case 'v-pub':case 'v-copy':case 'v-mc':vAction(d.act,d.ch);break;
-    case 'more':openSheet('Разделы','<div class="menu">'+views().filter(function(v){return ['overview','plan','board','calendar'].indexOf(v)<0}).map(function(v){return '<button data-act="view" data-v="'+v+'">'+VIEWS[v]+'</button>'}).join('')+(ui.owner?'<button data-act="log-hist">История действий<small>Кто что сделал</small></button>':'')+'</div>');break;
+    case 'more':openSheet('Разделы','<div class="menu">'+views().filter(function(v){return ['overview','plan','board','calendar'].indexOf(v)<0}).map(function(v){return '<button data-act="view" data-v="'+v+'">'+VIEWS[v]+'</button>'}).join('')+(boss()?'<button data-act="log-hist">История действий<small>Кто что сделал</small></button>':'')+'</div>');break;
     case 'rv-apply':applyProposal(d.id);break;
     case 'rv-reject':if(t.dataset.armed)rejectProposal(d.id);else{t.dataset.armed='1';t.textContent='Точно отклонить?'}break;
     case 'rv-done':rejectProposal(d.id);break;
@@ -4670,7 +4676,7 @@ function trSteps(){
     L.push({v:'overview',p:'all',s:'#view .now',t:'Ближайшее и загрузка недели',x:'«Ближайшее» собирает сроки и встречи на подходе. «Загрузка недели» сравнивает часы проектов в работе с тем, сколько часов в неделю ты готов им отдавать.'});
     if(!ui.ro)L.push({v:'overview',p:'all',s:'#inbox-f',t:'Входящие',x:'Мысль пришла не вовремя? Запиши её сюда одной строкой. Позже кнопка «В задачу» превратит запись в задачу нужного проекта.'});
     L.push({v:'overview',p:'all',s:'#view .card',t:'Карточка проекта',x:'На карточке видно следующий шаг, ближайшую версту и сколько задач сделано. Нажми на неё, и откроется страница проекта.'});
-    L.push({v:'overview',p:'first',s:'#view .pinfo',t:'Страница проекта',x:'Здесь всё по одному проекту: зачем он, следующий шаг, вёрсты, задачи и комментарии ниже.'+(ui.ro?'':' «Изменить» правит карточку.')+(ui.owner?' «Поделиться» открывает проект другому человеку.':'')});
+    L.push({v:'overview',p:'first',s:'#view .pinfo',t:'Страница проекта',x:'Здесь всё по одному проекту: зачем он, следующий шаг, вёрсты, задачи и комментарии ниже.'+(ui.ro?'':' «Изменить» правит карточку.')+(boss()?' «Поделиться» открывает проект другому человеку.':'')});
   }else if(!ui.ro){
     L.push({v:'overview',p:'all',s:'#view .ag-add',t:'Первый проект',x:'Проектов пока нет. Начни с одного: название, зачем он и следующий шаг. Задачи и вёрсты добавляются уже внутри проекта.'});
   }
@@ -4811,6 +4817,7 @@ function start(){
   Promise.resolve(c.use('user')).then(function(u){
     if(!u||typeof u.can!=='function')return;
     if(typeof u.isOwner==='function')Promise.resolve(u.isOwner()).then(function(v){if(v===false){ui.owner=false;render()}}).catch(function(){});
+    if(typeof u.manages==='function')Promise.resolve(u.manages()).then(function(v){if(v){ui.mg=true;render()}}).catch(function(){});
     if(typeof u.scoped==='function')Promise.resolve(u.scoped()).then(function(v){if(v){ui.scoped=true;document.body.classList.add('scoped');render()}}).catch(function(){});
     return Promise.resolve(u.can('data.write')).then(function(v){if(v===false){ui.ro=true;document.body.classList.add('ro');render()}});
   }).catch(function(){});

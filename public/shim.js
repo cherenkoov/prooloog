@@ -98,7 +98,8 @@
   function load(name) {
     if (loading[name]) return loading[name];
     // Money, contacts and client messages belong to the owner: other roles do not even ask.
-    if (me && me.role !== 'owner' && (me.ownerOnly || []).indexOf(name) >= 0) return Promise.reject(fail('forbidden', 403));
+    // A coordinator gets some of them, for their projects (me.managed).
+    if (me && me.role !== 'owner' && (me.ownerOnly || []).indexOf(name) >= 0 && !(me.role === 'manager' && (me.managed || []).indexOf(name) >= 0)) return Promise.reject(fail('forbidden', 403));
     loading[name] = api('GET', '/db/' + name).then(function (j) {
       var o = {}, v = {};
       (j.docs || []).forEach(function (d) { o[d.id] = d.data; v[d.id] = d.version; });
@@ -180,7 +181,7 @@
     es.addEventListener('reload', function () {
       api('GET', '/me').then(function (j) {
         // another level, or all projects instead of some: the page is built differently, so it starts again
-        var turned = !me || j.role !== me.role || Array.isArray(j.projects) !== Array.isArray(me.projects);
+        var turned = !me || j.role !== me.role || Array.isArray(j.projects) !== Array.isArray(me.projects) || (j.role === 'manager' && String(j.projects) !== String(me.projects));
         me = j;
         if (turned) { try { es.close(); } catch (x) { /* already closed */ } location.reload(); return; }
         Object.keys(loaded).forEach(refetch);
@@ -261,6 +262,8 @@
   var userNs = {
     can: function () { return Promise.resolve(!!me && me.role !== 'viewer'); },
     isOwner: function () { return Promise.resolve(!!me && me.role === 'owner'); },
+    // true for a coordinator: runs the projects they see next to the owner
+    manages: function () { return Promise.resolve(!!me && me.role === 'manager'); },
     // true for a member who sees only some of the projects
     scoped: function () { return Promise.resolve(!!me && Array.isArray(me.projects)); }
   };
@@ -322,9 +325,10 @@
         if (name === 'user') return userNs;
         if (name === 'files') return filesNs;
         if (name === 'downloads') return downloadsNs;
-        if (name === 'share') return me && me.role === 'owner' ? shareNs : null;
-        if (name === 'chat') return me && me.role === 'owner' ? chatNs : null;
-        if (name === 'onboard') return me && me.role === 'owner' ? onboardNs : null;
+        var lead = !!me && (me.role === 'owner' || me.role === 'manager'); // the owner or a coordinator
+        if (name === 'share') return lead ? shareNs : null;
+        if (name === 'chat') return lead ? chatNs : null;
+        if (name === 'onboard') return lead ? onboardNs : null;
         // the journal of actions is kept by the server, so the page does not write its own
         if (name === 'journal') return { server: true };
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;

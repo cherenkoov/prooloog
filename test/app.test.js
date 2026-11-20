@@ -1789,6 +1789,153 @@ test('avatars: the Telegram photo of a person gets to the access list, the conta
   await db.removeMember(ZOE); await db.deleteDoc('contacts', 'jn-' + ZOE);
 });
 
+test('coordinator: runs chosen projects next to the owner, without the irreversible', async () => {
+  const db = require('../src/db'), journal = require('../src/journal');
+  const KIM = { id: 777031, first_name: 'Kim', username: 'kim_coord' }, LEE = { id: 777032, first_name: 'Lee', username: 'lee_editor' }, MAX = { id: 777033, first_name: 'Max', username: 'max_coord' };
+  const put = (path, data, token = ownerToken) => call('PUT', '/api/db/' + path, { token, json: { data } });
+  const patch = (path, data, token = ownerToken) => call('PATCH', '/api/db/' + path, { token, json: { data } });
+  const del = (path, token = ownerToken) => call('DELETE', '/api/db/' + path, { token });
+  const signIn = async (u) => (await call('POST', '/api/auth/telegram', { json: { initData: initData(u) } })).json;
+  await put('projects/p-co', { name: 'Сеть', status: 'active', order: 60 });
+  await put('projects/p-own', { name: 'Личное', status: 'active', order: 61 });
+  await put('money/mo-co', { kind: 'in', amount: 100, cur: 'USD', project: 'p-co', title: 'Взнос' });
+  await put('money/mo-own', { kind: 'in', amount: 900, cur: 'USD', project: 'p-own', title: 'Гонорар' });
+  await put('money/mo-free', { kind: 'out', amount: 5, cur: 'USD', title: 'Без проекта' });
+  await put('contacts/c-in', { name: 'Только сеть', projects: ['p-co'], notes: 'Выжимка анкеты' });
+  await put('contacts/c-both', { name: 'В двух', projects: ['p-co', 'p-own'], team: ['p-own'], notes: 'Личная заметка' });
+  await put('contacts/c-out', { name: 'Чужой', projects: ['p-own'] });
+  await put('messages/ms-co', { project: 'p-co', from: 'Клиент', text: 'Перенесём?', review: 'pending', proposal: { items: [{ t: 'next', to: 'Перенести встречу' }], by: 'page' }, file: { name: 'v.oga', kind: 'voice', tg: 'voicefile_co_123' } });
+  await put('messages/ms-own', { project: 'p-own', from: 'Агент', text: 'Личное', review: 'pending', file: { name: 'w.oga', kind: 'voice', tg: 'voicefile_own_123' } });
+  await put('chats/g9001', { tg: '-9001', title: 'Чат сети', project: 'p-co', collect: 'off', on: true });
+  await put('chats/g9002', { tg: '-9002', title: 'Личный чат', project: 'p-own', collect: 'off', on: true });
+  tgFiles['files/voicefile_co_123'] = Buffer.from('OggS-co'); tgFiles['files/voicefile_own_123'] = Buffer.from('OggS-own');
+  // three people of the project come in as editors
+  const link = async () => (await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'editor', projects: ['p-co'] } })).json.token;
+  for (const u of [KIM, LEE, MAX]) await update(msg(u, { text: '/start inv_' + await link() }));
+  assert.equal((await signIn(KIM)).role, 'editor');
+  assert.equal((await call('GET', '/api/db/money', { token: (await signIn(KIM)).token })).status, 403, 'an editor sees no money');
+
+  // only the owner names a coordinator, and only with a list of projects
+  const access = (id, body, token = ownerToken) => call('PATCH', '/api/share/members/' + id, { token, json: body });
+  assert.equal((await access(KIM.id, { role: 'manager', projects: null })).status, 400, 'a coordinator of everything does not exist');
+  assert.equal((await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'manager', projects: ['p-co'] } })).status, 400, 'no link makes a coordinator');
+  let n = tgCalls.length;
+  assert.equal((await access(KIM.id, { role: 'manager', projects: ['p-co'] })).status, 200);
+  assert.match(sinceMark(n, 'sendMessage').find((c) => String(c.params.chat_id) === String(KIM.id)).params.text, /координатор: Сеть/);
+  assert.equal((await access(MAX.id, { role: 'manager', projects: ['p-co'] })).status, 200);
+  const k = await signIn(KIM), kt = k.token;
+  assert.equal(k.role, 'manager'); assert.deepEqual(k.projects, ['p-co']); assert.ok(k.managed.includes('money'));
+  const ids = async (coll, token = kt) => (await call('GET', '/api/db/' + coll, { token })).json.docs.map((d) => d.id).sort();
+
+  // the owner's collections, cut to the project
+  assert.deepEqual(await ids('projects'), ['p-co']);
+  assert.deepEqual(await ids('money'), ['mo-co']);
+  assert.deepEqual(await ids('messages'), ['ms-co']);
+  assert.deepEqual(await ids('chats'), ['g9001']);
+  assert.deepEqual(await ids('contacts'), ['c-both', 'c-in']);
+  const cards = (await call('GET', '/api/db/contacts', { token: kt })).json.docs;
+  assert.equal(cards.find((d) => d.id === 'c-in').data.notes, 'Выжимка анкеты');
+  const both = cards.find((d) => d.id === 'c-both').data;
+  assert.deepEqual(both.projects, ['p-co']); assert.deepEqual(both.team, []); assert.equal(both.notes, '', 'notes of a shared card stay with the owner');
+  for (const c of ['usage', 'activity', 'memory', 'gone', 'evsubs']) assert.equal((await call('GET', '/api/db/' + c, { token: kt })).status, 403, c);
+  assert.equal((await call('GET', '/api/export', { token: kt })).status, 403);
+  assert.equal((await call('POST', '/api/backup/send', { token: kt })).status, 403);
+
+  // writing: inside the project yes, outside no
+  assert.equal((await put('money/mo-k', { kind: 'out', amount: 20, cur: 'USD', project: 'p-co', title: 'Чай' }, kt)).status, 200);
+  assert.equal((await put('money/mo-x', { kind: 'out', amount: 20, cur: 'USD', project: 'p-own' }, kt)).status, 403);
+  assert.equal((await patch('money/mo-own', { amount: 1 }, kt)).status, 403);
+  assert.equal((await patch('money/mo-co', { project: 'p-own' }, kt)).status, 403, 'a record does not leave the project');
+  assert.equal((await put('settings/main', { capacity: 1 }, kt)).status, 403);
+  // a shared card: the coordinator's change lands, what they could not see is kept
+  assert.equal((await put('contacts/c-both', { name: 'В двух (сеть)', projects: [], team: ['p-co'], notes: '' }, kt)).status, 200);
+  let cb = (await db.getDoc('contacts', 'c-both')).data;
+  assert.deepEqual(cb.projects, ['p-own']); assert.deepEqual(cb.team.sort(), ['p-co', 'p-own']); assert.equal(cb.notes, 'Личная заметка'); assert.equal(cb.name, 'В двух (сеть)');
+  assert.equal((await patch('contacts/c-both', { role: 'Мастер', notes: 'затёр?' }, kt)).status, 200);
+  cb = (await db.getDoc('contacts', 'c-both')).data;
+  assert.equal(cb.role, 'Мастер'); assert.equal(cb.notes, 'Личная заметка'); assert.deepEqual(cb.team.sort(), ['p-co', 'p-own']);
+  assert.equal((await del('contacts/c-both', kt)).status, 403, 'a shared card is not theirs to delete');
+  assert.equal((await put('contacts/c-out', { name: 'x', projects: ['p-co'] }, kt)).status, 403, 'a card they do not see');
+  assert.equal((await put('contacts/c-new', { name: 'Новый', projects: [] }, kt)).status, 403, 'a card needs one of their projects');
+  assert.equal((await put('contacts/c-new', { name: 'Новый', projects: ['p-co'] }, kt)).status, 200);
+  assert.equal((await del('contacts/c-new', kt)).status, 200);
+
+  // review: a coordinator applies a proposal, the journal names them
+  await journal.flush();
+  assert.equal((await patch('projects/p-co', { next: 'Перенести встречу' }, kt)).status, 200);
+  assert.equal((await patch('messages/ms-co', { review: 'done', applied: [0], reviewedAt: new Date().toISOString() }, kt)).status, 200);
+  await journal.flush();
+  const lines = (await call('GET', '/api/db/audit', { token: kt })).json.docs.flatMap((d) => d.data.items);
+  assert.ok(lines.length && lines.every((e) => e.p === 'p-co'), 'the journal of the project only');
+  assert.ok(lines.some((e) => e.c === 'messages' && e.i === 'ms-co' && e.s === 'done' && e.by === 'Kim'), 'who reviewed');
+  assert.equal((await put('audit/s20260101', { date: '2026-01-01', items: [] }, kt)).status, 403);
+
+  // the irreversible stays with the owner
+  assert.equal((await del('projects/p-co', kt)).status, 403, 'the project is not deleted');
+  assert.equal((await put('projects/p-new', { name: 'Ещё один' }, kt)).status, 403);
+  assert.equal((await access(MAX.id, { role: 'editor', projects: ['p-co'] }, kt)).status, 403, 'another coordinator is not lowered');
+  assert.equal((await call('DELETE', '/api/share/members/' + MAX.id, { token: kt })).status, 403);
+  assert.equal((await call('DELETE', '/api/share/members/' + KIM.id, { token: kt })).status, 403, 'nor themselves');
+  assert.equal((await access(LEE.id, { role: 'manager', projects: ['p-co'] }, kt)).status, 400, 'a coordinator names no coordinators');
+  assert.equal((await access(LEE.id, { role: 'editor', projects: ['p-co', 'p-own'] }, kt)).status, 400, 'nor opens other projects');
+  assert.equal((await access(LEE.id, { role: 'editor', projects: null }, kt)).status, 400);
+
+  // access inside the project: the two lower levels are theirs
+  const sh = (await call('GET', '/api/share', { token: kt })).json;
+  assert.deepEqual(sh.members.map((m) => [m.name, m.role, m.fixed]).sort(), [['Kim', 'manager', true], ['Lee', 'editor', false], ['Max', 'manager', true]]);
+  assert.deepEqual(sh.names, []);
+  assert.equal((await access(LEE.id, { role: 'viewer', projects: ['p-co'] }, kt)).status, 200);
+  assert.equal((await signIn(LEE)).role, 'viewer');
+  const kl = await call('POST', '/api/share/links', { token: kt, json: { role: 'editor', projects: ['p-co'] } });
+  assert.equal(kl.status, 200);
+  assert.equal((await call('POST', '/api/share/links', { token: kt, json: { role: 'editor', projects: ['p-own'] } })).status, 400);
+  assert.equal((await call('POST', '/api/share/links', { token: kt, json: { role: 'editor' } })).status, 400, 'no link to everything');
+  const ownerLink = (await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'viewer', projects: ['p-own'] } })).json.token;
+  assert.equal((await call('DELETE', '/api/share/links/' + ownerLink, { token: kt })).status, 403);
+  assert.equal((await call('DELETE', '/api/share/links/' + kl.json.token, { token: kt })).json.ok, true);
+  await call('DELETE', '/api/share/links/' + ownerLink, { token: ownerToken });
+  assert.equal((await call('DELETE', '/api/share/members/' + LEE.id, { token: kt })).json.ok, true);
+  assert.equal((await call('POST', '/api/auth/telegram', { json: { initData: initData(LEE) } })).status, 403);
+
+  // onboarding, the work chat and voice: the project's only
+  assert.equal((await call('GET', '/api/onboard/p-co', { token: kt })).status, 200);
+  assert.equal((await call('GET', '/api/onboard/p-own', { token: kt })).status, 403);
+  assert.equal((await call('POST', '/api/onboard/p-own', { token: kt, json: {} })).status, 403);
+  assert.equal((await call('POST', '/api/onboard/p-co', { token: kt, json: {} })).status, 200);
+  n = tgCalls.length;
+  assert.equal((await call('POST', '/api/chats/g9001/post', { token: kt, json: { text: 'Встреча в пятницу' } })).status, 200);
+  assert.ok(sinceMark(n, 'sendMessage').some((c) => String(c.params.chat_id) === '-9001' && /Встреча в пятницу/.test(c.params.text)));
+  assert.equal((await call('POST', '/api/chats/g9002/post', { token: kt, json: { text: 'x' } })).status, 404);
+  assert.equal((await call('GET', '/api/tg/file/voicefile_co_123?t=' + encodeURIComponent(kt))).text, 'OggS-co');
+  assert.equal((await call('GET', '/api/tg/file/voicefile_own_123?t=' + encodeURIComponent(kt))).status, 404);
+
+  // live: the project's money reaches the coordinator, the rest does not; a shared card comes cut
+  const s = await openStream(kt);
+  await put('money/mo-own2', { kind: 'in', amount: 1, cur: 'USD', project: 'p-own' });
+  await put('contacts/c-both', Object.assign({}, cb, { phone: '+100' }));
+  await put('money/mo-co2', { kind: 'in', amount: 2, cur: 'USD', project: 'p-co' });
+  await new Promise((r) => setTimeout(r, 250));
+  const got = s.events.filter((e) => e.event === 'doc').map((e) => e.data);
+  assert.ok(got.some((e) => e.coll === 'money' && e.id === 'mo-co2'));
+  assert.ok(!got.some((e) => e.id === 'mo-own2'));
+  const live = got.find((e) => e.coll === 'contacts' && e.id === 'c-both');
+  assert.equal(live.data.phone, '+100'); assert.equal(live.data.notes, ''); assert.deepEqual(live.data.projects, []);
+  s.close();
+
+  // a coordinator keeps the level: a link or a form does not change it, and adds no project
+  n = tgCalls.length;
+  const other = (await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'viewer', projects: ['p-own'] } })).json.token;
+  await update(msg(KIM, { text: '/start inv_' + other }));
+  assert.match(lastSay().params.text, /Ты координатор/);
+  const k2 = await signIn(KIM);
+  assert.equal(k2.role, 'manager'); assert.deepEqual(k2.projects, ['p-co']);
+  await call('DELETE', '/api/share/links/' + other, { token: ownerToken });
+  // the owner takes the level back
+  assert.equal((await access(KIM.id, { role: 'editor', projects: ['p-co'] })).status, 200);
+  assert.equal((await call('GET', '/api/db/money', { token: kt })).status, 403);
+  for (const u of [KIM, MAX]) await call('DELETE', '/api/share/members/' + u.id, { token: ownerToken });
+});
+
 test('header parsing', () => {
   const { parseHeader } = require('../src/bot');
   const list = [{ id: 'p-india', data: { name: 'Кастинги в Индии' } }, { id: 'p-blog', data: { name: 'Личный блог' } }, { id: 'p-hub', data: { name: 'Хаб услуг: канал, бот, мини-приложение' } }];

@@ -1,6 +1,7 @@
 'use strict';
 // Live updates: every open dashboard keeps one event stream and hears about changed documents.
 const cfg = require('./config');
+const auth = require('./auth');
 
 const clients = new Set();
 
@@ -35,13 +36,14 @@ function send(event, payload, ownerOnly) {
 function publish(coll, id, data, version, src, prev) {
   const ownerOnly = cfg.ownerOnly.has(coll);
   for (const c of clients) {
-    if (ownerOnly && c.role !== 'owner') continue;
+    // a coordinator hears about the owner's collections too, within their projects
+    if (ownerOnly && c.role !== 'owner' && !(c.role === 'manager' && cfg.managed.has(coll))) continue;
     let d = data;
     if (c.projects && coll !== 'settings') {
       if (coll === 'projects') { if (!c.projects.includes(id)) continue; }
       else {
-        const mine = (x) => !!x && typeof x.project === 'string' && c.projects.includes(x.project);
-        if (!mine(data)) { if (!mine(prev)) continue; d = null; }
+        d = data ? auth.view(c.projects, coll, id, data) : null;
+        if (!d) { if (!prev || !auth.sees(c.projects, coll, id, prev)) continue; d = null; }
       }
     }
     try { c.res.write(`event: doc\ndata: ${JSON.stringify({ coll, id, data: d, version: d === null ? 0 : version || 0, src: src || '' })}\n\n`); } catch (e) { clients.delete(c); }
@@ -52,8 +54,8 @@ function publish(coll, id, data, version, src, prev) {
 function setAccess(userId, role, projects) {
   for (const c of clients) {
     if (c.id !== String(userId) || c.role === 'owner') continue;
-    c.role = role === 'editor' ? 'editor' : 'viewer';
     c.projects = Array.isArray(projects) ? projects.slice() : null;
+    c.role = auth.memberRole(role, c.projects);
     try { c.res.write('event: reload\ndata: {}\n\n'); } catch (e) { clients.delete(c); }
   }
 }

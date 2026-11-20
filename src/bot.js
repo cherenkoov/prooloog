@@ -305,9 +305,12 @@ async function inviteJoin(m, tok) {
   const chat = m.chat.id, id = String(m.from.id);
   if (!/^[A-Za-z0-9_-]{12,40}$/.test(tok)) return say(chat, 'Эта ссылка-приглашение не действует.');
   if ((await auth.roleOf(m.from)) === 'owner') return say(chat, 'Это твоя собственная ссылка-приглашение. Отправь её тому, кому хочешь открыть доступ.');
+  const cur = await db.getMember(id);
+  // a coordinator's level covers all of their projects, so a link must not add a project to it: the owner does that
+  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager') return say(chat, 'Ты координатор, и ссылка-приглашение твой доступ не меняет: новый проект координатору добавляет владелец в окне «Доступ».');
   const inv = await db.useInviteLink(tok, id);
   if (!inv) return say(chat, 'Эта ссылка-приглашение уже использована или устарела. Попроси у владельца новую.');
-  const role = inv.role === 'editor' ? 'editor' : 'viewer', cur = await db.getMember(id);
+  const role = inv.role === 'editor' ? 'editor' : 'viewer';
   let list = Array.isArray(inv.projects) ? inv.projects : null;
   // someone who already has access keeps it: the project lists add up
   if (cur) list = list === null || !Array.isArray(cur.projects) ? null : [...new Set(cur.projects.concat(list))];
@@ -568,7 +571,7 @@ async function onCommand(m, role, cmd, arg) {
   if (cmd === 'members') {
     const ms = await db.listMembers(), inv = await db.listInvites(), all = await projects();
     const scope = (x) => !Array.isArray(x.projects) ? 'все проекты' : all.filter((p) => x.projects.includes(p.id)).map(pname).join(', ') || 'проекты удалены';
-    const lines = ms.map((x) => '• ' + esc(x.name || 'без имени') + (x.username ? ' @' + esc(x.username) : '') + ': ' + (x.role === 'editor' ? 'редактор' : 'зритель') + ', ' + esc(scope(x)))
+    const lines = ms.map((x) => '• ' + esc(x.name || 'без имени') + (x.username ? ' @' + esc(x.username) : '') + ': ' + (auth.memberRole(x.role, x.projects) === 'manager' ? 'координатор' : x.role === 'editor' ? 'редактор' : 'зритель') + ', ' + esc(scope(x)))
       .concat(inv.map((x) => '• @' + esc(x.username) + ': приглашён, ещё не зашёл'));
     return say(chat, lines.length ? 'Доступ есть у тебя и ещё:\n' + lines.join('\n') + '\n\nУбрать: /remove @имя' : 'Пока доступ есть только у тебя. Пригласить: /invite @имя editor');
   }

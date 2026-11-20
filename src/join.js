@@ -134,8 +134,8 @@ async function syncEvents(f, link) {
       const lead = time.opts.find((o) => o.t === time.lead), zoneTime = time.lead + (p.zone ? ' ' + p.zone : '');
       const inCal = ruDay(wall.d) + ', ' + wall.t, same = wall.d === p.date && wall.t === time.lead;
       const team = d.data.link ? await teamOf(d.data.project) : [];
-      await say(owner, '<b>' + esc(p.event.title) + '</b>\nБольшинство за ' + esc(zoneTime) + ': голосов ' + lead.n + ' из ' + time.voters + '.' + (where ? '\nПлощадка: ' + esc(where) + '.' : '') +
-        '\nВ календаре проекта встреча стоит на ' + esc(inCal) + (same ? '' : ' по часовому поясу приложения') + '.' + (d.data.link ? '\nСсылка: ' + esc(d.data.link) : call ? '\nСсылки на созвон у встречи пока нет.' : ''), team.length ? announceKb(d.id, team.length) : undefined).catch(() => {});
+      await tell(link.project, '', '<b>' + esc(p.event.title) + '</b>\nБольшинство за ' + esc(zoneTime) + ': голосов ' + lead.n + ' из ' + time.voters + '.' + (where ? '\nПлощадка: ' + esc(where) + '.' : '') +
+        '\nВ календаре проекта встреча стоит на ' + esc(inCal) + (same ? '' : ' по часовому поясу приложения') + '.' + (d.data.link ? '\nСсылка: ' + esc(d.data.link) : call ? '\nСсылки на созвон у встречи пока нет.' : ''), team.length ? Object.assign(announceKb(d.id, team.length), { owner: true }) : undefined).catch(() => {});
     }
   }
 }
@@ -180,9 +180,23 @@ function showcase(f, p) {
   return { title: String(p.data.name || ''), text: (own || String(about.text || '')).slice(0, 4000), points: own ? [] : (Array.isArray(about.points) ? about.points : []).slice(0, 8).map(String) };
 }
 
+// What the owner hears about a project, its coordinators hear too. skip: the person the news is about.
+// The bot's commands in the text are the owner's; a coordinator is pointed to the dashboard instead.
+async function tell(project, skip, text, extra) {
+  const owner = await auth.ownerId();
+  if (owner && String(owner) !== String(skip)) await say(owner, text, extra && extra.owner ? { inline_keyboard: extra.inline_keyboard } : extra);
+  for (const id of await auth.managersOf(project)) {
+    if (id === String(skip) || id === String(owner)) continue;
+    await say(id, text.replace('Все ответы: /answers, голоса: /votes', 'Все ответы и голоса: в дэшборде, блок «Онбординг»').replace('Все ответы: /answers', 'Все ответы: в дэшборде, блок «Онбординг»'), extra && extra.owner ? undefined : extra).catch(() => {});
+  }
+}
+
 // Access to this one project, with editing. Whoever already has access keeps it; the project lists add up.
 async function grant(user, project) {
   const id = String(user.id), cur = await db.getMember(id);
+  // A coordinator stays as they are: the level is one for all of a person's projects, so adding a project here
+  // would make them its coordinator, and that is for the owner to decide.
+  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager') return;
   const list = cur && !Array.isArray(cur.projects) ? null : [...new Set((cur ? cur.projects : []).concat([project]))];
   await db.upsertMember(id, user.username || '', auth.fullName(user), 'editor');
   await db.setMemberAccess(id, 'editor', list);
@@ -247,8 +261,7 @@ function router(botName) {
       avatar.soon(c.user.id); // the Telegram photo for the card, without waiting for it
       if (!(had && had.data.core)) await welcome(c, d.data.answers).catch((e) => console.error('[join] notify failed:', e.message));
     } else if (!(had && had.data.more)) {
-      const owner = await auth.ownerId();
-      if (owner && !c.owner) await say(owner, esc(auth.fullName(c.user) || 'Участник') + ' дополняет расширенную анкету «' + esc(c.f.title) + '». Все ответы: /answers').catch(() => {});
+      await tell(c.link.project, c.user.id, esc(auth.fullName(c.user) || 'Участник') + ' дополняет расширенную анкету «' + esc(c.f.title) + '». Все ответы: /answers').catch(() => {});
     }
     res.json(Object.assign({ ok: true }, await state(c)));
   });
@@ -278,9 +291,8 @@ async function welcome(c, a) {
   if (isCard(c.f)) {
     const master = !!c.f.master && holds(c.f.master, a);
     if (!c.owner) await say(c.user.id, 'Анкета принята, спасибо! Мы свяжемся с вами в Telegram.\n\nЧто такое «' + esc(pn) + '», можно посмотреть по кнопке ниже. Там же можно изменить ответы.', appBtn('О проекте «' + pn.slice(0, 40) + '»', '/join/' + c.link.token)).catch(() => {});
-    const owner = await auth.ownerId();
-    if (owner && !c.owner) {
-      await say(owner, '<b>' + esc(name) + '</b>' + (c.user.username ? ' (@' + esc(c.user.username) + ')' : '') + ' заполнил(а) анкету «' + esc(c.f.title) + '»' + (master ? ' как <b>мастер</b>' : '') + '. Карточка лежит в контактах проекта <b>' + esc(pn) + '</b>' + (master ? ' с пометкой «Мастер»' : '') + '; доступа к проекту у человека нет, он видит только витрину.\n\n' +
+    {
+      await tell(c.link.project, c.user.id, '<b>' + esc(name) + '</b>' + (c.user.username ? ' (@' + esc(c.user.username) + ')' : '') + ' заполнил(а) анкету «' + esc(c.f.title) + '»' + (master ? ' как <b>мастер</b>' : '') + '. Карточка лежит в контактах проекта <b>' + esc(pn) + '</b>' + (master ? ' с пометкой «Мастер»' : '') + '; доступа к проекту у человека нет, он видит только витрину.\n\n' +
         esc(summaryLines(c.f, a).join('\n')) + '\n\nВсе ответы: /answers', appBtn('Открыть ' + cfg.appName, '/'));
     }
     return;
@@ -289,9 +301,8 @@ async function welcome(c, a) {
     if (https()) await T.tg('setChatMenuButton', { chat_id: c.user.id, menu_button: { type: 'web_app', text: cfg.appName, web_app: { url: cfg.baseUrl + '/' } } }).catch(() => {});
     await say(c.user.id, 'Анкета принята, вы в проекте <b>' + esc(pn) + '</b>. Проект открывается кнопкой ниже: там задачи, вёрсты и комментарии команды.', appBtn('Открыть ' + cfg.appName, '/')).catch(() => {});
   }
-  const owner = await auth.ownerId();
-  if (owner && !c.owner) {
-    await say(owner, '<b>' + esc(name) + '</b>' + (c.user.username ? ' (@' + esc(c.user.username) + ')' : '') + ' заполнил(а) анкету «' + esc(c.f.title) + '» и теперь в проекте <b>' + esc(pn) + '</b>: видит только его, может вести задачи.\n\n' +
+  {
+    await tell(c.link.project, c.user.id, '<b>' + esc(name) + '</b>' + (c.user.username ? ' (@' + esc(c.user.username) + ')' : '') + ' заполнил(а) анкету «' + esc(c.f.title) + '» и теперь в проекте <b>' + esc(pn) + '</b>: видит только его, может вести задачи.\n\n' +
       esc(summaryLines(c.f, a).join('\n')) + '\n\nКонтакт создан в проекте. Все ответы: /answers, голоса: /votes', appBtn('Открыть ' + cfg.appName, '/'));
   }
 }

@@ -48,6 +48,9 @@ cfg.collections = ['projects', 'tasks', 'milestones', 'events', 'inbox', 'log', 
 cfg.dataCollections = cfg.collections.filter((c) => c !== 'audit');
 // Money, people and client messages are for the owner only.
 cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'clients', 'usage', 'evsubs', 'chats', 'memory', 'audit', 'gone']);
+// A coordinator (role `manager`) runs chosen projects next to the owner: of the owner's collections they get
+// these, and only the records of their projects.
+cfg.managed = new Set(['money', 'contacts', 'messages', 'subs', 'clients', 'chats', 'audit']);
 // Kept by the server alone (onboarding answers): the page never reads them, but backups carry them.
 cfg.serverOnly = ['joins'];
 // what a backup restores: the data and the server's own records, without the journal
