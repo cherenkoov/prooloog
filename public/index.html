@@ -342,6 +342,9 @@ input[type=checkbox]{width:18px;height:18px;padding:0;flex:none;accent-color:var
 .pc-l{display:flex;flex-wrap:wrap;gap:6px 10px;font-size:13px;align-items:center}
 .pc-l span{color:var(--mute);overflow-wrap:anywhere}
 .pc-m{font-size:13px;color:var(--mute);overflow-wrap:anywhere;border-top:1px solid var(--line);padding-top:8px}
+.tm-lv{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--mute);border-top:1px solid var(--line);padding-top:8px}
+.tm-lv .btn[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.tm-lv small{flex-basis:100%;font-size:12px}
 button.lnk{font-weight:500}
 .msgr{display:block;width:100%;padding:10px 4px;border-top:1px solid var(--line)}
 .msgs>.msgr:first-child{border-top:0}
@@ -1634,14 +1637,50 @@ function teamNote(m,pid){
   if(!a.length&&!txt)return '';
   return '<div class="pc-m">'+esc(a.join(' · '))+(a.length&&txt?': ':'')+esc(txt)+(obNs?' <button type="button" class="tlink" data-act="ob-open" data-id="'+esc(pid)+'">Ответы</button>':'')+'</div>';
 }
+// The level of a person of the team, changed right on their card. The access is found by the card: the Telegram id
+// of a card made by the form (jn-<id>), the id in the form's answers, or the @name.
+var TM_LV=[['viewer','Смотрит'],['editor','Редактирует'],['manager','Координатор']];
+function teamMember(m){
+  if(!shState)return null;
+  var id=m.c&&/^jn-\d+$/.test(m.c.id)?m.c.id.slice(3):m.u?obUid(m.u):'',un=tgUser((m.c&&m.c.tg)||(m.u&&m.u.username)||'').toLowerCase();
+  return (shState.members||[]).filter(function(x){return (id&&x.id===id)||(un&&String(x.username||'').toLowerCase()===un)})[0]||null;
+}
+function teamRole(m,pid){
+  if(!shareNs||!boss()||!shState)return '';
+  var x=teamMember(m);
+  if(!x||(Array.isArray(x.projects)&&x.projects.indexOf(pid)<0))return '<div class="tm-lv">Уровень: доступа к проекту нет. Дать его можно ссылкой: «Поделиться» в проекте.</div>';
+  var cur=x.role==='manager'||x.role==='editor'?x.role:'viewer',many=!Array.isArray(x.projects)?'все проекты':x.projects.length>1?shNames(x.projects):'';
+  // someone whose access is not for this person to change (another coordinator, a person with other projects) is only named
+  if(x.fixed||ui.ro)return '<div class="tm-lv">Уровень: '+TM_LV.filter(function(l){return l[0]===cur})[0][1].toLowerCase()+'</div>';
+  return '<div class="tm-lv" role="group" aria-label="Уровень доступа"><span>Уровень</span>'+TM_LV.filter(function(l){return l[0]!=='manager'||ui.owner}).map(function(l){
+    var ask=ui.tmAsk===x.id+':'+pid&&l[0]==='manager'&&cur!=='manager';
+    return '<button type="button" class="btn sm" data-act="tm-role" data-id="'+esc(x.id)+'" data-role="'+l[0]+'" data-project="'+esc(pid)+'" aria-pressed="'+(cur===l[0])+'">'+(ask?'Точно? Откроются деньги и контакты':l[1])+'</button>';
+  }).join('')+(many?'<small>Уровень один на все проекты человека: '+esc(many)+'.</small>':'')+'</div>';
+}
+function teamSetRole(d){
+  var x=shState?(shState.members||[]).filter(function(q){return q.id===d.id})[0]:null;
+  if(!x||!shareNs||x.role===d.role)return;
+  if(d.role==='manager'){
+    if(!Array.isArray(x.projects)){toast('У человека доступ ко всем проектам, а координатору нужны выбранные: назначь его в окне «Доступ».');return}
+    // a coordinator sees the money, the contacts and the answers of the project: one more tap to be sure
+    if(ui.tmAsk!==x.id+':'+d.project){ui.tmAsk=x.id+':'+d.project;render();return}
+  }
+  ui.tmAsk='';
+  var nm=x.name||(x.username?'@'+x.username:'Участник'),lab=TM_LV.filter(function(l){return l[0]===d.role})[0][1].toLowerCase();
+  Promise.resolve(shareNs.setMember(x.id,d.role,Array.isArray(x.projects)?x.projects:null)).then(function(){
+    toast(nm+': теперь '+lab+'.');
+    return Promise.resolve(shareNs.list()).then(function(r){shState=r||{};render()});
+  },function(){toast('Не получилось изменить уровень. Попробуй ещё раз.');render()});
+}
 function teamCard(m,pid){
-  if(m.c)return contactCard(m.c,teamNote(m,pid));
+  if(m.c)return contactCard(m.c,teamNote(m,pid)+teamRole(m,pid));
   var u=m.u,b=shChatBtn(u.username,obUid(u),'Написать');
-  return '<div class="pc"><div class="pc-h"><span class="pc-n">'+esc(u.name||'Без имени')+'</span>'+(u.username?'<span class="pc-r">@'+esc(u.username)+'</span>':'')+'</div>'+teamNote(m,pid)+(b?'<div class="sp" style="margin-left:0">'+b+'</div>':'')+'</div>';
+  return '<div class="pc"><div class="pc-h"><span class="pc-n">'+esc(u.name||'Без имени')+'</span>'+(u.username?'<span class="pc-r">@'+esc(u.username)+'</span>':'')+'</div>'+teamNote(m,pid)+teamRole(m,pid)+(b?'<div class="sp" style="margin-left:0">'+b+'</div>':'')+'</div>';
 }
 function teamHow(){return 'В команду попадают те, кто прошёл онбординг проекта: заполнили анкету по ссылке и получили доступ к проекту. Любую карточку можно перенести сюда из «Контактов» и обратно одной кнопкой. '+(obNs?'':'Онбординг работает в Prooloog на сервере: участники появятся здесь после синхронизации. ')+'Полезные контакты для связи лежат отдельно, в разделе «Контакты».'}
 function drawTeam(){
   var one=ui.project==='all'?null:P(ui.project),h='';
+  logMem();   // who has which level: the cards show it and let it be changed
   if(one){
     if(obNs)obLoad(one.id);
     var tm=teamOf(one.id),wait=obNs&&!(ob[one.id]&&ob[one.id].d)&&!tm.length;
@@ -4639,6 +4678,7 @@ document.addEventListener('click',function(e){
     case 'sh-edit':shEditStart(d.id);break;
     case 'sh-chat':shChatAsk(d.id);break;
     case 'sh-cancel':shEdit=null;shMode();o=$('#sh-out');if(o)o.textContent='';break;
+    case 'tm-role':teamSetRole(d);break;
     case 'sh-drop-member':
       if(!shareNs)break;
       if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно закрыть?';break}
