@@ -737,6 +737,7 @@ async function onCallback(cq) {
     await db.setState(uid, {});
     if (!b || !b.n) return edit(chat, 'Не получилось прочитать копию. Данные не менялись.');
     const n = await db.importAll(b.docs, cfg.allCollections, true);
+    await join.loadEdits();
     journal.event('bulk', 'Данные заменены копией из файла: записей ' + n, 'бот');
     hub.reloadAll();
     return edit(chat, 'Готово: данные заменены копией, записей ' + n + '.');

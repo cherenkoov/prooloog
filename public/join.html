@@ -128,6 +128,17 @@ textarea{min-height:110px;resize:vertical;line-height:1.4}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .prev{margin:0;padding:9px 18px;font-size:13px;line-height:1.4;color:var(--ink);background:var(--surface2);border-bottom:1px solid var(--line)}
 .prev b{font-weight:600}
+/* editing in a preview: a small button under each piece, and a sheet with its fields */
+.edb{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border-radius:10px;border:1px dashed var(--accent);color:var(--accent);font-size:13px;font-weight:600;background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+.q+.edb,.h2+.edb{margin-top:-10px}
+.edm{position:fixed;inset:0;z-index:20;overflow:auto;background:var(--bg);padding:18px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px}
+.edm>*{width:100%;max-width:524px;margin-left:auto;margin-right:auto}
+.edf{display:flex;flex-direction:column;gap:6px}
+.edf>span{font-size:13px;font-weight:600;color:var(--mute)}
+.edm textarea{min-height:84px}
+.edm select{width:100%;min-height:50px;padding:0 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);font:inherit;color:inherit}
+.edm input[type=number]{width:120px;min-height:50px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface)}
+.edm .acts{display:flex;gap:10px}
 </style>
 </head>
 <body>
@@ -152,7 +163,7 @@ function haptic(k){try{if(tg&&tg.HapticFeedback){if(k==='ok'||k==='error')tg.Hap
 function keep(){if(preview)return;try{localStorage.setItem(KEY,JSON.stringify(A))}catch(e){}}
 function kept(){if(preview)return {};try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){return {}}}
 function api(method,path,body){
-  var url=preview?'/api/onboard/'+pvProject+'/preview'+(pvForm?'?form='+pvForm:''):'/api/join/'+token+path, hd=body?{'Content-Type':'application/json'}:{};
+  var url=preview?'/api/onboard/'+pvProject+(path==='/form'?'/form':'/preview')+(pvForm?'?form='+pvForm:''):'/api/join/'+token+path, hd=body?{'Content-Type':'application/json'}:{};
   if(preview)hd.Authorization='Bearer '+pvSession;
   return fetch(url,{method:method,headers:hd,body:body?JSON.stringify(body):undefined}).then(function(r){
     return r.json().catch(function(){return null}).then(function(j){if(!r.ok){var e=new Error((j&&j.error)||'http_'+r.status);e.code=(j&&j.error)||'';e.fields=(j&&j.fields)||[];throw e}return j});
@@ -177,6 +188,81 @@ function plural(n,a,b,c){var m=n%100,d=n%10;return m>10&&m<20?c:d===1?a:d>1&&d<5
 function isOther(v){return typeof v==='string'&&v.indexOf('Другое')===0}
 function otherText(v){return isOther(v)?v.replace(/^Другое(: )?/,''):''}
 
+/* ---------- editing in a preview ---------- */
+// The dashboard switches editing on (a message to this frame). What changes: the wording, and the kind of input
+// of a question. The order, the ids and the conditions stay, so answers already given keep their questions.
+var editing=false, ed=null, edBusy=false, edNote='';
+var TYPES=[['text','Строка текста'],['area','Длинный текст'],['tel','Телефон'],['email','E-mail'],['url','Ссылка'],['one','Один вариант из списка'],['many','Несколько вариантов из списка']];
+function canEdit(){return preview&&info&&info.edit&&info.edit.can}
+function edBtn(k,id,label){return canEdit()&&editing?'<button type="button" class="edb" data-act="ed-open" data-k="'+k+'" data-id="'+esc(id)+'">✎ '+esc(label)+'</button>':''}
+function tell(){try{if(preview&&window.parent!==window)window.parent.postMessage({pv:'state',can:!!canEdit(),changed:!!(info&&info.edit&&info.edit.changed),editing:editing},location.origin)}catch(e){}}
+function edOpen(k,id){
+  var d={};edNote='';
+  if(k==='form')['kicker','title','intro','moreIntro','consent','agree'].forEach(function(f){if(F[f]!==undefined)d[f]=F[f]});
+  else if(k==='step'){var s=F.steps.filter(function(x){return x.id===id})[0];if(!s)return;d={title:s.title,text:s.text||''}}
+  else if(k==='q'){var q=findQ(id);if(!q)return;d={label:q.label,hint:q.hint||'',ph:q.ph||'',t:q.t,opts:(q.opts||[]).join('\n'),other:!!q.other,req:!!q.req,max:q.max||''}}
+  else if(k!=='reset')return;
+  ed={k:k,id:id,d:d};render();
+}
+function edField(f,label,area,max){
+  var v=ed.d[f]==null?'':ed.d[f];
+  return '<label class="edf"><span>'+esc(label)+'</span>'+(area?'<textarea data-ed="'+f+'" maxlength="'+max+'">'+esc(v)+'</textarea>':'<input type="text" data-ed="'+f+'" maxlength="'+max+'" value="'+esc(v)+'">')+'</label>';
+}
+function edTog(f,label){var on=!!ed.d[f];return '<button type="button" class="agree'+(on?' on':'')+'" role="checkbox" aria-checked="'+on+'" data-act="ed-tog" data-f="'+f+'"><span class="mk">'+CHECK+'</span><span>'+esc(label)+'</span></button>'}
+function editor(){
+  var h='<div class="edm" role="dialog" aria-modal="true" aria-labelledby="ed-t">', d=ed.d;
+  if(ed.k==='reset'){
+    return h+'<h1 class="h2" id="ed-t">Вернуть исходную анкету?</h1><p class="lead">Все правки текста и полей пропадут, анкета станет такой, какой была до них. Ответы людей останутся.</p>'+(edNote?'<p class="q-e" role="alert">'+esc(edNote)+'</p>':'')+
+      '<div class="acts"><button type="button" class="btn" data-act="ed-close">Отмена</button><button type="button" class="btn pri" data-act="ed-reset"'+(edBusy?' disabled':'')+'>'+(edBusy?'Возвращаю…':'Вернуть')+'</button></div></div>';
+  }
+  if(ed.k==='form'){
+    h+='<h1 class="h2" id="ed-t">Заголовок и тексты анкеты</h1>'+(d.kicker!==undefined?edField('kicker','Строка над заголовком',false,80):'')+edField('title','Заголовок',false,80)+(d.intro!==undefined?edField('intro','Вступление',true,600):'')+
+      (d.moreIntro!==undefined?edField('moreIntro','Вступление к расширенной части',true,400):'')+(d.agree!==undefined?edField('agree','Согласие (галочка на последнем шаге)',true,300):'')+(d.consent!==undefined?edField('consent','Строка под последним шагом',true,400):'');
+  }else if(ed.k==='step'){
+    h+='<h1 class="h2" id="ed-t">Шаг анкеты</h1>'+edField('title','Название шага',false,80)+edField('text','Пояснение под названием (можно пусто)',true,400);
+  }else{
+    var fed=(info.edit.fed||[]).indexOf(ed.id)>=0, ch=d.t==='one'||d.t==='many';
+    h+='<h1 class="h2" id="ed-t">Вопрос</h1>'+edField('label','Текст вопроса',true,300)+edField('hint','Подсказка под вопросом (можно пусто)',false,300)+
+      '<label class="edf"><span>Формат ответа</span><select data-ed="t"'+(fed?' disabled':'')+'>'+TYPES.map(function(t){return '<option value="'+t[0]+'"'+(d.t===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')+'</select></label>'+
+      (fed?'<p class="small">От ответа на этот вопрос зависят другие вопросы, поэтому формат и число вариантов здесь не меняются. Варианты можно переименовать: условия подстроятся.</p>':'');
+    if(ch)h+=edField('opts','Варианты, каждый с новой строки',true,3600)+edTog('other','Есть вариант «Другое» со своим текстом')+(d.t==='many'?'<label class="edf"><span>Сколько вариантов можно выбрать (пусто — без ограничения)</span><input type="number" min="1" max="30" inputmode="numeric" data-ed="max" value="'+esc(d.max)+'"></label>':'');
+    else if(d.t!=='area')h+=edField('ph','Пример в пустом поле (можно пусто)',false,80);
+    h+=edTog('req','Обязательный вопрос');
+  }
+  if(info.edit.answers)h+='<p class="small">Анкету уже заполнили: '+info.edit.answers+'. Их ответы не меняются; новый текст и формат увидят те, кто откроет анкету после сохранения.</p>';
+  if(edNote)h+='<p class="q-e" role="alert">'+esc(edNote)+'</p>';
+  return h+'<div class="acts"><button type="button" class="btn" data-act="ed-close">Отмена</button><button type="button" class="btn pri" data-act="ed-save"'+(edBusy?' disabled':'')+'>'+(edBusy?'Сохраняю…':'Сохранить')+'</button></div></div>';
+}
+function edDone(j){
+  edBusy=false;ed=null;edNote='';info=j;F=j.form;card=j.access==='card';document.title=F.title;
+  // an answer typed into the preview may no longer fit its question
+  A={};bad={};
+  var ss=scr==='form'?steps(part):[];if(scr==='form'&&step>=ss.length)step=Math.max(0,ss.length-1);
+  render();tell();
+}
+function edFail(e){
+  edBusy=false;
+  edNote={empty:'Этот текст нельзя оставить пустым.',need_opts:'Для списка нужно хотя бы два варианта, каждый с новой строки.',branch:'От этого вопроса зависят другие: формат и число вариантов менять нельзя, только слова.',shared_form:'Эту анкету использует ещё один проект, поэтому менять её может только владелец.',bad_type:'Такого формата ответа нет.',not_found:'Этого вопроса в анкете уже нет. Открой предпросмотр заново.'}[e.code]||'Не получилось сохранить. Попробуй ещё раз.';
+  render();
+}
+function edSave(){
+  if(edBusy||!ed)return;
+  var d=ed.d, set={};
+  if(ed.k==='q'){
+    set={label:d.label,hint:d.hint,req:!!d.req,t:d.t};
+    if(d.t==='one'||d.t==='many'){set.opts=String(d.opts||'').split('\n').map(function(x){return x.trim()}).filter(Boolean);set.other=!!d.other;if(d.t==='many')set.max=+d.max||0}
+    else if(d.t!=='area')set.ph=d.ph;
+  }else set=d;
+  edBusy=true;edNote='';render();
+  api('PATCH','/form',{target:ed.k,id:ed.id,set:set}).then(edDone,edFail);
+}
+function edReset(){if(edBusy)return;edBusy=true;render();api('DELETE','/form').then(edDone,edFail)}
+window.addEventListener('message',function(e){
+  if(!preview||e.origin!==location.origin||!e.data)return;
+  if(e.data.pv==='edit'&&canEdit()){editing=!!e.data.on;if(!editing)ed=null;render();tell()}
+  else if(e.data.pv==='reset'&&canEdit()){edNote='';ed={k:'reset',id:'',d:{}};render()}
+});
+
 /* ---------- screens ---------- */
 function render(){
   var h='';
@@ -184,6 +270,7 @@ function render(){
   if(scr==='gate')h=gate();else if(scr==='hello')h=hello();else if(scr==='form')h=formScr();else if(scr==='home')h=home();
   else if(scr==='error')h='<div class="body"><h1 class="h2">Не получилось открыть анкету</h1><p class="lead">'+esc(note)+'</p><button class="btn wide" data-act="reload">Обновить</button></div>';
   if(preview&&scr!=='error')h='<p class="prev" role="note"><b>Предпросмотр.</b> Так анкету видит человек. Ответы не сохраняются, обязательные вопросы можно пропускать.</p>'+h;
+  if(preview&&ed)h+=editor();
   app.innerHTML=h;
   try{if(tg&&tg.BackButton){if(scr==='form')tg.BackButton.show();else tg.BackButton.hide()}}catch(e){}
 }
@@ -199,6 +286,7 @@ function hello(){
     '<div class="facts"><div class="fact"><b>1</b><span>'+n+' '+plural(n,'вопрос','вопроса','вопросов')+', '+esc(F.coreTime||'пара минут')+'. Почти везде достаточно нажать на вариант.</span></div>'+
     '<div class="fact"><b>2</b><span>'+(card?'Некоторые ответы раскрываются парой уточняющих вопросов. После отправки откроется страница о проекте «'+esc(info.project)+'».':'Сразу после отправки вы в проекте «'+esc(info.project)+'»: видите задачи команды и можете вести свои.')+'</span></div>'+
     (polls?'<div class="fact"><b>3</b><span>В конце можно '+esc(polls)+'.</span></div>':'')+'</div>'+
+    edBtn('form','','Изменить заголовок и тексты')+
     (preview?'<button class="link" data-act="pv-home">Показать, что человек видит после анкеты</button>':'')+
     (me.owner?'<p class="small">Вы владелец: анкета сохранится как ваша, доступы не меняются.</p><button class="link" data-act="home">'+(card?'Посмотреть страницу о проекте без анкеты':'Посмотреть голоса без анкеты')+'</button>':'')+
     '</div><div class="foot"><button class="btn pri" data-act="begin">Начать</button></div>';
@@ -206,9 +294,13 @@ function hello(){
 function formScr(){
   var ss=steps(part), s=ss[step], last=step===ss.length-1, h='';
   h+='<div class="top"><div class="bar" role="tablist" aria-label="Шаги анкеты">'+ss.map(function(x,i){return '<button type="button" role="tab" aria-selected="'+(i===step)+'" class="seg'+(i===step?' cur':i<step||seen[part+i]?' on':'')+'" data-act="go" data-i="'+i+'" aria-label="Шаг '+(i+1)+': '+esc(x.title)+'"><i></i></button>'}).join('')+'</div><div class="top-t"><b>'+esc(s.title)+'</b><span>'+(part==='more'?'по желанию · ':'')+(step+1)+' из '+ss.length+'</span></div></div>';
-  h+='<div class="body pad-t pad-b"><h1 class="h2">'+esc(s.title)+'</h1>'+(s.text?'<p class="lead">'+esc(s.text)+'</p>':'')+shown(s).filter(function(q){return !nested(q)}).map(question).join('');
+  h+='<div class="body pad-t pad-b"><h1 class="h2">'+esc(s.title)+'</h1>'+edBtn('step',s.id,'Изменить название шага')+(s.text?'<p class="lead">'+esc(s.text)+'</p>':'')+shown(s).filter(function(q){return !nested(q)}).map(function(q){
+    // follow-ups sit inside their question and open on an answer: in editing each gets a button of its own right away
+    return question(q)+edBtn('q',q.id,'Изменить вопрос')+(editing?s.qs.filter(function(x){return nested(x)===q}).map(function(x){return edBtn('q',x.id,'Уточняющий: '+String(x.label).slice(0,40))}).join(''):'');
+  }).join('');
   if(part==='core'&&last&&F.agree)h+='<button type="button" class="agree'+(agreed?' on':'')+(bad._agree?' bad':'')+'" role="checkbox" aria-checked="'+agreed+'" data-act="agree"><span class="mk">'+CHECK+'</span><span>'+esc(F.agree)+'</span></button>'+(bad._agree?'<p class="q-e" role="alert">'+esc(bad._agree)+'</p>':'');
   if(part==='core'&&last&&F.consent)h+='<p class="small">'+esc(F.consent)+'</p>';
+  if(part==='core'&&last&&(F.consent||F.agree))h+=edBtn('form','','Изменить текст согласия');
   if(note)h+='<p class="q-e" role="alert">'+esc(note)+'</p>';
   h+='</div><div class="foot"><button class="btn" data-act="back" aria-label="Назад">Назад</button><button class="btn pri" data-act="next"'+(busy?' disabled':'')+'>'+(busy?'Сохраняю…':part==='core'?(last?'Отправить':'Дальше'):(last?'Готово':'Сохранить и дальше'))+'</button></div>';
   return h;
@@ -387,11 +479,17 @@ app.addEventListener('click',function(e){
   else if(a==='more')begin('more');
   else if(a==='vote')vote(t.getAttribute('data-p'),t.getAttribute('data-o'));
   else if(a==='home'){scr='home';render()}
+  else if(a==='ed-open')edOpen(t.getAttribute('data-k'),t.getAttribute('data-id'));
+  else if(a==='ed-close'){if(!edBusy){ed=null;render()}}
+  else if(a==='ed-save')edSave();
+  else if(a==='ed-reset')edReset();
+  else if(a==='ed-tog'){if(ed){var ef=t.getAttribute('data-f');ed.d[ef]=!ed.d[ef];var es=(app.querySelector('.edm')||{}).scrollTop||0;render();var em=app.querySelector('.edm');if(em)em.scrollTop=es}}
   else if(a==='pv-home'){me.joined=true;if(card)me.show=info.show;scr='home';render();window.scrollTo(0,0)}
   else if(a==='reload')location.reload();
 });
 app.addEventListener('input',function(e){
-  var t=e.target, id=t.getAttribute('data-in'), oid=t.getAttribute('data-oth');
+  var t=e.target, id=t.getAttribute('data-in'), oid=t.getAttribute('data-oth'), edf=t.getAttribute('data-ed');
+  if(edf&&ed){ed.d[edf]=t.value;if(edf==='t'){render()}return}
   if(id){A[id]=t.value;keep()}
   else if(oid){
     var q=findQ(oid), val='Другое'+(t.value.trim()?': '+t.value.trim():'');
@@ -410,7 +508,7 @@ function fail(e){
 if(!token){note='В ссылке нет кода анкеты.';scr='error';render()}
 else api('GET','').then(function(j){
   info=j;F=j.form;card=j.access==='card';document.title=F.title;
-  if(preview){me=j.me;A={};agreed=false;scr='hello';return render()}
+  if(preview){me=j.me;A={};agreed=false;scr='hello';render();return tell()}
   if(!initData){scr='gate';return render()}
   return api('POST','/me',{initData:initData}).then(function(m){
     me=m;A=Object.assign({},kept(),m.answers);agreed=!!m.agreed;

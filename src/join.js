@@ -26,11 +26,144 @@ const say = (chat, html, markup) => T.tg('sendMessage', { chat_id: chat, text: h
 const appBtn = (text, p) => (https() ? { inline_keyboard: [[{ text, web_app: { url: cfg.baseUrl + p } }]] } : undefined);
 
 /* ---------- forms ---------- */
-function form(id) {
+// the form as it is written in forms/<id>.json
+function fileForm(id) {
   if (!/^[a-z0-9-]{1,40}$/.test(String(id || ''))) return null;
   if (cache[id] && process.env.NODE_ENV !== 'development') return cache[id];
   try { cache[id] = JSON.parse(fs.readFileSync(path.join(FORMS, id + '.json'), 'utf8')); } catch (e) { return null; }
   return cache[id];
+}
+// the form people get: the file with the edits made in the dashboard laid over it
+function form(id) {
+  const b = fileForm(id);
+  if (!b || !edits[id]) return b;
+  if (!merged[id] || process.env.NODE_ENV === 'development') merged[id] = applyEdits(b, edits[id]);
+  return merged[id];
+}
+
+/* ---------- edits made in the dashboard ---------- */
+// The owner or a coordinator changes a form in its preview: the wording and the kind of input of a question.
+// The edits live in the database (collection `forms`, one record per form: {top, steps, qs}) and are laid over the
+// file. Ids, the order and the conditions never change, so the answers already given still match their questions.
+const edits = {}, merged = {};
+const TYPES = ['text', 'area', 'tel', 'email', 'url', 'one', 'many'];
+const TOP = { kicker: 80, title: 80, intro: 600, moreIntro: 400, consent: 400, agree: 300 };
+const isChoice = (t) => t === 'one' || t === 'many';
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+// other questions, steps or the «master» mark depend on the answer to this one
+const feeds = (f, qid) => (!!f.master && f.master.q === qid) || f.steps.some((s) => (s.when && s.when.q === qid) || s.qs.some((q) => q.when && q.when.q === qid));
+function applyEdits(base, e) {
+  const f = JSON.parse(JSON.stringify(base));
+  for (const k of Object.keys(TOP)) if (isObj(e.top) && typeof e.top[k] === 'string' && e.top[k]) f[k] = e.top[k];
+  for (const s of f.steps) {
+    const se = isObj(e.steps) && e.steps[s.id];
+    if (se) { if (se.title) s.title = se.title; if (typeof se.text === 'string') { if (se.text) s.text = se.text; else delete s.text; } }
+    for (const q of s.qs) {
+      const o = isObj(e.qs) && e.qs[q.id];
+      if (!o) continue;
+      const was = Array.isArray(q.opts) ? q.opts.slice() : null, t0 = q.t;
+      if (o.label) q.label = o.label;
+      for (const k of ['hint', 'ph']) if (typeof o[k] === 'string') { if (o[k]) q[k] = o[k]; else delete q[k]; }
+      if (typeof o.req === 'boolean') { if (o.req) q.req = true; else delete q.req; }
+      if (TYPES.includes(o.t)) q.t = o.t;
+      if (isChoice(q.t)) {
+        if (Array.isArray(o.opts) && o.opts.length >= 2) q.opts = o.opts.slice();
+        if (typeof o.other === 'boolean') { if (o.other) q.other = true; else delete q.other; }
+        if (q.t === 'many' && o.max !== undefined) { if (o.max > 0) q.max = o.max; else delete q.max; }
+        if (q.t === 'one') { delete q.max; delete q.lead; }
+        if (q.max && q.max > q.opts.length + (q.other ? 1 : 0)) delete q.max;
+        if (q.fill === 'telegram' && !q.opts.includes('Telegram')) delete q.fill;
+        delete q.ph;
+      } else { for (const k of ['opts', 'other', 'max', 'lead', 'row']) delete q[k]; }
+      if (q.t !== t0) { delete q.ac; if (q.fill && !(q.fill === 'telegram' && isChoice(q.t))) delete q.fill; }
+      // an option that got a new wording: the conditions that name it follow
+      if (was && Array.isArray(q.opts) && was.length === q.opts.length) {
+        const ren = {}; was.forEach((x, i) => { if (x !== q.opts[i]) ren[x] = q.opts[i]; });
+        if (Object.keys(ren).length) {
+          const fix = (w) => { if (w && w.q === q.id && Array.isArray(w.in)) w.in = w.in.map((x) => (ren[x] !== undefined ? ren[x] : x)); };
+          fix(f.master); f.steps.forEach((x) => { fix(x.when); x.qs.forEach((y) => fix(y.when)); });
+        }
+      }
+    }
+  }
+  return f;
+}
+async function loadEdits() {
+  for (const k of Object.keys(edits)) delete edits[k];
+  for (const k of Object.keys(merged)) delete merged[k];
+  for (const d of await db.listDocs('forms')) if (isObj(d.data)) edits[d.id] = d.data;
+}
+const str = (v, max) => String(v == null ? '' : v).replace(/\u0000/g, '').replace(/[ \t]+/g, ' ').trim().slice(0, max);
+// One change. target: 'form' | 'step' | 'q'; id: the step's or the question's id; set: the new values.
+// Returns {error} with a code the page explains, or {ok, what} for the journal.
+async function editForm(formId, target, id, set) {
+  const f = form(formId);
+  if (!f || !isObj(set)) return { error: 'bad_request' };
+  const e = JSON.parse(JSON.stringify(edits[formId] || {}));
+  let what = '';
+  if (target === 'form') {
+    e.top = isObj(e.top) ? e.top : {};
+    for (const k of Object.keys(TOP)) {
+      if (set[k] === undefined) continue;
+      const v = str(set[k], TOP[k]);
+      if (!v && (k === 'title' || f[k])) return { error: 'empty' };   // a text that is there cannot be emptied, only reworded
+      if (v) e.top[k] = v;
+    }
+    what = 'заголовок и тексты';
+  } else if (target === 'step') {
+    const s = f.steps.find((x) => x.id === id);
+    if (!s) return { error: 'not_found' };
+    e.steps = isObj(e.steps) ? e.steps : {};
+    const o = Object.assign({}, e.steps[s.id]);
+    if (set.title !== undefined) { const v = str(set.title, 80); if (!v) return { error: 'empty' }; o.title = v; }
+    if (set.text !== undefined) o.text = str(set.text, 400);
+    e.steps[s.id] = o; what = 'шаг «' + (o.title || s.title) + '»';
+  } else if (target === 'q') {
+    const q = questions(f).find((x) => x.id === id);
+    if (!q) return { error: 'not_found' };
+    e.qs = isObj(e.qs) ? e.qs : {};
+    const o = Object.assign({}, e.qs[q.id]), fed = feeds(f, q.id);
+    if (set.label !== undefined) { const v = str(set.label, 300); if (!v) return { error: 'empty' }; o.label = v; }
+    if (set.hint !== undefined) o.hint = str(set.hint, 300);
+    if (set.ph !== undefined) o.ph = str(set.ph, 80);
+    if (set.req !== undefined) o.req = !!set.req;
+    const t = set.t === undefined ? q.t : set.t;
+    if (!TYPES.includes(t)) return { error: 'bad_type' };
+    if (fed && t !== q.t) return { error: 'branch' };
+    // the question as its file has it: going back to a list brings the file's options back
+    const q0 = questions(fileForm(formId)).find((x) => x.id === id) || {};
+    if (t !== q.t) o.t = t;
+    if (o.t === q0.t) delete o.t;
+    if (isChoice(t)) {
+      let opts = q.opts || q0.opts;
+      if (set.opts !== undefined) {
+        if (!Array.isArray(set.opts)) return { error: 'bad_request' };
+        opts = [...new Set(set.opts.map((x) => str(x, 120)).filter((x) => x && x !== OTHER && !x.startsWith(OTHER + ':')))].slice(0, 30);
+        if (fed && opts.length !== (q.opts || []).length) return { error: 'branch' };
+        o.opts = opts;
+      }
+      if (!Array.isArray(opts) || opts.length < 2) return { error: 'need_opts' };
+      if (set.other !== undefined) o.other = !!set.other;
+      if (t === 'many' && set.max !== undefined) { const m = Math.floor(+set.max) || 0; o.max = m > 0 && m < opts.length ? m : 0; }
+    } else { delete o.opts; delete o.other; delete o.max; }
+    e.qs[q.id] = o; what = 'вопрос «' + (o.label || q.label).slice(0, 60) + '»';
+  } else return { error: 'bad_request' };
+  e.u = new Date().toISOString();
+  await db.setDoc('forms', formId, e);
+  edits[formId] = e; delete merged[formId];
+  return { ok: true, what };
+}
+async function resetForm(formId) {
+  const had = !!edits[formId];
+  await db.deleteDoc('forms', formId);
+  delete edits[formId]; delete merged[formId];
+  return had;
+}
+// the projects that use a form: a link is live or somebody has answered. A form is one for all of them.
+async function formProjects(formId) {
+  const a = (await db.listJoinLinks()).filter((l) => l.form === formId).map((l) => l.project);
+  const b = (await db.listDocs('joins')).filter((d) => d.data.form === formId).map((d) => d.data.project);
+  return [...new Set(a.concat(b).filter(Boolean))];
 }
 function forms() {
   try { return fs.readdirSync(FORMS).filter((f) => /^[a-z0-9-]+\.json$/.test(f)).map((f) => form(f.slice(0, -5))).filter(Boolean); } catch (e) { return []; }
@@ -205,10 +338,12 @@ async function grant(user, project) {
 
 // The form as a person gets it, for the owner or a coordinator to look through in the dashboard: the same page,
 // nothing is saved. `me` is a newcomer who has answered nothing; `show` is the showcase an invitation opens afterwards.
-async function preview(f, p, botName) {
+async function preview(f, p, botName, canEdit) {
   const list = await entries(f), card = isCard(f);
   return {
     form: f, project: String(p.data.name || ''), app: cfg.appName, bot: botName, access: card ? 'card' : 'project', preview: true,
+    // edit.can: this person may change the form here; edit.changed: it differs from its file; edit.fed: the questions other questions depend on
+    edit: { can: !!canEdit, changed: !!edits[f.id], fed: questions(f).filter((q) => feeds(f, q.id)).map((q) => q.id), answers: list.length },
     me: { user: { name: '', username: '' }, owner: false, joined: false, more: false, answers: {}, agreed: false,
       people: card ? 0 : list.filter((d) => d.data.core && d.data.project === p.id).length, polls: tally(f, list, ''), show: null },
     show: card ? showcase(f, p) : null,
@@ -530,4 +665,4 @@ async function migrateTeam() {
   return n;
 }
 
-module.exports = { preview, exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };
+module.exports = { preview, loadEdits, editForm, resetForm, formProjects, exportProject, isCard, teamForm, cardForm, inviteTexts, qrSvg, qrPng, migrateTeam, router, start, url, linkFor, votesText, csv, form, forms, clean, entries, tally, overview, announce, announceable, announceKb, teamOf };

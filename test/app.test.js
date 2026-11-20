@@ -2158,6 +2158,87 @@ test('work chat: the bot asks for the administrator\'s rights, hears voices, wri
   delete tgMember['1'];
 });
 
+test('a form is edited from its preview: wording and the kind of input, conditions follow, the original comes back', async () => {
+  const db = require('../src/db'), join = require('../src/join'), journal = require('../src/journal');
+  const RAY = { id: 777051, first_name: 'Ray', username: 'ray_coord' };
+  const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  await put('projects/p-ed', { name: 'Правка анкеты', status: 'active', order: 80 });
+  const edit = (body, q = '', token = ownerToken, pid = 'p-ed') => call('PATCH', '/api/onboard/' + pid + '/form' + q, { token, json: body });
+  const Q = (f, id) => f.steps.flatMap((x) => x.qs).find((x) => x.id === id);
+  const team0 = JSON.parse(JSON.stringify(join.teamForm())), card0 = JSON.parse(JSON.stringify(join.cardForm()));
+  const pv = (await call('GET', '/api/onboard/p-ed/preview?form=invite', { token: ownerToken })).json;
+  assert.deepEqual([pv.edit.can, pv.edit.changed], [true, false]);
+  assert.ok(pv.edit.fed.includes('0.1') && pv.edit.fed.includes('4.1') && !pv.edit.fed.includes('1.2'));
+
+  // the wording of the form, of a step and of a question
+  let r = await edit({ target: 'form', set: { title: 'ЭкоЧакра: знакомство', intro: 'Пара вопросов о вас.' } });
+  assert.equal(r.status, 200); assert.equal(r.json.form.title, 'ЭкоЧакра: знакомство'); assert.equal(r.json.edit.changed, true);
+  assert.equal(join.teamForm().title, 'ЭкоЧакра: знакомство'); assert.equal(join.teamForm().kicker, team0.kicker);
+  assert.equal((await edit({ target: 'form', set: { title: '  ' } })).json.error, 'empty');
+  r = await edit({ target: 'step', id: 'c1', set: { title: 'Как с вами связаться', text: 'Только для координаторов.' } });
+  assert.deepEqual([r.json.form.steps[0].title, r.json.form.steps[0].text], ['Как с вами связаться', 'Только для координаторов.']);
+  r = await edit({ target: 'q', id: '1.2', set: { label: 'Номер для связи', hint: 'С кодом страны', ph: '+7 900 000 00 00', req: false } });
+  assert.deepEqual([Q(r.json.form, '1.2').label, Q(r.json.form, '1.2').hint, Q(r.json.form, '1.2').ph, Q(r.json.form, '1.2').req, Q(r.json.form, '1.2').t], ['Номер для связи', 'С кодом страны', '+7 900 000 00 00', undefined, 'tel']);
+  assert.equal((await edit({ target: 'q', id: 'nope', set: { label: 'x' } })).status, 404);
+
+  // the kind of input: a line becomes a list, a list becomes a text
+  assert.equal((await edit({ target: 'q', id: '1.4', set: { t: 'one' } })).json.error, 'need_opts');
+  assert.equal((await edit({ target: 'q', id: '1.4', set: { t: 'grid' } })).json.error, 'bad_type');
+  r = await edit({ target: 'q', id: '1.4', set: { t: 'many', opts: [' Instagram ', 'Сайт', 'Сайт', '', 'Другое'], other: true, max: 1 } });
+  let q = Q(r.json.form, '1.4');
+  assert.deepEqual([q.t, q.opts, q.other, q.max, q.ph, q.ac], ['many', ['Instagram', 'Сайт'], true, 1, undefined, undefined]);
+  r = await edit({ target: 'q', id: '1.5', set: { t: 'area' } });
+  q = Q(r.json.form, '1.5');
+  assert.deepEqual([q.t, q.opts, q.fill], ['area', undefined, undefined]);
+  // the server checks answers by the edited form
+  const c = join.clean(join.teamForm(), 'core', { '1.1': 'Аня', '1.2': '', '1.3': 'a@b.co', '1.4': ['Сайт'], '1.5': 'Пишите в любое время' }, {});
+  assert.deepEqual([c.answers['1.4'], c.answers['1.5'], c.errors.includes('1.2'), c.errors.includes('1.4')], [['Сайт'], 'Пишите в любое время', false, false]);
+  r = await edit({ target: 'q', id: '1.5', set: { t: 'many' } });
+  assert.deepEqual(Q(r.json.form, '1.5').opts, Q(team0, '1.5').opts, 'back to a list: the original options');
+
+  // a question other questions depend on: only the words change, and the conditions follow them
+  const inv = (body) => edit(body, '?form=invite');
+  assert.equal((await inv({ target: 'q', id: '0.1', set: { t: 'many' } })).json.error, 'branch');
+  assert.equal((await inv({ target: 'q', id: '0.1', set: { opts: ['Участник', 'Мастер'] } })).json.error, 'branch');
+  const o0 = Q(card0, '0.1').opts, o1 = o0.map((x) => (x === card0.master.in[0] ? 'Мастер практик' : x));
+  r = await inv({ target: 'q', id: '0.1', set: { label: 'Кто вы в клубе?', opts: o1 } });
+  assert.equal(r.status, 200);
+  const cf = join.cardForm();
+  assert.deepEqual(cf.master.in, ['Мастер практик']);
+  assert.deepEqual(cf.steps.find((x) => x.when && x.when.q === '0.1').when.in, ['Мастер практик'], 'the master step follows the new wording');
+  assert.equal(card0.master.in[0], 'Мастер: телесные практики, терапия', 'the file itself is untouched');
+
+  // kept in the database: a restart of the forms brings the edits back; the journal has them
+  await join.loadEdits();
+  assert.equal(join.teamForm().title, 'ЭкоЧакра: знакомство'); assert.equal(Q(join.cardForm(), '0.1').label, 'Кто вы в клубе?');
+  assert.deepEqual((await db.listDocs('forms')).map((d) => d.id).sort(), ['ecochakra', 'ecochakra-club']);
+  assert.equal((await call('GET', '/api/db/forms', { token: ownerToken })).status, 404, 'not a collection of the page');
+  await journal.flush();
+  const log = (await call('GET', '/api/db/audit', { token: ownerToken })).json.docs.flatMap((d) => d.data.items);
+  assert.ok(log.some((e) => e.a === 'bulk' && /Анкета «ЭкоЧакра: клуб» изменена: вопрос «Кто вы в клубе\?»/.test(e.n)));
+
+  // a coordinator edits a form only while no project outside theirs uses it
+  const l = (await call('POST', '/api/share/links', { token: ownerToken, json: { role: 'editor', projects: ['p-ed'] } })).json.token;
+  await update(msg(RAY, { text: '/start inv_' + l }));
+  const rt = (await call('POST', '/api/auth/telegram', { json: { initData: initData(RAY) } })).json.token;
+  assert.equal((await edit({ target: 'form', set: { title: 'x' } }, '', rt)).status, 403, 'an editor does not');
+  await call('PATCH', '/api/share/members/' + RAY.id, { token: ownerToken, json: { role: 'manager', projects: ['p-ed'] } });
+  const used = await join.formProjects('ecochakra');
+  assert.ok(used.length && !used.includes('p-ed'), 'earlier tests use the team form in other projects');
+  assert.equal((await call('GET', '/api/onboard/p-ed/preview', { token: rt })).json.edit.can, false);
+  assert.equal((await edit({ target: 'form', set: { title: 'x' } }, '', rt)).json.error, 'shared_form');
+  assert.equal((await call('DELETE', '/api/onboard/p-ed/form', { token: rt })).status, 403);
+  await call('DELETE', '/api/share/members/' + RAY.id, { token: ownerToken });
+
+  // the original comes back, each form on its own
+  r = await call('DELETE', '/api/onboard/p-ed/form', { token: ownerToken });
+  assert.equal(r.json.edit.changed, false); assert.deepEqual(join.teamForm(), team0);
+  assert.equal(Q(join.cardForm(), '0.1').label, 'Кто вы в клубе?');
+  await call('DELETE', '/api/onboard/p-ed/form?form=invite', { token: ownerToken });
+  assert.deepEqual(join.cardForm(), card0);
+  assert.deepEqual(await db.listDocs('forms'), []);
+});
+
 test('header parsing', () => {
   const { parseHeader } = require('../src/bot');
   const list = [{ id: 'p-india', data: { name: 'Кастинги в Индии' } }, { id: 'p-blog', data: { name: 'Личный блог' } }, { id: 'p-hub', data: { name: 'Хаб услуг: канал, бот, мини-приложение' } }];

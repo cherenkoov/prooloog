@@ -324,6 +324,7 @@ function build() {
     const b = req.body || {};
     if (b.app !== 'prooloog' || !isObj(b.docs)) return res.status(400).json({ error: 'bad_request' });
     const n = await db.importAll(b.docs, cfg.allCollections, b.mode === 'replace');
+    await join.loadEdits();
     journal.event('bulk', (b.mode === 'replace' ? 'Данные заменены копией' : 'Загружена копия') + ': записей ' + n);
     hub.reloadAll();
     res.json({ ok: true, imported: n });
@@ -372,6 +373,9 @@ function build() {
     if (!auth.manages(req.user, p.id)) { res.status(403).json({ error: 'forbidden' }); return null; }
     return p;
   };
+  // A form is one for every project that uses it. The owner changes it freely; a coordinator only while no project
+  // outside their own uses it.
+  const mayEditForm = async (user, f) => user.role === 'owner' || (await join.formProjects(f.id)).every((x) => user.projects.includes(x));
   const obView = async (req, res, p) => { res.setHeader('Cache-Control', 'no-store'); res.json(await join.overview(p.id, bot.name())); };
   api.get('/onboard/:project', auth.guard('manage'), async (req, res) => { const p = await obProject(req, res); if (p) await obView(req, res, p); });
   api.post('/onboard/:project', auth.guard('manage'), actLimit, json, async (req, res) => {
@@ -399,7 +403,28 @@ function build() {
     const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
     if (!f) return res.status(409).json({ error: 'no_form' });
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await join.preview(f, p, bot.name()));
+    res.json(await join.preview(f, p, bot.name(), await mayEditForm(req.user, f)));
+  });
+  // Changing a form from its preview: the wording, and the kind of input of a question. One change per call:
+  // {target: 'form' | 'step' | 'q', id, set}. The answer is the preview again, with the change in.
+  api.patch('/onboard/:project/form', auth.guard('manage'), actLimit, json, async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
+    if (!f) return res.status(409).json({ error: 'no_form' });
+    if (!(await mayEditForm(req.user, f))) return res.status(403).json({ error: 'shared_form' });
+    const b = req.body || {}, r = await join.editForm(f.id, b.target, String(b.id || ''), b.set);
+    if (r.error) return res.status(r.error === 'not_found' ? 404 : 400).json({ error: r.error });
+    journal.event('bulk', 'Анкета «' + f.title + '» изменена: ' + r.what, await who(req));
+    res.json(await join.preview(join.form(f.id), p, bot.name(), true));
+  });
+  // back to the form as it is written in its file
+  api.delete('/onboard/:project/form', auth.guard('manage'), async (req, res) => {
+    const p = await obProject(req, res); if (!p) return;
+    const f = req.query.form === 'invite' ? join.cardForm() : join.teamForm();
+    if (!f) return res.status(409).json({ error: 'no_form' });
+    if (!(await mayEditForm(req.user, f))) return res.status(403).json({ error: 'shared_form' });
+    if (await join.resetForm(f.id)) journal.event('bulk', 'Анкета «' + f.title + '» возвращена к исходному виду', await who(req));
+    res.json(await join.preview(join.form(f.id), p, bot.name(), true));
   });
   // the invitation as a QR code, to show from the phone at a meeting
   api.get('/onboard/:project/qr', auth.guard('manage'), async (req, res) => {
@@ -474,6 +499,7 @@ async function start() {
   if (!cfg.sessionSecretFixed) console.warn('[auth] SESSION_SECRET is not set: sessions will not survive a restart');
   await db.init(cfg.databaseUrl);
   await seedIfEmpty();
+  await join.loadEdits();
   await join.migrateTeam().then((n) => { if (n) console.log('[team] ' + n + ' cards got their team'); }).catch((e) => console.error('[team]', e.message));
   const app = build();
   const server = await new Promise((resolve) => { const s = app.listen(cfg.port, '0.0.0.0', () => resolve(s)); });
