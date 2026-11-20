@@ -15,6 +15,7 @@ const hub = require('./realtime');
 const clock = require('./clock');
 const remind = require('./remind');
 const journal = require('./journal');
+const stt = require('./stt');
 
 let B = null; // what the bot lends: say, kb, esc, projects, pname, me()
 const init = (ctx) => { B = ctx; };
@@ -35,6 +36,12 @@ async function ownerName() {
   return one(p && p.name, 60).split(' ')[0] || (p && p.username ? '@' + p.username : 'владелец');
 }
 const sees = (ch) => !!ch.admin || !!B.me().readsAll;
+// Who reads what the bot keeps from this chat, in words for the chat itself: the owner, and the project's
+// coordinators when it has them. The chat is told the truth about it.
+async function readers(ch) {
+  const who = B.esc(await ownerName());
+  return (await auth.managersOf(ch.project)).length ? 'видят ' + who + ' и координаторы проекта' : 'видит только ' + who;
+}
 
 /* ---------- the chat's record ---------- */
 const chatOf = (tgId) => db.getDoc('chats', docId(tgId));
@@ -100,9 +107,10 @@ async function view(kind, ch) {
 
 async function aboutText(ch, p) {
   const e = B.esc, who = e(await ownerName()), lines = ['Привет! Я бот ' + e(cfg.appName) + ' и помогаю вести проект <b>' + e(B.pname(p)) + '</b>.'];
-  if (ch.collect === 'all') lines.push(sees(ch) ? '• Сохраняю сообщения этого чата в переписку проекта. Их видит только ' + who + '.'
-    : '• Сохраняю в переписку проекта то, что адресовано мне: команды и ответы на мои сообщения. Это видит только ' + who + '.');
-  else if (ch.collect === 'ask') lines.push('• Сохраняю в переписку проекта только то, что адресовано мне: ответы на мои сообщения' + (sees(ch) ? ' и упоминания' : '') + '. Это видит только ' + who + '.');
+  const rd = await readers(ch);
+  if (ch.collect === 'all') lines.push(sees(ch) ? '• Сохраняю сообщения этого чата в переписку проекта. Их ' + rd + '.'
+    : '• Сохраняю в переписку проекта то, что адресовано мне: команды и ответы на мои сообщения. Это ' + rd + '.');
+  else if (ch.collect === 'ask') lines.push('• Сохраняю в переписку проекта только то, что адресовано мне: ответы на мои сообщения' + (sees(ch) ? ' и упоминания' : '') + '. Это ' + rd + '.');
   else lines.push('• Переписку этого чата не сохраняю.');
   if (ch.read) lines.push('• /project — что сейчас по проекту: задачи, вёрсты, события.');
   lines.push('• /task текст — предложить задачу, /note текст — оставить заметку. В проект они попадут, когда ' + who + ' подтвердит.');
@@ -128,10 +136,71 @@ async function askOwner(doc, from) {
   await B.say(owner, 'Меня добавили в чат <b>' + B.esc(doc.data.title || 'без названия') + '</b>' + who + '.\nК какому проекту его привязать? Пока проект не выбран, я в этом чате молчу и ничего не сохраняю.', B.kb(rows))
     .catch((err) => console.error('[groups] the owner was not asked:', err.message));
 }
-async function hintOwner(doc) {
+async function hintOwner(doc, asked) {
   const owner = await auth.ownerId(), ch = doc.data;
   if (!owner || ch.collect !== 'all' || sees(ch)) return;
-  await B.say(owner, 'В чате <b>' + B.esc(ch.title || 'без названия') + '</b> я сейчас вижу только команды и ответы на мои сообщения: так Telegram защищает переписку в группах.\nЧтобы я собирал все сообщения, сделай меня администратором этого чата (права можно не давать).').catch(() => {});
+  await B.say(owner, 'В чате <b>' + B.esc(ch.title || 'без названия') + '</b> я сейчас вижу только команды и ответы на мои сообщения: так Telegram защищает переписку в группах.\nЧтобы я собирал все сообщения, сделай меня администратором этого чата (права можно не давать).' +
+    (asked ? '\nЕсли ты сам там не администратор: я попросил об этом в чате и приложил шаги. Повторить просьбу: команда /admin в чате.' : '')).catch(() => {});
+}
+
+/* ---------- the administrator's rights ---------- */
+// Without them Telegram hands the bot only commands and replies to its own messages, so a chat it should
+// collect from stays almost empty. The bot looks at its own rights and asks the chat, with the steps:
+// when the chat is tied to a project, when it comes back after a restart, and again a few days later
+// when somebody talks to it. Three requests at most, unless the owner asks for another one with /admin.
+const ADMIN_GAP_MS = 3 * 864e5, ADMIN_ASKS = 3;
+// what Telegram says right now: true, false, or null when it does not answer
+async function adminNow(ch) {
+  const me = B.me();
+  if (!me.id) return null;
+  try {
+    const cm = await T.tg('getChatMember', { chat_id: ch.tg, user_id: me.id });
+    return cm ? cm.status === 'administrator' || cm.status === 'creator' : null;
+  } catch (e) { return null; }
+}
+// the people who can name an administrator: the creator and the administrators with that right
+async function promoters(ch) {
+  let list = [];
+  try { const r = await T.tg('getChatAdministrators', { chat_id: ch.tg }); if (Array.isArray(r)) list = r; } catch (e) { /* the request goes without names */ }
+  const e = B.esc;
+  return list.filter((x) => x && x.user && !x.user.is_bot && (x.status === 'creator' || x.can_promote_members))
+    .sort((a, b) => (a.status === 'creator' ? 0 : 1) - (b.status === 'creator' ? 0 : 1)).slice(0, 3)
+    .map((x) => (x.user.username ? '@' + e(x.user.username) : '<a href="tg://user?id=' + (+x.user.id || 0) + '">' + e(person(x.user)) + '</a>'));
+}
+async function adminText(ch) {
+  const e = B.esc, me = B.me(), p = (await B.projects()).find((x) => x.id === ch.project), who = await promoters(ch);
+  return '🔑 <b>Мне нужны права администратора в этом чате</b>\n' +
+    'Сейчас Telegram показывает мне только команды и ответы на мои сообщения. Переписка и голосовые в проект «' + e(p ? B.pname(p) : '') + '» не попадают, и ленту проекта собрать не из чего.\n\n' +
+    'Выдать права может создатель чата или администратор' + (who.length ? ': ' + who.join(', ') : '') + '.\n' +
+    '1. Нажмите на название чата вверху.\n' +
+    '2. «Изменить» (значок карандаша) → «Администраторы» → «Добавить администратора».\n' +
+    '3. Выберите ' + (me.name ? '@' + e(me.name) : 'меня') + ' в списке.\n' +
+    '4. Все переключатели прав можно выключить: мне нужен только сам статус.\n' +
+    '5. Нажмите «Готово».\n\n' +
+    'После этого я сохраняю сообщения чата в переписку проекта: их ' + (await readers(ch)) + '. В самом чате я ничего не удаляю и не меняю.';
+}
+// force: the owner asked for it, the limits do not apply.
+// Returns 'skip' (the chat does not need it), 'admin', 'unknown', 'asked' (recently, or often enough) or 'sent'.
+async function askAdmin(doc, force, thread) {
+  const ch = doc.data;
+  if (!ch.project || ch.on === false || ch.collect !== 'all' || B.me().readsAll) return 'skip';
+  const a = ch.adminAsk || {};
+  if (!force && ((+a.n || 0) >= ADMIN_ASKS || Date.now() - (Date.parse(a.at || '') || 0) < ADMIN_GAP_MS)) return ch.admin ? 'admin' : 'asked';
+  const now = await adminNow(ch);
+  if (now === null) return 'unknown';
+  if (now !== !!ch.admin) await saveChat(ch.tg, { admin: now }); // a change of rights that never reached the bot
+  if (now) return 'admin';
+  try { await send(ch, await adminText(ch), B.kb([[{ text: 'Проверить права', callback_data: 'gp:adm' }]]), thread); }
+  catch (err) { console.error('[groups] the request for rights was not sent:', err.message); return 'unknown'; }
+  await saveChat(ch.tg, (cur) => ({ adminAsk: { at: nowIso(), n: ((cur.adminAsk && +cur.adminAsk.n) || 0) + 1 }, last: nowIso() }));
+  return 'sent';
+}
+// After a restart: every chat the bot should collect from hears the request once, if it never did.
+async function sweep() {
+  for (const doc of await db.listDocs('chats')) {
+    if (doc.data.adminAsk) continue;
+    try { await askAdmin(doc); } catch (e) { console.error('[groups] rights not checked:', e.message); }
+  }
 }
 async function link(tgId, projectId) {
   const p = (await B.projects()).find((x) => x.id === projectId);
@@ -140,7 +209,7 @@ async function link(tgId, projectId) {
   const doc = await saveChat(tgId, { project: projectId, on: true });
   journal.note(before ? 'upd' : 'add', 'chats', doc.id, doc.data, before && before.data, '');
   await announce(doc);
-  await hintOwner(doc);
+  await hintOwner(doc, (await askAdmin(doc)) === 'sent');
   return { doc, project: p };
 }
 
@@ -171,7 +240,7 @@ async function onMember(u) {
   }
   // it became an administrator of a chat it collects from: now it sees everything, and says so
   if (admin && !was.data.admin && !B.me().readsAll && doc.data.project && doc.data.collect === 'all') {
-    await send(doc.data, 'Теперь я вижу все сообщения этого чата и сохраняю их в переписку проекта. Их видит только ' + B.esc(await ownerName()) + '.').catch(() => {});
+    await send(doc.data, 'Теперь я вижу все сообщения этого чата и сохраняю их в переписку проекта. Их ' + (await readers(doc.data)) + '.').catch(() => {});
   }
 }
 async function migrate(fromId, toId) {
@@ -199,10 +268,21 @@ function bodyOf(m) {
   else if (m.sticker && m.sticker.emoji) tag.push('[стикер ' + m.sticker.emoji + ']');
   if (!t && !tag.length) return '';
   const to = m.reply_to_message && m.reply_to_message.from && !m.reply_to_message.from.is_bot ? '↪ ' + one(person(m.reply_to_message.from), 40) + ': ' : '';
-  return (m.forward_origin ? '[переслано] ' : '') + to + tag.concat(t ? [t] : []).join(' ');
+  const src = originOf(m);
+  return (m.forward_origin ? '[переслано' + (src ? ' от ' + src : '') + '] ' : '') + to + tag.concat(t ? [t] : []).join(' ');
 }
 // One record per chat per day. A part that the owner has already reviewed, or that is full, is left alone:
 // what comes later starts the next part, so nothing reviewed changes and nothing new slips past the review.
+// the author of a forwarded message, when Telegram names them
+function originOf(m) {
+  const o = m.forward_origin;
+  if (!o) return '';
+  if (o.type === 'user' && o.sender_user) return person(o.sender_user);
+  if (o.type === 'hidden_user') return one(o.sender_user_name, 80);
+  if (o.type === 'chat' && o.sender_chat) return one(o.sender_chat.title, 80);
+  if (o.type === 'channel' && o.chat) return one(o.chat.title, 80);
+  return '';
+}
 async function collect(m, doc) {
   const body = bodyOf(m);
   if (!body) return null;
@@ -236,12 +316,13 @@ async function collect(m, doc) {
   const au = m.voice || m.audio;
   if (saved && au && au.file_id) {
     const v = await db.setDoc('messages', 'gv' + doc.id.slice(1) + '-' + m.message_id, {
-      project: ch.project, contact: await contactOf(m.from), from: who, text: one(m.caption, 3500), summary: '', date: p.d, channel: 'tg', review: 'pending', proposal: null, applied: [],
+      project: ch.project, contact: await contactOf(m.from), from: who + (originOf(m) ? ' (переслано от ' + originOf(m) + ')' : ''), text: one(m.caption, 3500), summary: '', date: p.d, time: p.t, channel: 'tg', review: 'pending', proposal: null, applied: [],
       file: { kind: 'audio', tg: au.file_id, name: m.voice ? 'Голосовое ' + p.d + ' ' + p.t.replace(':', '-') + '.ogg' : one(au.file_name || au.title || 'Аудио', 80), dur: +au.duration || 0 },
       src: 'chat', chat: doc.id, u: nowIso(),
     });
     hub.publish('messages', v.id, v.data, v.version);
     journal.note('add', 'messages', v.id, Object.assign({}, v.data, { text: v.data.text || v.data.file.name }), null, 'чат «' + one(ch.title, 50) + '»: ' + who);
+    stt.later(v.id); // the words of the voice message, when a speech-to-text key is set
   }
   return saved;
 }
@@ -314,9 +395,22 @@ async function onMessage(m) {
   if (c.title && c.title !== doc.data.title) doc = await saveChat(c.id, { title: one(c.title, 120), pub: !!c.username });
   const ch = doc.data, rt = m.reply_to_message, toMe = !!(rt && rt.from && me.id && rt.from.id === me.id);
   const thread = m.is_topic_message && m.message_thread_id ? { message_thread_id: m.message_thread_id } : {};
+  try { return await heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }); }
+  // whatever reached the bot is a moment to ask for the rights again, when it is time (askAdmin keeps the limits)
+  finally { if (!ch.admin && name !== 'admin' && name !== 'unlink') await askAdmin(doc, false, thread).catch(() => {}); }
+}
+async function heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }) {
+  const c = m.chat, ch = doc.data, me = B.me(), rt = m.reply_to_message;
 
   if (cmd) {
     if (name === 'unlink' && isOwner) { const off = await saveChat(c.id, { project: '' }); journal.note('upd', 'chats', off.id, off.data, ch, ''); return send(ch, 'Отвязал чат от проекта. Больше ничего здесь не сохраняю.', undefined, thread).catch(() => {}); }
+    if (name === 'admin' && isOwner) {
+      const r = await askAdmin(doc, true, thread);
+      const html = r === 'admin' ? 'Права администратора у меня есть: я вижу все сообщения этого чата.'
+        : r === 'skip' ? (me.readsAll ? 'Я и так вижу все сообщения этого чата.' : 'Этот чат настроен так, что я не сохраняю всю переписку: права администратора мне здесь не нужны.')
+          : r === 'unknown' ? 'Telegram сейчас не отвечает, проверить права не получилось. Попробуй чуть позже.' : '';
+      return html ? send(ch, html, undefined, thread).catch(() => {}) : undefined;
+    }
     if (name === 'task' || name === 'note') {
       const quoted = rt && !toMe ? one(rt.text || rt.caption, 3500) : '';
       if (arg) return suggest(m, doc, name, arg + (quoted ? '\n\n' + person(rt.from) + ': ' + quoted : ''));
@@ -394,13 +488,25 @@ async function onCallback(cq) {
     await ack(r ? 'Привязал' : 'Проекта уже нет');
     return edit(r ? 'Чат «' + B.esc(doc.data.title || '') + '» привязан к проекту <b>' + B.esc(B.pname(r.project)) + '</b>. Я поздоровался там и рассказал, что делаю.\nНастройки чата: в дэшборде, на странице проекта, блок «Чаты».' : 'Этого проекта уже нет. Напиши в чате /link, чтобы выбрать другой.');
   }
-  const gp = /^gp:(card|new|tasks|ms|ev|sug|app)$/.exec(data);
+  const gp = /^gp:(card|new|tasks|ms|ev|sug|app|adm)$/.exec(data);
   if (!gp || !isGroup(chat)) return ack();
   const doc = await chatOf(chat.id);
   if (!doc || !doc.data.project || doc.data.on === false) return ack('Чат не привязан к проекту');
   const ch = doc.data, thread = msg.is_topic_message && msg.message_thread_id ? { message_thread_id: msg.message_thread_id } : {};
   if (gp[1] === 'app') return openApp(cq, doc, ack);
   if (gp[1] === 'sug') { await ack(); return prompt(ch, 'task', cq.from, 0, thread); }
+  if (gp[1] === 'adm') {
+    const now = await adminNow(ch);
+    if (now === null) return ack('Telegram сейчас не отвечает. Попробуйте чуть позже.', true);
+    if (!now) return ack('Прав администратора пока нет. Шаги в сообщении выше.', true);
+    await ack('Права есть, спасибо!');
+    if (!ch.admin) {
+      // the same words the bot says when Telegram itself reports the change
+      const d = await saveChat(ch.tg, { admin: true });
+      if (!B.me().readsAll && d.data.collect === 'all') await send(d.data, 'Теперь я вижу все сообщения этого чата и сохраняю их в переписку проекта. Их ' + (await readers(d.data)) + '.', undefined, thread).catch(() => {});
+    }
+    return;
+  }
   if (!ch.read) return ack('Владелец не открывал проект для этого чата', true);
   const kind = gp[1] === 'new' ? 'card' : gp[1], html = await view(kind, ch);
   if (!html) return ack('Проекта уже нет');
@@ -418,8 +524,8 @@ const WIDE = { off: 0, ask: 1, all: 2 };
 async function onSettings(prev, doc) {
   const a = prev || {}, b = (doc && doc.data) || {}, wide = (x) => (WIDE[x.collect] === undefined ? 2 : WIDE[x.collect]);
   if (b.on === false || !b.project) return;
-  if (a.project !== b.project) { await announce(doc); await hintOwner(doc); }
-  else if (wide(b) > wide(a)) await announce(doc);
+  if (a.project !== b.project) { await announce(doc); await hintOwner(doc, (await askAdmin(doc)) === 'sent'); }
+  else if (wide(b) > wide(a)) { await announce(doc); await askAdmin(doc); }
 }
 async function post(id, text, withButtons) {
   const doc = await db.getDoc('chats', String(id));
@@ -438,4 +544,4 @@ async function leave(id) {
   return true;
 }
 
-module.exports = { init, isGroup, onMessage, onCallback, onMember, onSettings, post, leave, view, docId };
+module.exports = { init, isGroup, onMessage, onCallback, onMember, onSettings, post, leave, view, docId, sweep, askAdmin };

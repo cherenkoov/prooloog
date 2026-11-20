@@ -17,6 +17,8 @@ const remind = require('./remind');
 const join = require('./join');
 const google = require('./google');
 const calls = require('./calls');
+const stt = require('./stt');
+const digest = require('./digest');
 
 let botName = '', botId = 0, botReadsAll = false;
 
@@ -128,8 +130,9 @@ async function finish(chat, uid, draft, projectId, reply) {
   await db.setState(uid, {});
   if (!p) return (reply || say)(chat, 'Этого проекта уже нет. Пришли сообщение ещё раз и выбери другой.');
   const id = await saveMessage(draft, projectId);
+  if (draft.file && draft.file.kind === 'audio' && !draft.text) stt.later(id);
   const html = 'Сохранил в проект <b>' + esc(pname(p)) + '</b>' + (draft.from ? ' от <b>' + esc(draft.from) + '</b>' : '') + '.\n' +
-    (draft.file && draft.file.kind === 'audio' && !draft.text ? 'Это аудио без расшифровки: текст можно вписать в дэшборде.\n' : '') +
+    (draft.file && draft.file.kind === 'audio' && !draft.text ? (stt.enabled() ? 'Расшифровка голосового появится в сообщении в течение минуты.\n' : 'Это аудио без расшифровки: текст можно вписать в дэшборде.\n') : '') +
     'Сам проект не менялся: сообщение ждёт твоего ревью.';
   const b = openBtn('Открыть ревью', '/?open=msg-' + id);
   return (reply || say)(chat, html, b ? kb([b]) : undefined);
@@ -469,6 +472,42 @@ async function clubLink(chat, p) {
 }
 
 /* ---------- commands ---------- */
+/* ---------- the project's news feed ---------- */
+// «/digest проект»: what is new in the project's correspondence, as a short feed. «/digest all проект»: all of it again.
+async function feed(chat, arg) {
+  const all = /^(all|все|всё)(\s+|$)/i.test(arg), q = arg.replace(/^(all|все|всё)(\s+|$)/i, '').trim();
+  const list = await projects();
+  let p = q ? matchProject(q, list, false).best : null;
+  if (!p && !q) {
+    // no name: the only project that has a work chat
+    const tied = [...new Set((await db.listDocs('chats')).filter((c) => c.data.on !== false && c.data.project).map((c) => c.data.project))];
+    if (tied.length === 1) p = list.find((x) => x.id === tied[0]) || null;
+  }
+  if (!p) return say(chat, q ? 'Не нашёл проект «' + esc(q) + '». Напиши название точнее.' : 'Для какого проекта собрать ленту? Напиши так: /digest название проекта');
+  if (!ai.enabled()) return say(chat, 'Ленту пишет Claude, а на сервере нет ключа ANTHROPIC_API_KEY.');
+  await say(chat, 'Собираю ленту проекта <b>' + esc(pname(p)) + '</b>' + (all ? ' по всей переписке' : '') + '. Это занимает до пары минут.');
+  let r;
+  try { r = await digest.build(p.id, { all }); } catch (e) {
+    console.error('[digest]', e.code || e.message);
+    return say(chat, e.code === 'busy' ? 'Лента этого проекта уже собирается, подожди минуту.' : e.code === 'not_granted' ? 'Claude API не принял ключ. Проверь ANTHROPIC_API_KEY на сервере.'
+      : e.code === 'rate_limited' ? 'Claude API сейчас ограничивает запросы. Попробуй через минуту.' : e.code === 'prompt_too_large' ? 'Переписка слишком большая для одной ленты. Напиши мне, разобью по дням.' : 'Не получилось собрать ленту. Попробуй ещё раз чуть позже.');
+  }
+  if (r.empty) return say(chat, 'С прошлой ленты в переписке проекта <b>' + esc(pname(p)) + '</b> ничего нового.\nВся переписка заново: /digest all ' + esc(pname(p)));
+  // Telegram takes 4096 characters in one message: the feed goes in parts, cut at line ends
+  const parts = [];
+  let rest = r.feed;
+  while (rest.length > 3500) { let i = rest.lastIndexOf('\n', 3500); if (i < 1500) i = 3500; parts.push(rest.slice(0, i)); rest = rest.slice(i).replace(/^\n+/, ''); }
+  if (rest.trim()) parts.push(rest);
+  for (let i = 0; i < parts.length; i++) await say(chat, (i ? '' : '<b>Лента: ' + esc(pname(p)) + '</b>\n\n') + esc(parts[i]));
+  const notes = ['Прочитано записей: ' + r.n + '.'];
+  if (r.heard) notes.push('Голосовых расшифровано: ' + r.heard + '. Расшифровка машинная, в именах и названиях возможны ошибки.');
+  if (r.mute) notes.push('Голосовых без расшифровки: ' + r.mute + (r.sttOn ? '.' : '. Чтобы я их расшифровывал, на сервере нужен ключ STT_API_KEY.'));
+  if (r.cut) notes.push('Переписка длинная: в ленту вошла только её последняя часть.');
+  notes.push('Лента сохранена в сообщениях проекта и ждёт ревью' + (r.items ? ': предложений ' + r.items + '.' : '.') + ' Сам проект не менялся.');
+  const b = openBtn('Открыть ревью', '/?open=msg-' + r.id);
+  return say(chat, notes.join('\n'), b ? kb([b]) : undefined);
+}
+
 function closedText(from) {
   return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ даёт владелец.' +
     (from.username ? ' Попроси его отправить мне: /invite @' + esc(from.username) : ' Чтобы тебя можно было пригласить, задай имя пользователя в настройках Telegram.');
@@ -491,6 +530,7 @@ function helpText(role) {
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
     '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу со ссылкой команде проекта.\n' +
     '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей (все анкеты), /answers проект и /answers json проект — выгрузка одного проекта в CSV или JSON, /votes — голоса.\n' +
+    '• /digest проект — лента проекта: что нового в переписке рабочего чата и в голосовых, сжато и по дням, с предложениями на ревью. /digest all проект — по всей переписке. В рабочем чате мне нужны права администратора: /admin в чате повторяет просьбу о них.\n' +
     '• /club проект — приглашение для личных встреч: постоянная ссылка, QR-код и тексты для участника и мастера. Человек заполняет анкету и попадает в контакты проекта.\n' +
     '• /invite @имя editor или viewer — дать доступ ко всем проектам, /members — кто в команде. Доступ к выбранным проектам: значок «поделиться» рядом с «Данные» в дэшборде.\n\n' +
     'Ответ клиента я только сохраняю и привязываю к проекту. Сам проект меняется после твоего ревью в дэшборде.';
@@ -511,6 +551,7 @@ async function onCommand(m, role, cmd, arg) {
   }
   if (cmd === 'cancel') { await db.setState(uid, {}); return say(chat, 'Отменил.'); }
   if (!owner) return say(chat, 'Эта команда доступна только владельцу.');
+  if (cmd === 'digest') return feed(chat, arg);
   if (cmd === 'ask') return askClaude(chat, uid, arg);
   if (cmd === 'end') {
     const r = await asks.end('command');
@@ -729,6 +770,7 @@ async function setup() {
       { command: 'start', description: 'Открыть ' + cfg.appName },
       { command: 'login', description: 'Ссылка для входа в браузере' },
       { command: 'ask', description: 'Сессия с Claude' },
+      { command: 'digest', description: 'Лента проекта из переписки' },
       { command: 'backup', description: 'Копия данных файлом' },
       { command: 'help', description: 'Что умеет бот' },
     ] });
@@ -740,6 +782,8 @@ async function setup() {
     const owner = await auth.ownerId();
     if (owner) await setMenu(owner);
     console.log('[bot] @' + botName + ' is listening');
+    // chats the bot should collect from, where it has no administrator's rights yet, hear the request once
+    groups.sweep().catch((e) => console.error('[bot] chats not checked:', e.message));
     return true;
   } catch (e) { console.error('[bot] setup failed:', e.message); return false; }
 }

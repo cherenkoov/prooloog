@@ -31,7 +31,14 @@ const cfg = {
   aiModel: env.AI_MODEL || 'claude-sonnet-5-5',
   aiApiRoot: trimUrl(env.AI_API_ROOT || 'https://api.anthropic.com'),
   aiApiVersion: env.AI_API_VERSION || '2026-10-21',
+  // Speech to text for voice messages: any service with the OpenAI-compatible /audio/transcriptions call.
+  sttKey: env.STT_API_KEY || '',
+  sttLang: /^[a-z]{2}$/.test(env.STT_LANG || '') ? env.STT_LANG : '',
 };
+// A Groq key (gsk_…) points at Groq, any other key at OpenAI; STT_API_ROOT and STT_MODEL override both.
+const groq = /^gsk_/.test(cfg.sttKey);
+cfg.sttApiRoot = trimUrl(env.STT_API_ROOT || (groq ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1'));
+cfg.sttModel = env.STT_MODEL || (groq ? 'whisper-large-v3-turbo' : 'gpt-transcribe');
 
 // Prices in US dollars per million tokens, for the cost estimate in the dashboard. List prices as of November 2026;
 // AI_PRICE_IN / AI_PRICE_OUT override them for the configured model.

@@ -7,14 +7,16 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 
 const PORT = 18080, BOT = '123456:TESTTOKEN', BASE = 'http://127.0.0.1:' + PORT;
-const tgCalls = [], tgFiles = {}, tgMember = {}, tgPhotos = {};
+const tgCalls = [], tgFiles = {}, tgMember = {}, tgPhotos = {}, tgAdmins = {};
+const sttCalls = [];
+let sttAnswer = { text: '' };
 let aiMode = 'ok';
 const aiScript = []; // answers the Claude stand-in gives next, in order (without stream)
 
 function listen(handler) { return new Promise((res) => { const s = http.createServer(handler); s.listen(0, '127.0.0.1', () => res(s)); }); }
 function body(req) { return new Promise((res) => { const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => res(Buffer.concat(c))); }); }
 
-let tgSrv, aiSrv, srv;
+let tgSrv, aiSrv, sttSrv, srv;
 
 test.before(async () => {
   // Telegram stand-in: records every call, serves files the bot "received".
@@ -38,6 +40,7 @@ test.before(async () => {
       if (st === 'error') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ ok: false, error_code: 400, description: 'Bad Request: member list is inaccessible' })); }
       result = { status: st || 'member', user: { id: params.user_id } };
     }
+    if (method === 'getChatAdministrators') result = tgAdmins[String(params.chat_id)] || [];
     if (method === 'sendMessage' || method === 'editMessageText' || method === 'sendDocument' || method === 'sendPhoto') result = { message_id: 1000 + tgCalls.length };
     if (method === 'getUserProfilePhotos') { const ph = tgPhotos[String(params.user_id)]; result = { total_count: ph ? 1 : 0, photos: ph ? [ph] : [] }; }
     if (method === 'getFile') result = { file_id: params.file_id, file_path: 'files/' + params.file_id, file_size: (tgFiles['files/' + params.file_id] || Buffer.alloc(0)).length };
@@ -67,7 +70,16 @@ test.before(async () => {
     ev('message_stop', { type: 'message_stop' });
     res.end();
   });
+  // Speech-to-text stand-in: the OpenAI-compatible call, a file and a model in, { text } out.
+  sttSrv = await listen(async (req, res) => {
+    const raw = (await body(req)).toString('latin1');
+    sttCalls.push({ url: req.url, auth: req.headers.authorization, model: (/name="model"\r\n\r\n([^\r]*)/.exec(raw) || [])[1], file: (/name="file"; filename="([^"]*)"/.exec(raw) || [])[1], bytes: raw.length });
+    res.setHeader('content-type', 'application/json');
+    if (sttAnswer.status) res.statusCode = sttAnswer.status;
+    res.end(JSON.stringify(sttAnswer.status ? { error: { message: 'no' } } : { text: sttAnswer.text }));
+  });
   Object.assign(process.env, {
+    STT_API_KEY: 'stt-test', STT_API_ROOT: 'http://127.0.0.1:' + sttSrv.address().port + '/v1',
     PORT: String(PORT), DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgres://prooloog@127.0.0.1:54329/prooloog_test',
     BOT_TOKEN: BOT, TG_API_ROOT: 'http://127.0.0.1:' + tgSrv.address().port, APP_URL: 'https://prooloog.test',
     OWNER_USERNAME: 'Alex_Owner', SESSION_SECRET: 'test-session-secret', WEBHOOK_SECRET: 'test-hook+secret/=',
@@ -81,7 +93,7 @@ test.before(async () => {
   srv = await require('../src/server').start();
   await new Promise((r) => setTimeout(r, 300));   // bot.setup() talks to the Telegram stand-in
 });
-test.after(async () => { await srv.stop(); tgSrv.close(); aiSrv.close(); });
+test.after(async () => { await srv.stop(); tgSrv.close(); aiSrv.close(); sttSrv.close(); });
 
 /* ---------- helpers ---------- */
 const cfg = () => require('../src/config');
@@ -245,7 +257,10 @@ test('a client reply is saved for review and the project stays untouched', async
   await update(u3);
   m = await db.getDoc('messages', 'gt' + u3.message.message_id);
   assert.equal(m.data.project, 'p-blog'); assert.equal(m.data.file.kind, 'audio'); assert.equal(m.data.file.tg, 'VOICEFILE12345'); assert.equal(m.data.text, '');
-  assert.match(lastSay().params.text, /аудио без расшифровки/);
+  assert.match(lastSay().params.text, /Расшифровка голосового появится/, 'a speech-to-text key is set: the words are on their way');
+  await require('../src/stt').idle();
+  m = await db.getDoc('messages', 'gt' + u3.message.message_id);
+  assert.deepEqual([m.data.text, m.data.stt.error, m.data.file.tg], ['', 'no_file', 'VOICEFILE12345'], 'no file, no words: the record stays as it was');
   // 4. unknown project in the header
   const u4 = msg(OWNER, { text: 'от Мария, марс: привет' });
   await update(u4);
@@ -1967,6 +1982,180 @@ test('preview: the owner and a coordinator see a form as a person will, nothing 
   assert.equal((await call('GET', '/api/onboard/p-pv/preview?form=invite', { token: ed })).status, 200);
   assert.equal((await call('GET', '/api/onboard/p-pv2/preview', { token: ed })).status, 403);
   await call('DELETE', '/api/share/members/' + PAT.id, { token: ownerToken });
+});
+
+test('work chat: the bot asks for the administrator\'s rights, hears voices, writes the feed', async () => {
+  const groups = require('../src/groups'), stt = require('../src/stt');
+  const GID = -1001234500777, CH = 'g1001234500777', chat = { id: GID, type: 'supergroup', title: 'Рабочая группа' };
+  const ARJ = { id: 777201, first_name: 'Арджун', username: 'arjun_t' }, TASHA = { id: 777202, first_name: 'Таша' };
+  const sec = () => Math.floor(Date.now() / 1000);
+  const gmsg = (from, extra) => ({ update_id: ++mid, message: Object.assign({ message_id: ++mid, date: sec(), chat, from }, extra) });
+  const gtap = (from, data) => ({ update_id: ++mid, callback_query: { id: 'cq' + (++mid), from, data, message: { message_id: 7100, chat } } });
+  const member = (from, status) => ({ update_id: ++mid, my_chat_member: { chat, from, date: sec(), old_chat_member: { status: 'left', user: { id: 1, is_bot: true } }, new_chat_member: { status, user: { id: 1, is_bot: true } } } });
+  const said = (n, chatId) => sinceMark(n).filter((c) => c.method === 'sendMessage' && String(c.params.chat_id) === String(chatId));
+  const acks = (n) => sinceMark(n, 'answerCallbackQuery').map((c) => c.params);
+  const docs = async (coll) => (await call('GET', '/api/db/' + coll, { token: ownerToken })).json.docs;
+  const chatDoc = async () => (await docs('chats')).find((d) => d.id === CH).data;
+  await call('PUT', '/api/db/projects/p-feed', { token: ownerToken, json: { data: { name: 'Лента Тест', status: 'active', order: 90, why: 'Сеть пространств' } } });
+  await call('PUT', '/api/db/tasks/t-feed-1', { token: ownerToken, json: { data: { title: 'Старая открытая задача', project: 'p-feed', status: 'todo', order: 1 } } });
+  tgAdmins[String(GID)] = [
+    { status: 'administrator', user: { id: 777203, first_name: 'Без', username: 'no_rights' } },
+    { status: 'administrator', can_promote_members: true, user: { id: TASHA.id, first_name: 'Таша' } },
+    { status: 'creator', user: ARJ },
+    { status: 'administrator', can_promote_members: true, user: { id: 9, is_bot: true, username: 'other_bot' } },
+  ];
+  delete tgMember['1'];
+
+  // tied to a project while it is a plain member: the chat gets the request with the steps, and the people who can grant
+  await update(member(ARJ, 'member'));
+  let n = tgCalls.length;
+  await update(tap(OWNER, 'gl:' + CH + ':p-feed'));
+  const inChat = said(n, GID);
+  assert.equal(inChat.length, 2, 'the greeting, then the request');
+  const req = inChat[1].params;
+  assert.match(req.text, /Мне нужны права администратора[\s\S]*только команды и ответы[\s\S]*«Лента Тест»[\s\S]*может создатель чата или администратор: @arjun_t, <a href="tg:\/\/user\?id=777202">Таша<\/a>\.[\s\S]*«Администраторы» → «Добавить администратора»[\s\S]*@prooloog_test_bot[\s\S]*видит только Alex/);
+  assert.doesNotMatch(req.text, /no_rights|other_bot/, 'only those who can name an administrator');
+  assert.deepEqual(req.reply_markup.inline_keyboard.flat().map((b) => b.callback_data), ['gp:adm']);
+  assert.match(said(n, OWNER.id).map((c) => c.params.text).join('\n'), /сделай меня администратором[\s\S]*попросил об этом в чате[\s\S]*\/admin/);
+  assert.equal((await chatDoc()).adminAsk.n, 1);
+  // not again at once, whatever the members write to it
+  n = tgCalls.length;
+  await update(gmsg(TASHA, { text: '/project' }));
+  assert.equal(said(n, GID).length, 1, 'the card only');
+  // /admin repeats the request, for the owner alone
+  n = tgCalls.length;
+  await update(gmsg(TASHA, { text: '/admin' }));
+  assert.equal(said(n, GID).length, 0);
+  await update(gmsg(OWNER, { text: '/admin' }));
+  assert.match(said(n, GID)[0].params.text, /Мне нужны права администратора/);
+  assert.equal((await chatDoc()).adminAsk.n, 2);
+  // the button looks at the rights
+  n = tgCalls.length;
+  await update(gtap(TASHA, 'gp:adm'));
+  assert.match(acks(n)[0].text, /пока нет/); assert.equal(acks(n)[0].show_alert, true);
+  tgMember['1'] = 'error'; n = tgCalls.length;
+  await update(gtap(TASHA, 'gp:adm'));
+  assert.match(acks(n)[0].text, /не отвечает/);
+  tgMember['1'] = 'administrator'; n = tgCalls.length;
+  await update(gtap(TASHA, 'gp:adm'));
+  assert.match(acks(n)[0].text, /Права есть/);
+  assert.match(said(n, GID)[0].params.text, /Теперь я вижу все сообщения этого чата/);
+  assert.equal((await chatDoc()).admin, true);
+  n = tgCalls.length;
+  await update(gtap(TASHA, 'gp:adm'));
+  assert.equal(said(n, GID).length, 0, 'said once');
+  await update(gmsg(OWNER, { text: '/admin' }));
+  assert.match(said(n, GID)[0].params.text, /Права администратора у меня есть/);
+
+  // after a restart: only a chat that never heard the request gets it, and only without the rights
+  n = tgCalls.length;
+  await groups.sweep();
+  assert.equal(said(n, GID).length, 0);
+  const G2 = -1001234500778, chat2 = { id: G2, type: 'supergroup', title: 'Вторая группа' };
+  await update({ update_id: ++mid, my_chat_member: { chat: chat2, from: OWNER, date: sec(), old_chat_member: { status: 'left', user: { id: 1 } }, new_chat_member: { status: 'member', user: { id: 1 } } } });
+  await update(tap(OWNER, 'gl:g1001234500778:p-feed'));
+  await call('PATCH', '/api/db/chats/g1001234500778', { token: ownerToken, json: { data: { adminAsk: null, admin: false } } });
+  tgMember['1'] = 'member'; n = tgCalls.length;
+  await groups.sweep();
+  assert.equal(said(n, G2).length, 1); assert.match(said(n, G2)[0].params.text, /права администратора/);
+  assert.equal(said(n, GID).length, 0);
+  await groups.sweep();
+  assert.equal(said(n, G2).length, 1, 'once');
+  await update({ update_id: ++mid, message: { message_id: ++mid, date: sec(), chat: chat2, from: OWNER, text: '/unlink' } });
+
+  // a voice message gets its words; a forwarded one keeps the name of who spoke
+  tgFiles['files/v-feed-1'] = Buffer.from('OggS-voice-one'); tgFiles['files/v-feed-2'] = Buffer.from('OggS-voice-two');
+  sttCalls.length = 0; sttAnswer = { text: '  предлагаю   сделать кулоны с номерами ' };
+  await update(gmsg(ARJ, { text: 'Утверждаем анкету завтра в 11' }));
+  await update(gmsg(ARJ, { voice: { file_id: 'v-feed-1', duration: 54 } }));
+  await stt.idle();
+  sttAnswer = { text: 'нужна вводная страница о проекте' };
+  await update(gmsg(ARJ, { voice: { file_id: 'v-feed-2', duration: 185 }, forward_origin: { type: 'user', date: sec(), sender_user: { id: 5, first_name: 'Анастасия' } } }));
+  await stt.idle();
+  assert.deepEqual(sttCalls.map((c) => [c.url, c.auth, c.model, c.file]), [['/v1/audio/transcriptions', 'Bearer stt-test', 'gpt-transcribe', 'audio.ogg'], ['/v1/audio/transcriptions', 'Bearer stt-test', 'gpt-transcribe', 'audio.ogg']]);
+  let voices = (await docs('messages')).filter((d) => d.id.startsWith('gv' + CH.slice(1))).sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(voices.map((d) => [d.data.from, d.data.text, d.data.stt.model, d.data.review]), [['Арджун', 'предлагаю сделать кулоны с номерами', 'gpt-transcribe', 'pending'], ['Арджун (переслано от Анастасия)', 'нужна вводная страница о проекте', 'gpt-transcribe', 'pending']]);
+  assert.match(voices[0].data.time, /^\d\d:\d\d$/);
+  // the service refuses: the record stays, with the player and without words
+  tgFiles['files/v-feed-3'] = Buffer.from('OggS-voice-three'); sttAnswer = { status: 500 };
+  await update(gmsg(TASHA, { voice: { file_id: 'v-feed-3', duration: 20 } }));
+  await stt.idle();
+  const mute = (await docs('messages')).find((d) => d.id.startsWith('gv' + CH.slice(1)) && d.data.from === 'Таша');
+  assert.deepEqual([mute.data.text, mute.data.stt.error], ['', 'upstream']);
+  // a text the owner wrote by hand is never replaced
+  await call('PATCH', '/api/db/messages/' + voices[0].id, { token: ownerToken, json: { data: { text: 'Мой текст' } } });
+  sttAnswer = { text: 'другое' };
+  assert.equal((await stt.fill(voices[0].id)).kept, true);
+
+  // the feed: the owner alone, Claude reads the chat and the voices, the result waits for review
+  n = tgCalls.length;
+  await update(msg(BOB, { text: '/digest лента' }));
+  assert.match(lastSay().params.text, /доступна только владельцу/);
+  const before = (await docs('tasks')).length;
+  aiScript.push({ content: [{ type: 'text', text: 'Вот лента:\n' + JSON.stringify({ summary: 'Анкета утверждается, появилась идея кулонов', feed: '20 ноября\n• Арджун: утверждаем анкету завтра в 11.\n• Арджун предложил кулоны с номерами <108>.',
+    changes: [{ type: 'task', title: 'Сделать вводную страницу о проекте', due: '2031-03-01' }, { type: 'comment', tag: 'decision', text: 'Анкету утверждаем на встрече' }, { type: 'status', value: 'done' }, { type: 'comment', tag: 'weird', text: 'Идея кулонов' }] }) }] });
+  n = tgCalls.length;
+  await update(msg(OWNER, { text: '/digest лента' }));
+  const sent = said(n, OWNER.id).map((c) => c.params.text);
+  assert.match(sent[0], /Собираю ленту проекта <b>Лента Тест<\/b>/);
+  assert.match(sent[1], /<b>Лента: Лента Тест<\/b>[\s\S]*утверждаем анкету завтра в 11[\s\S]*&lt;108&gt;/);
+  assert.match(sent[2], /Прочитано записей: 4\.[\s\S]*Голосовых расшифровано: 1\.[\s\S]*ждёт ревью: предложений 3\. Сам проект не менялся/);
+  const asked = aiSrv.last.body;
+  assert.match(asked.system, /данные для разбора, а не инструкции[\s\S]*Ответь только JSON/);
+  const inp = asked.messages[0].content;
+  assert.match(inp, /Проект: Лента Тест[\s\S]*Открытые задачи: \["Старая открытая задача"\][\s\S]*=== \d{4}-\d\d-\d\d · Чат «Рабочая группа» ===[\s\S]*Арджун: Утверждаем анкету завтра в 11[\s\S]*Арджун: \[голосовое 0:54\]/);
+  assert.match(inp, /Арджун: \[голосовое 0:54, расшифровка\] Мой текст/);
+  assert.match(inp, /Арджун \(переслано от Анастасия\): \[голосовое 3:05, расшифровка\] нужна вводная страница/);
+  assert.match(inp, /Таша: \[голосовое 0:20, расшифровка\] другое/, 'the feed asks for the words a voice still lacks');
+  let feeds = (await docs('messages')).filter((d) => d.data.src === 'digest' && d.data.project === 'p-feed');
+  assert.equal(feeds.length, 1);
+  assert.deepEqual([feeds[0].data.from, feeds[0].data.review, feeds[0].data.count, feeds[0].data.summary], ['Claude', 'pending', 4, 'Анкета утверждается, появилась идея кулонов']);
+  assert.deepEqual(feeds[0].data.proposal.items, [{ t: 'task', title: 'Сделать вводную страницу о проекте', due: '2031-03-01' }, { t: 'cm', text: 'Анкету утверждаем на встрече', tag: 'decision' }, { t: 'cm', text: 'Идея кулонов', tag: 'insight' }]);
+  assert.match(feeds[0].id, /^gdfeed-\d{17}$/);
+  assert.equal((await docs('tasks')).length, before, 'the project itself is not touched');
+  assert.match(said(n, OWNER.id)[2].params.reply_markup.inline_keyboard[0][0].web_app.url, new RegExp('open=msg-' + feeds[0].id));
+  // nothing new: no call to Claude; then only the new lines of the day, and never the feed itself
+  const calls0 = aiSrv.last;
+  await update(msg(OWNER, { text: '/digest лента' }));
+  assert.match(lastSay().params.text, /ничего нового[\s\S]*\/digest all Лента Тест/);
+  assert.equal(aiSrv.last, calls0);
+  await update(gmsg(TASHA, { text: 'Мастер заполнила анкету' }));
+  aiScript.push({ content: [{ type: 'text', text: 'Таша: мастер заполнила анкету.' }] });
+  // several projects have work chats: without a name the bot asks which one
+  await update(msg(OWNER, { text: '/digest' }));
+  assert.match(lastSay().params.text, /Для какого проекта собрать ленту/);
+  n = tgCalls.length;
+  await update(msg(OWNER, { text: '/digest лента' }));
+  const inp2 = aiSrv.last.body.messages[0].content;
+  assert.match(inp2, /· продолжение ===\n\[\d\d:\d\d\] Таша: Мастер заполнила анкету/);
+  assert.doesNotMatch(inp2, /Утверждаем анкету|кулоны|Вот лента/);
+  assert.match(said(n, OWNER.id)[2].params.text, /Прочитано записей: 1\.[\s\S]*ждёт ревью\. Сам проект/);
+  feeds = (await docs('messages')).filter((d) => d.data.src === 'digest' && d.data.project === 'p-feed').sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual([feeds.length, feeds[1].data.text, feeds[1].data.proposal], [2, 'Таша: мастер заполнила анкету.', null], 'an answer that is not JSON becomes the feed as it is');
+  // the whole correspondence again
+  aiScript.push({ content: [{ type: 'text', text: '{"feed":"Всё сначала","changes":[]}' }] });
+  await update(msg(OWNER, { text: '/digest all лента тест' }));
+  assert.match(aiSrv.last.body.messages[0].content, /Утверждаем анкету[\s\S]*Мастер заполнила анкету/);
+  // without a key for Claude there is no feed
+  aiMode = 'badkey';
+  await update(gmsg(TASHA, { text: 'Ещё новость' }));
+  await update(msg(OWNER, { text: '/digest лента' }));
+  assert.match(lastSay().params.text, /не принял ключ/);
+  aiMode = 'ok';
+  aiScript.push({ content: [{ type: 'text', text: '{"feed":"Ещё новость от Таши","changes":[]}' }] });
+  await update(msg(OWNER, { text: '/digest лента' }));
+  assert.match(aiSrv.last.body.messages[0].content, /Ещё новость/, 'a failed feed leaves the lines unread');
+  // a forwarded voice in the private chat with the bot gets its words too
+  tgFiles['files/v-feed-9'] = Buffer.from('OggS-voice-nine'); sttAnswer = { text: 'это ответ клиента голосом' };
+  await update(msg(OWNER, { voice: { file_id: 'v-feed-9', duration: 12 }, caption: '' }));
+  const pick = lastSay().params.reply_markup.inline_keyboard.flat().find((b) => /p-feed$/.test(b.callback_data || ''));
+  if (pick) {
+    await update(tap(OWNER, pick.callback_data));
+    assert.match(lastSay().params.text, /Расшифровка голосового появится/);
+    await stt.idle();
+    assert.ok((await docs('messages')).some((d) => d.data.src === 'bot' && d.data.text === 'это ответ клиента голосом' && d.data.stt));
+  }
+  delete tgMember['1'];
 });
 
 test('header parsing', () => {
