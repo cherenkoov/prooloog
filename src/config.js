@@ -23,6 +23,7 @@ const cfg = {
   sessionSecretFixed: !!env.SESSION_SECRET,
   webhookSecret: sha('hook:' + hookSeed).slice(0, 48),
   webhookPath: sha('path:' + hookSeed).slice(0, 32),
+  notesKey: sha('notes:' + hookSeed).slice(0, 32), // the address a notetaker sends transcripts of calls to
   appName: env.APP_NAME || 'Prooloog',
   seedFile: env.SEED_FILE || '',
   tz: env.APP_TZ || 'Asia/Tbilisi',
@@ -62,7 +63,7 @@ cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'c
 // these, and only the records of their projects.
 cfg.managed = new Set(['money', 'contacts', 'messages', 'subs', 'clients', 'chats', 'audit']);
 // Kept by the server alone (onboarding answers, edits of the forms): the page never reads them, but backups carry them.
-cfg.serverOnly = ['joins', 'forms'];
+cfg.serverOnly = ['joins', 'forms', 'transcripts'];
 // what a backup restores: the data and the server's own records, without the journal
 cfg.allCollections = cfg.dataCollections.concat(cfg.serverOnly);
 

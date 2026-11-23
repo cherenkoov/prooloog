@@ -18,6 +18,7 @@ const usage = require('./usage');
 const remind = require('./remind');
 const join = require('./join');
 const google = require('./google');
+const notes = require('./notes');
 const calls = require('./calls');
 const stt = require('./stt');
 const digest = require('./digest');
@@ -395,6 +396,17 @@ async function forget(chat, arg) {
 }
 
 /* ---------- Google Meet: the owner's sign-in ---------- */
+// /notes: where a notetaker sends the transcripts of calls, and how to set it up
+async function notesCmd(chat) {
+  const url = notes.hookUrl();
+  if (!url) return say(chat, 'Разборы созвонов принимает сервер с публичным адресом https (APP_URL). Сейчас его нет.');
+  return say(chat, '<b>Разбор созвонов</b>\nСборщик записывает созвон и присылает расшифровку на этот адрес. Я нахожу встречу, делаю разбор, сохраняю его в самой встрече и пишу в чат проекта.\n\n' +
+    'Адрес (никому не показывай, по нему можно прислать текст в твои встречи):\n<code>' + esc(url) + '</code>\n\n' +
+    '<b>Fathom</b> (бесплатный план подходит):\n1. fathom.ai → войти тем же Google, с которого идут созвоны.\n2. Settings → API Access → Add Webhook.\n3. Destination URL: адрес выше. Включить Transcript и Summary.\n4. На созвоне Fathom должен записывать: его бота нужно впустить в комнату.\n\n' +
+    '<b>Любой другой сборщик</b> (через Zapier, Make, n8n или свой код): POST на тот же адрес, JSON с полями <code>transcript</code> (текст или список реплик), по желанию <code>link</code> (ссылка созвона), <code>title</code>, <code>start</code> (время начала), <code>event</code> (id встречи).\n\n' +
+    'Встреча находится по ссылке созвона или по времени: запись должна начаться в окне от 30 минут до начала до 4 часов после. Расшифровку можно и вставить руками: в самой встрече, блок «Разбор созвона».' +
+    (ai.enabled() ? '' : '\n\nСейчас на сервере нет ключа Claude (ANTHROPIC_API_KEY): без него сохраняется только резюме самого сборщика.'));
+}
 async function googleCmd(chat, arg) {
   const st = await google.status();
   if (!st.configured) {
@@ -567,6 +579,7 @@ function helpText(role) {
     '• /ask — сессия с Claude: пишешь как в обычном чате, он видит проекты, назначает встречи, ставит и закрывает задачи. Завершается кнопкой под ответом, командой /end или после 30 минут тишины; главное сохраняется в память (/memory).\n' +
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
+    '• /notes — разбор созвонов: куда сборщик присылает расшифровку и как его настроить.\n' +
     '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу команде проекта: у каждого своя кнопка входа, по ней видно, кто пришёл.\n' +
     '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей (все анкеты), /answers проект и /answers json проект — выгрузка одного проекта в CSV или JSON, /votes — голоса.\n' +
     '• /digest проект — лента проекта: что нового в переписке рабочего чата и в голосовых, сжато и по дням, с предложениями на ревью. /digest all проект — по всей переписке. В рабочем чате мне нужны права администратора: /admin в чате повторяет просьбу о них.\n' +
@@ -591,7 +604,7 @@ async function onCommand(m, role, cmd, arg) {
   if (cmd === 'cancel') { await db.setState(uid, {}); return say(chat, 'Отменил.'); }
   // what belongs to a project is for everybody who runs it; what belongs to the whole dashboard is the owner's
   const LEAD = ['digest', 'onboard', 'club', 'announce', 'votes', 'answers', 'members'];
-  const WHOLE = ['ask', 'end', 'memory', 'forget', 'connect', 'usage', 'google', 'backup', 'restore', 'invite', 'remove', 'admin'];
+  const WHOLE = ['ask', 'end', 'memory', 'forget', 'connect', 'usage', 'google', 'notes', 'backup', 'restore', 'invite', 'remove', 'admin'];
   if (!owner && WHOLE.includes(cmd)) return say(chat, WHOLE_ONLY);
   if (!owner && LEAD.includes(cmd) && role !== 'manager') return say(chat, LEADS_ONLY);
   if (!owner && !LEAD.includes(cmd)) return say(chat, 'Не знаю такую команду. Список: /help');
@@ -618,6 +631,7 @@ async function onCommand(m, role, cmd, arg) {
   if (cmd === 'onboard') return onboard(chat, arg);
   if (cmd === 'club') return club(chat, arg);
   if (cmd === 'google') return googleCmd(chat, arg);
+  if (cmd === 'notes') return notesCmd(chat);
   if (cmd === 'announce') {
     const list = (await join.announceable()).filter((x) => mine(x.project));
     if (!list.length) return say(chat, 'Рассылать пока нечего: нужна предстоящая встреча со ссылкой на созвон в проекте, где есть команда.');
@@ -695,6 +709,9 @@ async function onMessage(m) {
   // The AI companion of a game: a player's own talk, whatever their level in the dashboard (src/companion.js).
   const gm = cmd && cmd[1].toLowerCase() === 'start' ? /^gm_([A-Za-z0-9_-]{1,60})$/.exec((cmd[2] || '').trim()) : null;
   if (gm) return companion.start(m, gm[1]);
+  // «Открыть разбор» under a message about a call in a work chat
+  const nt = cmd && cmd[1].toLowerCase() === 'start' ? /^nt_([A-Za-z0-9_-]{1,50})_(\d{8})$/.exec((cmd[2] || '').trim()) : null;
+  if (nt) return notes.open(m.from, m.chat.id, nt[1], nt[2]);
   if (cmd && /^(companion|hero)$/i.test(cmd[1])) return companion.start(m, '');
   if ((await companion.active(m.from.id)) && !(role === 'owner' && (await asks.active()))) {
     if (cmd && cmd[1].toLowerCase() === 'end') { await companion.end(String(m.from.id)); return say(m.chat.id, 'Разговор с компаньоном завершён, я помню его до следующего раза. Вернуться: /companion.'); }
@@ -725,6 +742,14 @@ async function onCallback(cq) {
   if (er) return guestToggle(cq, er[1], +er[2]);
   const el = /^el:([A-Za-z0-9_-]{1,40}):([a-z]{2,3})$/.exec(data);
   if (el) return guestLang(cq, el[1], el[2]);
+  // a transcript that fitted no meeting: the one who runs things names the meeting
+  const nt = /^nt:([A-Za-z0-9_-]{6,12}):([A-Za-z0-9_-]{1,40}):(\d{8})$/.exec(data);
+  if (nt) {
+    if (String(uid) !== String(await auth.ownerId())) return ack('Это решают те, кто ведёт дэшборд');
+    await ack('Делаю разбор, это займёт около минуты');
+    const text = await notes.attach(nt[1], nt[2], nt[3]);
+    return edit(chat, esc(text) + '.');
+  }
   // «Буду» / «Не смогу» under a message about a meeting of the team
   const at = /^at:([A-Za-z0-9_-]{1,64}):(\d{8}):([yn])$/.exec(data);
   if (at) {

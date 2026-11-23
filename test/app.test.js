@@ -2802,3 +2802,103 @@ test('game: the AI companion talks to a player in the private chat, saves what t
   assert.match(said(n, DAVID.id).pop().params.text, /не принял ключ/);
   aiMode = 'ok';
 });
+
+test('notes: a notetaker sends the transcript of a call, the breakdown lands on the meeting and goes to the chat', async () => {
+  const notes = require('../src/notes'), clock = require('../src/clock'), db = require('../src/db');
+  const put = (path, data, token = ownerToken) => call('PUT', '/api/db/' + path, { token, json: { data } });
+  const ev = async (id) => (await db.getDoc('events', id)).data;
+  const hook = (json, key = cfg().notesKey) => call('POST', '/hooks/notes/' + key, { json });
+  const NINA = { id: 889001, first_name: 'Нина' }, ZED = { id: 889099, first_name: 'Зед' };
+  const tz = await clock.appTz();
+  await put('projects/p-nt', { name: 'Разборы', status: 'active', order: 91 });
+  await put('contacts/jn-889001', { name: 'Нина Ким', projects: ['p-nt'], team: ['p-nt'], rel: 'Команда' });
+  await put('chats/c-nt', { tg: '-100889', title: 'Разборы: чат', project: 'p-nt', on: true });
+  // the call began twenty minutes ago
+  const start = Math.floor((Date.now() - 20 * 60000) / 60000) * 60000, at = clock.parts(start, tz), day = at.d, ymd = day.replace(/-/g, '');
+  await put('events/e-nt', { title: 'Планёрка недели', project: 'p-nt', date: day, time: at.t, call: 'other', link: 'https://meet.google.com/abc-defg-hij', team: true });
+  const said = [
+    { speaker: { display_name: 'Нина Ким' }, text: 'Давайте решим, когда выпускаем анкету для новых участников.', timestamp: '00:00:05' },
+    { speaker: { display_name: 'Нина Ким' }, text: 'Я предлагаю пятницу.', timestamp: '00:00:12' },
+    { speaker: { display_name: 'Alex Owner' }, text: 'Согласен, в пятницу. Я подготовлю текст приглашения до среды.', timestamp: '00:00:20' },
+  ];
+  const answer = { short: 'Обсудили запуск анкеты и договорились о пятнице.', topics: [{ t: 'Запуск анкеты', d: 'Нина предложила пятницу, Алекс согласился.' }],
+    decisions: ['Анкета выходит в пятницу'], tasks: [{ who: 'Алекс', what: 'Подготовить текст приглашения', when: 'до среды' }], open: [] };
+
+  // a wrong address and an empty body are refused
+  assert.equal((await hook({ transcript: said }, 'nope')).status, 404);
+  assert.equal((await hook({ meeting_title: 'Пусто' })).status, 422);
+
+  // Fathom's shape: the meeting is found by the room of the call, Claude writes the breakdown
+  aiScript.push({ content: [{ type: 'text', text: 'Вот разбор:\n' + JSON.stringify(answer) }] });
+  let n = tgCalls.length;
+  const r = await hook({ recording_id: 77, meeting_title: 'Weekly', meeting_url: 'https://meet.google.com/abc-defg-hij?authuser=0', share_url: 'https://fathom.video/share/x',
+    recording_start_time: new Date(start + 90000).toISOString(), transcript: said, default_summary: { template_name: 'general', markdown_formatted: '## Summary\nWe agreed on Friday.' } });
+  assert.equal(r.status, 202);
+  await notes.idle();
+  assert.match(aiSrv.last.body.system, /расшифровку рабочего созвона/);
+  assert.match(aiSrv.last.body.messages[0].content, /Встреча: Планёрка недели[\s\S]*Нина Ким: Давайте решим[^\n]*Я предлагаю пятницу\.\nAlex Owner: Согласен/);
+  let note = (await ev('e-nt')).notes[day];
+  assert.deepEqual([note.short, note.topics, note.decisions, note.tasks, note.src, note.ai, note.tr, note.url], [answer.short, answer.topics, answer.decisions, answer.tasks, 'Fathom', true, true, 'https://fathom.video/share/x']);
+  assert.match((await db.getDoc('transcripts', 'e-nt__' + ymd)).data.text, /^Нина Ким: Давайте решим/);
+  // the work chat gets the short text with a button to the bot; the owner gets a button into the app
+  const sent = () => sinceMark(n, 'sendMessage').map((c) => c.params), to = (id) => sent().filter((x) => String(x.chat_id) === String(id));
+  const inChat = to('-100889')[0];
+  assert.match(inChat.text, /Разбор созвона <b>Планёрка недели<\/b> · Разборы[\s\S]*договорились о пятнице[\s\S]*<b>Решили<\/b>\n• Анкета выходит в пятницу[\s\S]*<b>Алекс<\/b>: Подготовить текст приглашения \(до среды\)/);
+  assert.deepEqual(inChat.reply_markup.inline_keyboard[0][0], { text: 'Открыть разбор', url: 'https://t.me/prooloog_test_bot?start=nt_e-nt_' + ymd });
+  assert.deepEqual(to(OWNER.id)[0].reply_markup.inline_keyboard[0][0], { text: 'Открыть разбор', web_app: { url: 'https://prooloog.test/?open=ev-e-nt&day=' + day } });
+  assert.equal(to(NINA.id).length, 0, 'the team reads it in the work chat');
+
+  // the button of the chat: a person of the team reads the whole breakdown at the bot, a stranger does not
+  n = tgCalls.length;
+  await update(msg(NINA, { text: '/start nt_e-nt_' + ymd }));
+  assert.match(to(NINA.id).map((x) => x.text).join('\n'), /<b>Запуск анкеты<\/b>\nНина предложила пятницу[\s\S]*<b>Кто что делает<\/b>/);
+  assert.equal(to(NINA.id).pop().reply_markup, undefined);
+  await update(msg(ZED, { text: '/start nt_e-nt_' + ymd }));
+  assert.match(to(ZED.id).pop().text, /видят участники проекта/);
+  assert.doesNotMatch(to(ZED.id).map((x) => x.text).join('\n'), /пятниц/);
+  await update(msg(OWNER, { text: '/start nt_e-nt_' + ymd }));
+  assert.equal(to(OWNER.id).pop().reply_markup.inline_keyboard[0][0].web_app.url, 'https://prooloog.test/?open=ev-e-nt&day=' + day);
+
+  // the transcript is read from the page by those who see the project; a stranger's session sees nothing
+  const tr = await call('GET', '/api/events/e-nt/notes/' + day + '/transcript', { token: ownerToken });
+  assert.match(tr.json.text, /Alex Owner: Согласен/);
+  assert.equal((await call('GET', '/api/events/e-nt/notes/' + day + '/transcript')).status, 401);
+
+  // pasted by hand; Claude answers with something unreadable: the words are kept, the owner hears that there is no breakdown
+  n = tgCalls.length;
+  const text = 'Нина: переносим запуск анкеты на понедельник, потому что форма ещё не готова.\nАлекс: хорошо, понедельник.';
+  assert.deepEqual((await call('POST', '/api/events/e-nt/notes', { token: ownerToken, json: { date: day, text: 'мало' } })).json.ok, false);
+  assert.equal((await call('POST', '/api/events/e-nt/notes', { token: ownerToken, json: { date: day, text } })).status, 202);
+  await notes.idle();
+  note = (await ev('e-nt')).notes[day];
+  assert.deepEqual([note.short, note.wait, note.tr], ['', 'unreadable', true]);
+  assert.match(to(OWNER.id).pop().text, /разбор не получился/);
+  assert.equal(to('-100889').length, 0);
+  // «Сделать разбор заново» works from the kept words
+  aiScript.push({ content: [{ type: 'text', text: JSON.stringify({ short: 'Запуск анкеты перенесли на понедельник.', topics: [], decisions: ['Запуск в понедельник'], tasks: [], open: ['Кто доделывает форму'] }) }] });
+  assert.equal((await call('POST', '/api/events/e-nt/notes', { token: ownerToken, json: { date: day, redo: true } })).status, 202);
+  await notes.idle();
+  note = (await ev('e-nt')).notes[day];
+  assert.deepEqual([note.short, note.open], ['Запуск анкеты перенесли на понедельник.', ['Кто доделывает форму']]);
+  assert.match(aiSrv.last.body.messages[0].content, /переносим запуск анкеты на понедельник/);
+
+  // a transcript that fits no meeting waits for the owner's word
+  n = tgCalls.length;
+  aiScript.push({ content: [{ type: 'text', text: JSON.stringify(answer) }] });
+  assert.equal((await hook({ source: 'Zapier', title: 'Совсем другое', link: 'https://meet.google.com/zzz-zzzz-zzz', start: new Date(start + 5 * 3600000).toISOString(), transcript: text })).status, 202);
+  await notes.idle();
+  const ask = to(OWNER.id).pop();
+  assert.match(ask.text, /Пришла расшифровка созвона «Совсем другое» из Zapier, но встречи на это время в календаре нет/);
+  const btn = ask.reply_markup.inline_keyboard.flat().find((b) => b.callback_data.endsWith(':e-nt:' + ymd));
+  assert.ok(btn, 'the meeting nearby is offered');
+  await update(tap(OWNER, btn.callback_data));
+  note = (await ev('e-nt')).notes[day];
+  assert.deepEqual([note.short, note.src], [answer.short, 'Zapier']);
+  await update(tap(OWNER, btn.callback_data));
+  assert.match(lastSay().params.text, /уже нет/);
+
+  // the breakdown and the words are removed together
+  assert.deepEqual((await call('DELETE', '/api/events/e-nt/notes/' + day, { token: ownerToken })).json, { ok: true });
+  assert.equal((await ev('e-nt')).notes[day], undefined);
+  assert.equal(await db.getDoc('transcripts', 'e-nt__' + ymd), null);
+});

@@ -91,7 +91,7 @@ async function handle(req, res) {
 }
 
 // One complete answer, for the bot. Returns { text } or { error }.
-async function ask(system, messages, maxTokens) {
+async function ask(system, messages, maxTokens, timeoutMs) {
   if (!cfg.anthropicKey) return { error: 'not_declared' };
   let up;
   try {
@@ -99,7 +99,7 @@ async function ask(system, messages, maxTokens) {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'anthropic-version': cfg.aiApiVersion, authorization: 'Bearer ' + cfg.anthropicKey },
       body: JSON.stringify({ model: cfg.aiModel, max_tokens: maxTokens || 1500, system, messages }),
-      signal: AbortSignal.timeout(90000),
+      signal: AbortSignal.timeout(timeoutMs || 90000),
     });
   } catch (e) { return { error: 'upstream' }; }
   const j = await up.json().catch(() => null);

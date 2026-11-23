@@ -21,6 +21,7 @@ const join = require('./join');
 const attend = require('./attend');
 const avatar = require('./avatar');
 const game = require('./game');
+const notes = require('./notes');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const SEED = cfg.seedFile || path.join(__dirname, '..', 'seed', 'initial.json');
@@ -83,6 +84,8 @@ function build() {
   app.get('/preview/:project', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
   // A person of the team opens a call by a link of their own: the server notes that they came and sends them on.
   app.get('/c/:event/:tg/:sig', limiter(120, 60000), (req, res, next) => attend.handle(req, res).catch(next));
+  // A notetaker outside sends the transcript of a call here: the breakdown lands on the meeting (src/notes.js).
+  app.post('/hooks/notes/:key', limiter(60, 60000), express.json({ limit: '4mb' }), (req, res) => notes.hook(req, res));
   app.get('/robots.txt', (req, res) => res.type('text').send('User-agent: *\nDisallow: /\n'));
 
   /* ---------- Telegram webhook ---------- */
@@ -334,6 +337,42 @@ function build() {
     res.json(r.error ? { ok: false, message: r.error } : Object.assign({ ok: true }, r));
   });
 
+  // The breakdown of a call. Anyone who works in the project pastes a transcript; the answer comes at once and
+  // the breakdown arrives on the event when Claude is done. Those who run the project remake and remove it.
+  const evFor = async (req, res) => {
+    const d = ID_RE.test(req.params.id) ? await db.getDoc('events', req.params.id) : null;
+    if (!d || (req.user.projects && !auth.sees(req.user.projects, 'events', d.id, d.data))) { res.status(404).json({ error: 'not_found' }); return null; }
+    return d;
+  };
+  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  api.post('/events/:id/notes', auth.guard('write'), actLimit, express.json({ limit: '1mb' }), async (req, res) => {
+    const d = await evFor(req, res); if (!d) return;
+    const b = req.body || {}, date = DAY.test(b.date || '') ? b.date : '';
+    if (!date) return res.status(400).json({ error: 'bad_request' });
+    if (b.redo) {
+      if (!auth.manages(req.user, d.data.project) && req.user.role !== 'owner') return res.status(403).json({ error: 'forbidden' });
+      if (!(await notes.transcript(d.id, date))) return res.json({ ok: false, message: 'Расшифровки этой встречи на сервере нет.' });
+      notes.later(() => notes.redo(d.id, date, req.user.role === 'owner' ? '' : 'координатор'));
+      return res.status(202).json({ ok: true });
+    }
+    const n = notes.normalize({ transcript: typeof b.text === 'string' ? b.text : '' });
+    if (!n) return res.json({ ok: false, message: 'Текста слишком мало для разбора.' });
+    if (!ai.enabled()) return res.json({ ok: false, message: 'Claude на сервере не подключён: нужен ключ ANTHROPIC_API_KEY.' });
+    const who = (await auth.profileOf(req.user.id, req.user.role)).name || 'вручную';
+    notes.later(() => notes.save(d.id, date, n, who));
+    res.status(202).json({ ok: true });
+  });
+  api.get('/events/:id/notes/:date/transcript', auth.guard(), async (req, res) => {
+    const d = await evFor(req, res); if (!d) return;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ text: DAY.test(req.params.date) ? await notes.transcript(d.id, req.params.date) : '' });
+  });
+  api.delete('/events/:id/notes/:date', auth.guard('manage'), async (req, res) => {
+    const d = await evFor(req, res); if (!d) return;
+    if (!auth.manages(req.user, d.data.project) && req.user.role !== 'owner') return res.status(403).json({ error: 'forbidden' });
+    res.json({ ok: DAY.test(req.params.date) && await notes.drop(d.id, req.params.date, req.user.role === 'owner' ? '' : 'координатор') });
+  });
+
   api.post('/files', auth.guard('write'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
     if (!Buffer.isBuffer(req.body) || !req.body.length || !['image/jpeg', 'image/png', 'image/webp'].includes(type)) return res.status(400).json({ error: 'bad_request' });
@@ -541,6 +580,7 @@ async function start() {
   console.log('[http] ' + cfg.appName + ' is on port ' + cfg.port + (cfg.baseUrl ? ', public address ' + cfg.baseUrl : ''));
   bot.setup();
   remind.use({ bot: () => bot.name() });
+  notes.use({ bot: () => bot.name() });
   asks.start();
   if (process.env.REMINDERS !== '0') remind.start();
   const stop = async () => { remind.stop(); asks.stop(); await journal.stop(); hub.closeAll(); server.close(); await db.close(); };

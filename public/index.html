@@ -512,6 +512,16 @@ button.lg-b:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .att-s{font-size:13px;color:var(--mute);text-align:right}
 .att-s.ok{color:var(--good)}
 .att-r .btn{flex:none}
+.nt-c{padding:8px 0;border-top:1px solid var(--line)}
+.nt-c:first-child{border-top:0}
+.nt-s{font-size:14px;line-height:1.5;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.nt-h{font-size:14px;font-weight:600;margin:16px 0 0}
+.nt-l{margin:6px 0 0;padding-left:20px;font-size:14px;line-height:1.5}
+.nt-l li{margin:2px 0;overflow-wrap:anywhere}
+.nt-f{margin-top:8px}
+.nt-f summary{cursor:pointer;font-size:13px;color:var(--mute)}
+.nt-f textarea{width:100%;margin-top:8px}
+.nt-tr{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto}
 /* Claude: subscription and API usage */
 .cld-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:10px}
 .cld-k{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
@@ -2922,7 +2932,7 @@ function obAct(t,d){
 }
 
 /* ---------- work chats: the bot sits in a Telegram group that is tied to a project ---------- */
-var chatNs=null;
+var chatNs=null,notesNs=null;
 var CHC={all:'Все сообщения',ask:'Только обращённое к боту: ответы ему и упоминания',off:'Ничего не сохранять'};
 function chatList(pid){return S.chats.filter(function(x){return x.project===pid&&x.on!==false}).sort(function(a,b){return String(a.title||'').localeCompare(String(b.title||''))})}
 function chatLoose(){return S.chats.filter(function(x){return x.on!==false&&!P(x.project)})}
@@ -4098,6 +4108,63 @@ function attBox(e){
   return h+(send?'<div class="acts"><button type="button" class="btn sm" data-act="ev-announce" data-id="'+esc(e.id)+'">Разослать команде через бота</button></div>':'')+
     '<p class="sg-out" id="att-out" role="status" style="margin-top:6px">'+(botName()?'Бот напоминает каждому из команды и даёт личную кнопку входа в созвон: кто по ней вошёл, отмечается здесь сам. Через 15 минут после начала бот пишет тем, кто ведёт проект, кто пришёл. Кто зашёл по другой ссылке, отмечается кнопкой «Отметить».':'Кто пришёл, отмечает бот серверной версии: отметки приходят сюда при синхронизации. Отметить можно и вручную.')+'</p>';
 }
+/* ---------- the breakdown of a call: notes[<date>] is written by the server (src/notes.js) ---------- */
+function ntAll(e){return e&&e.notes&&typeof e.notes==='object'?e.notes:{}}
+function ntDates(e){return Object.keys(ntAll(e)).filter(validDate).sort().reverse()}
+function ntArr(v){return Array.isArray(v)?v:[]}
+// the meeting a pasted transcript belongs to: the last one that has come
+function ntDay(e){
+  var t=today();
+  if(!e.repeat)return validDate(e.date)?e.date:t;
+  for(var i=0;i<400;i++){var d=addDays(t,-i);if(occurs(e,d))return d}
+  return t;
+}
+function ntTask(x){return (x.who?'<b>'+esc(x.who)+'</b>: ':'')+esc(x.what||'')+(x.when?' ('+esc(x.when)+')':'')}
+function ntList(title,rows){return rows.length?'<h3 class="nt-h">'+title+'</h3><ul class="nt-l">'+rows.map(function(x){return '<li>'+x+'</li>'}).join('')+'</ul>':''}
+function ntBox(e){
+  var ds=ntDates(e),can=!ui.ro&&notesNs,h='';
+  ds.slice(0,3).forEach(function(d){
+    var n=ntAll(e)[d]||{};
+    h+='<div class="nt-c"><p class="att-d" style="margin-top:0">'+esc(fmt(d))+(n.src?' · '+esc(n.src):'')+'</p><p class="nt-s">'+esc(n.short||'Расшифровка сохранена, разбора пока нет.')+'</p>'+
+      '<div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="nt-open" data-id="'+esc(e.id)+'" data-day="'+d+'">Открыть разбор</button></div></div>';
+  });
+  if(ds.length>3)h+='<p class="sg-out">Здесь три последних разбора из '+ds.length+'.</p>';
+  if(!ds.length)h+='<p class="sg-out">Разбора пока нет. '+(botName()?'Сборщик присылает расшифровку после созвона, и разбор появляется здесь сам: как его подключить, расскажет команда /notes у бота @'+esc(botName())+'.':'Разбор делает серверная версия и приносит сюда при синхронизации.')+'</p>';
+  if(can)h+='<details class="nt-f"><summary>Вставить расшифровку вручную</summary><textarea id="nt-text" rows="6" maxlength="350000" placeholder="Текст расшифровки созвона '+esc(fmt(ntDay(e)))+'"></textarea>'+
+    '<div class="acts" style="margin-top:8px"><button type="button" class="btn sm" data-act="nt-make" data-id="'+esc(e.id)+'">Сделать разбор</button></div></details>';
+  return h+'<p class="sg-out" id="nt-out" role="status" style="margin-top:6px"></p>';
+}
+function viewNotes(id,day){
+  var e=byId(S.events,id);if(!e)return;
+  var n=ntAll(e)[day];if(!n){formEvent(id);return}
+  var p=P(e.project),lead=boss()&&!ui.ro&&notesNs;
+  var h='<div class="mv-h"><b>'+esc(e.title||'Встреча')+'</b><span>'+esc(fmt(day))+'</span>'+(p?'<span class="chip" style="--pc:'+pc(p.id)+'">'+esc(p.name)+'</span>':'')+(n.src?'<span>'+esc(n.src)+'</span>':'')+'</div>'+
+    (n.short?'<p class="nt-s">'+esc(n.short)+'</p>':'')+
+    ntArr(n.topics).map(function(x){return (x.t?'<h3 class="nt-h">'+esc(x.t)+'</h3>':'')+'<p class="nt-s">'+esc(x.d||'')+'</p>'}).join('')+
+    ntList('Решили',ntArr(n.decisions).map(esc))+ntList('Кто что делает',ntArr(n.tasks).map(ntTask))+ntList('Остались вопросы',ntArr(n.open).map(esc))+
+    (!n.short&&!ntArr(n.topics).length?'<p class="nt-s">Расшифровка сохранена, разбор не получился'+(n.wait==='not_declared'?': на сервере нет ключа Claude':'')+'.</p>':'')+
+    '<div class="acts" style="margin-top:16px">'+
+      (n.tr&&notesNs?'<button type="button" class="btn sm" data-act="nt-tr" data-id="'+esc(id)+'" data-day="'+day+'">Показать расшифровку</button>':'')+
+      (n.url?'<a class="btn sm" href="'+esc(n.url)+'" target="_blank" rel="noopener noreferrer">Запись у сборщика</a>':'')+
+      '<button type="button" class="btn sm" data-act="nt-ev" data-id="'+esc(id)+'">Открыть встречу</button>'+
+      (lead&&n.tr?'<button type="button" class="btn sm" data-act="nt-redo" data-id="'+esc(id)+'" data-day="'+day+'">Сделать разбор заново</button>':'')+
+      (lead?'<button type="button" class="btn sm" data-act="nt-del" data-id="'+esc(id)+'" data-day="'+day+'">Удалить разбор</button>':'')+
+    '</div><p class="sg-out" id="nt-out" role="status" style="margin-top:8px">'+(n.ai?'Разбор сделал Claude по автоматической расшифровке: имена, цифры и сроки стоит сверить.':n.short?'Это резюме самого сборщика.':'')+'</p>'+
+    '<div class="nt-tr" id="nt-trb" hidden></div>';
+  openSheet('Разбор созвона',h,null,false,true);
+}
+// a breakdown takes about a minute: when it lands on the event, the open meeting shows it
+function ntWait(id,day,was){
+  var n=0,tm=setInterval(function(){
+    var e=byId(S.events,id),cur=e&&ntAll(e)[day];
+    if(++n>100||!e){clearInterval(tm);return}
+    if(cur&&cur.at&&cur.at!==was){
+      clearInterval(tm);
+      var b=$('#ev-nt');if(b)b.innerHTML=ntBox(e);else if($('#nt-trb')&&!$('#sheet').hidden)viewNotes(id,day);
+      toast(cur.short?'Разбор созвона готов':'Расшифровка сохранена, разбор не получился');
+    }
+  },3000);
+}
 function attTeamNote(pid){
   if(!P(pid))return 'Команда есть у проекта: выбери проект.';
   var tm=teamOf(pid);
@@ -4124,6 +4191,7 @@ function formEvent(id,pre){
     '<div class="f"><span class="f-l">Уведомления бота: за сколько до начала</span><div id="ev-rem" class="rem-l"></div><div class="acts" style="margin-top:2px"><button type="button" class="btn sm" id="ev-rem-add">+ Уведомление</button></div></div>'+
     '<p class="sg-out">'+(bot?'Бот @'+esc(bot)+' пришлёт напоминания в Telegram. Если у события есть ссылка на созвон, за 5 минут до начала придёт ещё и она.':'Напоминания присылает бот серверной версии. Здесь правила сохраняются и уйдут на сервер при синхронизации.')+'</p>'+
     (id&&(e.team||Object.keys(e.att&&typeof e.att==='object'?e.att:{}).length)?'<div class="chat-h"><h2>Команда на встрече</h2></div><div id="ev-att">'+attBox(e)+'</div>':'')+
+    (id&&(ntDates(e).length||((e.call||e.link)&&notesNs&&!ui.ro))?'<div class="chat-h"><h2>Разбор созвона</h2></div><div id="ev-nt">'+ntBox(e)+'</div>':'')+
     (id&&bot&&boss()?'<div class="chat-h"><h2>Участнику встречи</h2></div><div id="ev-share">'+evShareBox(e)+'</div>':'')),function(b){
       var zs=b.querySelector('#f-zone'),zd=b.querySelector('#f-date'),zt=b.querySelector('#f-time'),zn=b.querySelector('#ev-zone-n');
       var zSync=function(){
@@ -5023,6 +5091,43 @@ document.addEventListener('click',function(e){
       if(db)mergeDeep(o,JSON.parse(JSON.stringify(atp)));
       var atb=$('#ev-att');if(atb)atb.innerHTML=attBox(byId(S.events,d.id)||o);
       break;
+    case 'nt-open':viewNotes(d.id,d.day);break;
+    case 'nt-ev':formEvent(d.id);break;
+    case 'nt-make':
+      o=byId(S.events,d.id);var nto=$('#nt-out'),ntx=$('#nt-text');if(!o||ui.ro||!notesNs||!ntx)break;
+      if(ntx.value.trim().length<40){if(nto)nto.textContent='Вставь текст расшифровки: пока его слишком мало для разбора.';break}
+      var ntd=ntDay(o),ntw=(ntAll(o)[ntd]||{}).at||'';
+      t.disabled=true;if(nto)nto.textContent='Отправляю…';
+      Promise.resolve(notesNs.make(o.id,ntd,ntx.value)).then(function(r){
+        t.disabled=false;var out=$('#nt-out');
+        if(r&&r.ok){if(out)out.textContent='Расшифровка принята. Разбор появится здесь примерно через минуту, бот напишет о нём в чат проекта.';ntWait(o.id,ntd,ntw)}
+        else if(out)out.textContent=(r&&r.message)||'Не получилось отправить расшифровку.';
+      },function(){t.disabled=false;var out=$('#nt-out');if(out)out.textContent='Не получилось отправить: сервер не ответил.'});
+      break;
+    case 'nt-tr':
+      var ntb=$('#nt-trb');if(!ntb||!notesNs)break;
+      if(!ntb.hidden){ntb.hidden=true;t.textContent='Показать расшифровку';break}
+      t.disabled=true;
+      Promise.resolve(notesNs.transcript(d.id,d.day)).then(function(r){
+        t.disabled=false;var b=$('#nt-trb');if(!b)return;
+        b.textContent=(r&&r.text)||'Расшифровки этой встречи на сервере нет.';b.hidden=false;t.textContent='Скрыть расшифровку';
+      },function(){t.disabled=false;var out=$('#nt-out');if(out)out.textContent='Не получилось загрузить расшифровку.'});
+      break;
+    case 'nt-redo':
+      o=byId(S.events,d.id);if(!o||ui.ro||!notesNs)break;
+      var nrw=(ntAll(o)[d.day]||{}).at||'';t.disabled=true;
+      Promise.resolve(notesNs.redo(d.id,d.day)).then(function(r){
+        t.disabled=false;var out=$('#nt-out');
+        if(r&&r.ok){if(out)out.textContent='Делаю разбор заново: он обновится здесь примерно через минуту.';ntWait(d.id,d.day,nrw)}
+        else if(out)out.textContent=(r&&r.message)||'Не получилось.';
+      },function(){t.disabled=false});
+      break;
+    case 'nt-del':
+      if(ui.ro||!notesNs)break;
+      if(!t.dataset.armed){t.dataset.armed='1';t.textContent='Точно удалить разбор и расшифровку?';break}
+      t.disabled=true;
+      Promise.resolve(notesNs.drop(d.id,d.day)).then(function(){closeSheet();toast('Разбор удалён')},function(){t.disabled=false});
+      break;
     case 'ev-announce':
       o=byId(S.events,d.id);var ato=$('#att-out');if(!o||ui.ro||!chatNs||typeof chatNs.announce!=='function')break;
       t.disabled=true;if(ato)ato.textContent='Рассылаю…';
@@ -5197,8 +5302,8 @@ function trPlace(){
 function trAuto(){
   if(tr.auto||ui.mode!=='ready')return;
   tr.auto=true;
-  if(trSeen()||ui.open)return;
-  setTimeout(function(){if(!tr.on&&!trSeen()&&$('#sheet').hidden&&!lg.full&&!ui.open)trStart()},900);
+  if(trSeen()||ui.open||ui.openEv)return;
+  setTimeout(function(){if(!tr.on&&!trSeen()&&$('#sheet').hidden&&!lg.full&&!ui.open&&!ui.openEv)trStart()},900);
 }
 document.addEventListener('keydown',function(e){
   if(!tr.on)return;
@@ -5221,6 +5326,8 @@ document.addEventListener('scroll',function(){if(tr.on)trPlace()},true);
 function start(){
   readHash();actStart();
   try{var om=/[?&]open=msg-([\w-]{1,64})/.exec(location.search||'');if(om)ui.open=om[1]}catch(e){}
+  // «Открыть разбор» from the bot: ?open=ev-<event>&day=<date>
+  try{var oe=/[?&]open=ev-([\w-]{1,64})/.exec(location.search||''),od=/[?&]day=(\d{4}-\d{2}-\d{2})/.exec(location.search||'');if(oe)ui.openEv={id:oe[1],day:od?od[1]:''}}catch(e){}
   try{var sp=localStorage.getItem('dash.project');if(sp)ui.project=sp}catch(e){}
   draw();
   setInterval(meetTick,30000);
@@ -5240,6 +5347,7 @@ function start(){
         if(CORE.every(function(n){return loaded[n]})){clearTimeout(timer);ui.mode='ready'}
         render();
         if(ui.open&&loaded.messages&&ui.mode==='ready'){var om=byId(S.messages,ui.open);ui.open='';if(om)setTimeout(function(){viewMessage(om.id)},60)}
+        if(ui.openEv&&loaded.events&&ui.mode==='ready'){var oe=ui.openEv;ui.openEv=null;if(byId(S.events,oe.id))setTimeout(function(){if(oe.day)viewNotes(oe.id,oe.day);else formEvent(oe.id)},60)}
       },function(){if(CORE.indexOf(k)<0){S[k]=[];loaded[k]=true;render();return}clearTimeout(timer);ui.mode='error';render()});
     });
     db.doc('settings/main').onSnapshot(function(s){var tzb=appTz();if(s.exists)S.settings=Object.assign({capacity:40},s.data()||{});tzChanged(tzb);render()},function(){});
@@ -5260,6 +5368,7 @@ function start(){
   Promise.resolve(c.use('onboard')).then(function(x){if(x&&typeof x.get==='function'){obNs=x;render()}}).catch(function(){});
   Promise.resolve(c.use('journal')).then(function(x){lg.srv=!!(x&&x.server)}).catch(function(){lg.srv=false});
   Promise.resolve(c.use('chat')).then(function(x){if(x&&typeof x.post==='function'){chatNs=x;render()}}).catch(function(){});
+  Promise.resolve(c.use('notes')).then(function(x){if(x&&typeof x.make==='function')notesNs=x}).catch(function(){});
 }
 start();
 })();

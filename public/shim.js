@@ -278,6 +278,13 @@
     bot: function () { return (me && me.app && me.app.bot) || ''; },
     readsAll: function () { return !!(me && me.app && me.app.readsAll); }
   };
+  // The breakdown of a call (src/notes.js): a pasted transcript goes to the server, the breakdown lands on the event.
+  var notesNs = {
+    make: function (eventId, date, text) { return api('POST', '/events/' + encodeURIComponent(eventId) + '/notes', { date: date, text: text }); },
+    redo: function (eventId, date) { return api('POST', '/events/' + encodeURIComponent(eventId) + '/notes', { date: date, redo: true }); },
+    transcript: function (eventId, date) { return api('GET', '/events/' + encodeURIComponent(eventId) + '/notes/' + date + '/transcript'); },
+    drop: function (eventId, date) { return api('DELETE', '/events/' + encodeURIComponent(eventId) + '/notes/' + date); }
+  };
   // Onboarding of a project: the link for a chat, who filled the form in and what they answered. For the owner only.
   var onboardNs = {
     get: function (pid) { return api('GET', '/onboard/' + encodeURIComponent(pid)); },
@@ -338,6 +345,7 @@
         if (name === 'share') return lead ? shareNs : null;
         if (name === 'chat') return lead ? chatNs : null;
         if (name === 'onboard') return lead ? onboardNs : null;
+        if (name === 'notes') return notesNs;
         // the journal of actions is kept by the server, so the page does not write its own
         if (name === 'journal') return { server: true };
         if (name === 'sample') return me.caps && me.caps.ai ? sample : null;
