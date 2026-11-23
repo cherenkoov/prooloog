@@ -1613,7 +1613,13 @@ test('Google Meet: the owner signs in once, a Meet call gets a room, the team ge
     const team = (await require('../src/join').teamOf('p-net')).map((d) => d.data.tg).sort();
     assert.ok(team.includes(String(FAY.id)) && !team.includes(String(OWNER.id)));
     assert.deepEqual(out.filter((x) => /Ждёт ссылку/.test(x[1]) && x[0] !== String(OWNER.id)).map((x) => x[0]).sort(), team);
-    assert.match(out.find((x) => x[0] === String(FAY.id))[1], /<b>Ждёт ссылку<\/b>\n2 августа, 11:00 \(UTC[+−][\d:]+\)\nGoogle Meet: https:\/\/meet\.google\.com\/abc-1\n\nПроект «Сеть мастеров»/);
+    // each person gets a button of their own into the call instead of the bare link, and the meeting becomes the whole team's
+    assert.match(out.find((x) => x[0] === String(FAY.id))[1], /<b>Ждёт ссылку<\/b>\n2 августа, 11:00 \(UTC[+−][\d:]+\)\n\nПроект «Сеть мастеров»\n\nВходи в созвон по кнопке ниже/);
+    assert.doesNotMatch(out.find((x) => x[0] === String(FAY.id))[1], /meet\.google\.com/);
+    const fayKb = sinceMark(n, 'sendMessage').find((c) => String(c.params.chat_id) === String(FAY.id)).params.reply_markup.inline_keyboard;
+    assert.match(fayKb[0][0].url, new RegExp('^https://prooloog\\.test/c/e-g1/' + FAY.id + '/[A-Za-z0-9_-]{22}$'));
+    assert.deepEqual(fayKb[1].map((b) => b.callback_data), ['at:e-g1:20310802:y', 'at:e-g1:20310802:n']);
+    assert.equal((await ev('e-g1')).team, true);
     assert.match(out.find((x) => x[0] === String(OWNER.id))[1], new RegExp('получили ' + team.length + ' из ' + team.length));
     await update(tap(OWNER, 'an:e-g4'));
     assert.match(lastSay().params.text, /рассылать некому|нет ссылки/);
@@ -2429,4 +2435,87 @@ test('header parsing', () => {
   assert.equal(parseHeader('Саша, блог нужен завтра', list), null);
   assert.equal(parseHeader('Просто текст без запятой', list), null);
   assert.equal(parseHeader('от Ravi, марс: привет', list).project, '');
+});
+
+test('attendance: a meeting of the whole team, a way in of one\'s own, who said what and who came', async () => {
+  const remind = require('../src/remind'), clock = require('../src/clock'), attend = require('../src/attend'), db = require('../src/db');
+  const put = (path, data, token = ownerToken) => call('PUT', '/api/db/' + path, { token, json: { data } });
+  const patch = (path, data, token = ownerToken) => call('PATCH', '/api/db/' + path, { token, json: { data } });
+  const ev = async (id) => (await db.getDoc('events', id)).data;
+  const NINA = { id: 888001, first_name: 'Нина' }, OLEG = { id: 888002, first_name: 'Олег' }, PAUL = { id: 888003, first_name: 'Павел' };
+  const tz = await clock.appTz();
+  await put('projects/p-att', { name: 'Явка', status: 'active', order: 90 });
+  await put('contacts/jn-888001', { name: 'Нина Ким', projects: ['p-att'], team: ['p-att'], rel: 'Команда' });
+  await put('contacts/jn-888002', { name: 'Олег Ли', tg: '@oleg_li', projects: ['p-att'], team: ['p-att'], rel: 'Команда' });
+  await put('contacts/jn-888003', { name: 'Павел Клиент', projects: ['p-att'] });
+  assert.deepEqual((await attend.team('p-att')).map((x) => [x.tg, x.name]).sort(), [['888001', 'Нина Ким'], ['888002', 'Олег Ли']]);
+  // the meeting starts in ten real minutes: the way in already counts
+  const start = Math.ceil((Date.now() + 10 * 60000) / 60000) * 60000, at = clock.parts(start, tz), day = at.d, ymd = day.replace(/-/g, '');
+  await put('events/e-att', { title: 'Планёрка', project: 'p-att', date: day, time: at.t, rem: [60], call: 'other', link: 'https://meet.example/room', team: true });
+  // an hour before: the owner reads the link, each person of the team gets buttons of their own
+  let n = tgCalls.length;
+  assert.equal(await remind.tick(start - 60 * 60000 + 1000), 3);
+  const sent = () => sinceMark(n, 'sendMessage').map((c) => c.params), to = (u) => sent().find((x) => String(x.chat_id) === String(u.id));
+  assert.match(to(OWNER).text, /Планёрка[\s\S]*meet\.example\/room/);
+  assert.equal(to(PAUL), undefined, 'a contact outside the team hears nothing');
+  assert.match(to(NINA).text, /Через 1 час: <b>Планёрка<\/b>[\s\S]*Входи по кнопке ниже/);
+  assert.doesNotMatch(to(NINA).text, /meet\.example/);
+  const kb = to(NINA).reply_markup.inline_keyboard, mine = new URL(kb[0][0].url);
+  assert.equal(kb[0][0].text, 'Войти в созвон');
+  assert.match(mine.pathname, /^\/c\/e-att\/888001\/[A-Za-z0-9_-]{22}$/);
+  assert.deepEqual(kb[1].map((b) => [b.text, b.callback_data]), [['Буду', 'at:e-att:' + ymd + ':y'], ['Не смогу', 'at:e-att:' + ymd + ':n']]);
+  assert.notEqual(to(OLEG).reply_markup.inline_keyboard[0][0].url, kb[0][0].url);
+  // «Не смогу», then «Буду»: the answer is kept on the meeting, the buttons show it; a stranger's tap changes nothing
+  n = tgCalls.length;
+  await update(tap(OLEG, 'at:e-att:' + ymd + ':n'));
+  assert.deepEqual((await ev('e-att')).att[day]['888002'], { r: 'no', n: 'Олег Ли' });
+  const edited = sinceMark(n, 'editMessageReplyMarkup').pop().params.reply_markup.inline_keyboard;
+  assert.deepEqual(edited.flat().map((b) => b.text), ['Войти в созвон', 'Буду', '✓ Не смогу']);
+  assert.equal(sinceMark(n, 'answerCallbackQuery').pop().params.text, 'Отметил: не сможешь');
+  await update(tap(NINA, 'at:e-att:' + ymd + ':y'));
+  await update(tap(PAUL, 'at:e-att:' + ymd + ':y'));
+  assert.equal(sinceMark(n, 'answerCallbackQuery').pop().params.text, 'Ты сейчас не в команде этого проекта');
+  assert.deepEqual(Object.keys((await ev('e-att')).att[day]).sort(), ['888001', '888002']);
+  // the way in: the server notes the person and sends them on to the call; a wrong signature leads nowhere
+  const hop = await fetch(BASE + mine.pathname, { redirect: 'manual' });
+  assert.deepEqual([hop.status, hop.headers.get('location'), hop.headers.get('cache-control')], [302, 'https://meet.example/room', 'no-store']);
+  const nina = (await ev('e-att')).att[day]['888001'];
+  assert.deepEqual([nina.r, nina.c, nina.by, nina.n, /^\d{4}-/.test(nina.at)], ['yes', true, 'bot', 'Нина Ким', true]);
+  const firstAt = nina.at;
+  await fetch(BASE + mine.pathname, { redirect: 'manual' });
+  assert.equal((await ev('e-att')).att[day]['888001'].at, firstAt, 'the first coming is the one kept');
+  assert.equal((await fetch(BASE + mine.pathname.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')), { redirect: 'manual' })).status, 404);
+  assert.equal((await fetch(BASE + mine.pathname.replace('888001', '888003'), { redirect: 'manual' })).status, 404);
+  // five minutes before: the one who came is not asked again, the other still is
+  n = tgCalls.length;
+  await remind.tick(start - 5 * 60000 + 1000);
+  assert.deepEqual(to(NINA).reply_markup.inline_keyboard.length, 1);
+  assert.deepEqual(to(OLEG).reply_markup.inline_keyboard.length, 1, 'five minutes before only the way in is left');
+  // a quarter of an hour in, the owner hears who came, once
+  n = tgCalls.length;
+  assert.equal(await remind.tick(start + 15 * 60000 + 1000), 1);
+  assert.equal(String(sent()[0].chat_id), String(OWNER.id));
+  assert.match(sent()[0].text, /Созвон <b>Планёрка<\/b> · Явка[\s\S]*Пришли 1 из 2: Нина Ким\.\nНе открывали ссылку: Олег Ли \(ответ: не смогу\)\./);
+  assert.equal(await remind.tick(start + 15 * 60000 + 30000), 0);
+  // the page corrects a mark by hand; an edit of the meeting keeps the marks
+  await patch('events/e-att', { att: { [day]: { 888002: { c: true, by: 'hand', at: new Date().toISOString() } } } });
+  await patch('events/e-att', { title: 'Планёрка команды' });
+  const after = (await ev('e-att')).att[day];
+  assert.deepEqual([after['888002'].c, after['888002'].r, after['888001'].c], [true, 'no', true]);
+  // a link opened long before the meeting leads to the call and marks nobody
+  await put('events/e-att2', { title: 'Через неделю', project: 'p-att', date: clock.parts(start + 7 * 864e5, tz).d, time: '12:00', call: 'other', link: 'https://meet.example/later' });
+  const early = await fetch(attend.linkFor('e-att2', '888001').replace('https://prooloog.test', BASE), { redirect: 'manual' });
+  assert.deepEqual([early.status, early.headers.get('location'), (await ev('e-att2')).att], [302, 'https://meet.example/later', undefined]);
+  // «Разослать команде» from the page: those who run the project; the meeting becomes the whole team's
+  assert.equal((await call('POST', '/api/events/e-att2/announce', { token: bobToken })).status, 403);
+  n = tgCalls.length;
+  const told = await call('POST', '/api/events/e-att2/announce', { token: ownerToken });
+  assert.deepEqual([told.json.ok, told.json.sent, told.json.total, told.json.tracked], [true, 2, 2, true]);
+  assert.equal((await ev('e-att2')).team, true);
+  assert.equal(to(NINA).reply_markup.inline_keyboard.length, 2);
+  // a card moved to «Контакты» takes the person out of the team; a meeting without a link is not sent
+  await patch('contacts/jn-888002', { team: [], rel: '' });
+  assert.deepEqual((await attend.team('p-att')).map((x) => x.tg), ['888001']);
+  await put('events/e-att3', { title: 'Без ссылки', project: 'p-att', date: day });
+  assert.deepEqual((await call('POST', '/api/events/e-att3/announce', { token: ownerToken })).json, { ok: false, message: 'У встречи пока нет ссылки на созвон.' });
 });

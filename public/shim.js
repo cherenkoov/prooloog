@@ -271,6 +271,8 @@
   var chatNs = {
     post: function (id, text, buttons) { return api('POST', '/chats/' + encodeURIComponent(id) + '/post', { text: text, buttons: !!buttons }); },
     leave: function (id) { return api('POST', '/chats/' + encodeURIComponent(id) + '/leave'); },
+    // the bot sends a meeting to the project's team: each person gets a button of their own into the call
+    announce: function (eventId) { return api('POST', '/events/' + encodeURIComponent(eventId) + '/announce'); },
     bot: function () { return (me && me.app && me.app.bot) || ''; },
     readsAll: function () { return !!(me && me.app && me.app.readsAll); }
   };

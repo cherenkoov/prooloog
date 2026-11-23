@@ -13,6 +13,7 @@ const T = require('./telegram');
 const clock = require('./clock');
 const journal = require('./journal');
 const calls = require('./calls');
+const attend = require('./attend');
 const avatar = require('./avatar');
 
 const FORMS = cfg.formsDir || path.join(__dirname, '..', 'forms');
@@ -345,7 +346,7 @@ async function syncEvents(f, link) {
     if (owner) {
       const lead = time.opts.find((o) => o.t === time.lead), zoneTime = time.lead + (p.zone ? ' ' + p.zone : '');
       const inCal = ruDay(wall.d) + ', ' + wall.t, same = wall.d === p.date && wall.t === time.lead;
-      const team = d.data.link ? await teamOf(d.data.project) : [];
+      const team = d.data.link ? await attend.team(d.data.project) : [];
       await tell(link.project, '', '<b>' + esc(p.event.title) + '</b>\nБольшинство за ' + esc(zoneTime) + ': голосов ' + lead.n + ' из ' + time.voters + '.' + (where ? '\nПлощадка: ' + esc(where) + '.' : '') +
         '\nВ календаре проекта встреча стоит на ' + esc(inCal) + (same ? '' : ' по часовому поясу приложения') + '.' + (d.data.link ? '\nСсылка: ' + esc(d.data.link) : call ? '\nСсылки на созвон у встречи пока нет.' : ''), team.length ? Object.assign(announceKb(d.id, team.length), { owner: true }) : undefined).catch(() => {});
     }
@@ -558,26 +559,39 @@ async function pollWhen(id, e) {
   }
   return whenText(e);
 }
-// Sends the meeting with its link to everyone in the team. Returns how many got it and how many could not be reached.
+// Sends the meeting to everyone in the team and marks the meeting as the whole team's. Each person gets a button
+// of their own into the call (so the server sees who came, see attend.js) and is asked whether they are coming.
+// Returns how many got it and how many could not be reached.
 async function announce(eventId) {
   const doc = await db.getDoc('events', String(eventId));
   if (!doc) return { error: 'Этой встречи уже нет.' };
-  const e = doc.data, team = await teamOf(e.project);
+  let e = doc.data;
+  const team = await attend.team(e.project);
   if (!team.length) return { error: 'В команде проекта пока никого нет: рассылать некому.' };
   if (!calls.okLink(e.link)) return { error: 'У встречи пока нет ссылки на созвон.' };
+  if (!e.team) {
+    const d = await db.updateDoc('events', doc.id, { team: true, u: new Date().toISOString() });
+    if (d) { hub.publish('events', d.id, d.data, d.version, '', e); journal.note('upd', 'events', d.id, d.data, e, 'бот'); e = d.data; }
+  }
   const p = e.project ? await db.getDoc('projects', e.project) : null;
-  const text = '<b>' + esc(e.title || 'Встреча') + '</b>\n' + esc(await pollWhen(doc.id, e)) + '\n' + esc(PLAT[e.call] || 'Ссылка') + ': ' + esc(e.link) + (p ? '\n\nПроект «' + esc(String(p.data.name || '')) + '»' : '');
+  const date = attend.next(e, await clock.appTz(), Date.now());
+  const head = '<b>' + esc(e.title || 'Встреча') + '</b>\n' + esc(await pollWhen(doc.id, e)), tail = p ? '\n\nПроект «' + esc(String(p.data.name || '')) + '»' : '';
   let sent = 0;
-  for (const d of team) { try { await say(d.data.tg, text); sent++; } catch (err) { /* blocked the bot or never opened it */ } }
-  return { sent, total: team.length, title: e.title || 'Встреча' };
+  for (const m of team) {
+    const own = !!attend.linkFor(doc.id, m.tg);
+    const text = head + (own ? '' : '\n' + esc(PLAT[e.call] || 'Ссылка') + ': ' + esc(e.link)) + tail +
+      (own ? '\n\nВходи в созвон по кнопке ниже: так я отмечу, что ты на встрече.' + (date ? ' И скажи заранее, получится ли прийти.' : '') : '');
+    try { await say(m.tg, text, attend.memberKb(doc.id, e, m.tg, date, { ask: own, join: true })); sent++; } catch (err) { /* blocked the bot or never opened it */ }
+  }
+  return { sent, total: team.length, title: e.title || 'Встреча', tracked: !!attend.linkFor(doc.id, team[0].tg) };
 }
 // The meetings the team could be told about now: those of projects with a team, not yet past.
 async function announceable() {
-  const today = clock.parts(Date.now(), await clock.appTz()).d, out = [];
+  const today = clock.parts(Date.now(), await clock.appTz()).d, out = [], teamOfProject = await attend.teams();
   for (const d of await db.listDocs('events')) {
     const e = d.data;
     if (!e.project || !calls.okLink(e.link) || (!e.repeat && String(e.date || '') < today)) continue;
-    const n = (await teamOf(e.project)).length;
+    const n = teamOfProject(e.project).length;
     if (n) out.push({ id: d.id, project: e.project, title: e.title || 'Встреча', when: await pollWhen(d.id, e), n });
   }
   return out;

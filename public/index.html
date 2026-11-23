@@ -504,6 +504,14 @@ button.lg-b:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .rem-r{display:grid;grid-template-columns:84px minmax(0,150px) minmax(0,1fr) auto;gap:8px;align-items:center}
 .rem-t{font-size:13px;color:var(--mute)}
 .rem-l:empty{display:none}
+.att-d{font-size:13px;font-weight:600;margin:10px 0 0}
+.att-l{display:flex;flex-direction:column;margin-top:4px}
+.att-r{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)}
+.att-r:first-child{border-top:0}
+.att-n{flex:1;min-width:0;overflow-wrap:anywhere}
+.att-s{font-size:13px;color:var(--mute);text-align:right}
+.att-s.ok{color:var(--good)}
+.att-r .btn{flex:none}
 /* Claude: subscription and API usage */
 .cld-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:10px}
 .cld-k{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
@@ -1145,7 +1153,7 @@ function drawTop(){
   else if(ui.mode==='slow')msg='База пока не отвечает. Жду: данные появятся сами, страницу перезагружать не нужно.';
   else if(ui.mode==='local')msg='База недоступна в этом окне: изменения не сохранятся.';
   else if(ui.mode==='error')msg='Не удалось прочитать данные из базы.';
-  else if(ui.ro)msg='Режим просмотра: менять данные может владелец и приглашённые участники с правом редактирования.';
+  else if(ui.ro)msg='Режим просмотра: менять данные могут координаторы и участники с правом редактирования.';
   note.textContent=msg;note.hidden=!msg;
 }
 
@@ -2707,7 +2715,7 @@ function formChat(id){
     '<div class="ckl" style="max-height:none"><label><input type="checkbox" name="read"'+(x.read!==false?' checked':'')+'><span>Участники видят в чате задачи, вёрсты и события проекта: кнопки под сообщением бота и команда /project</span></label>'+
     '<label><input type="checkbox" name="app"'+(x.app?' checked':'')+'><span>Участники могут открыть проект в приложении, только просмотр</span></label>'+
     '<label><input type="checkbox" name="remind"'+(x.remind?' checked':'')+'><span>Напоминать в чате о событиях проекта, ссылка на созвон приходит за 5 минут</span></label></div>'+
-    '<p class="sg-out">Переписка и предложения участников попадают в «Сообщения» проекта и ждут ревью тех, кто ведёт проект: владельца и координаторов. Сам проект бот не меняет. Бюджет, контакты и переписку видят только они.</p>'+
+    '<p class="sg-out">Переписка и предложения участников попадают в «Сообщения» проекта и ждут ревью координаторов проекта. Сам проект бот не меняет. Бюджет, контакты и переписку видят только координаторы.</p>'+
     (chatNs&&x.on!==false?'<div class="chat-h"><h2>Написать в чат от бота</h2></div><textarea id="chat-txt" rows="3" maxlength="3800" placeholder="Например: созвон переносим на пятницу, 18:00" aria-label="Сообщение в чат"></textarea><div class="ckl" style="max-height:none;border:0;padding:0;margin-top:8px"><label><input type="checkbox" id="chat-btns" checked><span>Добавить кнопки проекта под сообщением</span></label></div><div class="acts" style="margin-top:8px"><button type="button" class="btn" data-act="chat-post" data-id="'+esc(id)+'">Отправить в чат</button></div><p class="sg-out" id="chat-out" role="status"></p>':'')+
     '<div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button>'+(chatNs&&x.on!==false?'<button type="button" class="btn dng" data-act="chat-leave" data-id="'+esc(id)+'">Убрать бота из чата</button>':'')+'</div></form>';
   openSheet(x.title||'Чат',h);
@@ -2803,7 +2811,7 @@ function formShare(pid){
     '<div class="ckl" id="sh-pl">'+list.map(function(p){return '<label><input type="checkbox" value="'+esc(p.id)+'"'+(p.id===pre?' checked':'')+'><span>'+esc(p.name)+'</span></label>'}).join('')+'</div>'+
     '<div class="f" role="radiogroup" aria-label="Уровень доступа"><span class="f-l">Уровень доступа</span><div class="kindsw"><label><input type="radio" name="sh-role" id="sh-vw" checked><span>Смотреть</span></label><label><input type="radio" name="sh-role" id="sh-ed"><span>Редактировать</span></label>'+(ui.owner?'<label><input type="radio" name="sh-role" id="sh-mg"><span>Координатор</span></label>':'')+'</div><p class="sg-out" id="sh-lv"></p></div>'+
     '<div class="acts"><button type="button" class="btn pri" id="sh-make" data-act="sh-make">Создать ссылку-приглашение</button><button type="button" class="btn" id="sh-cancel" data-act="sh-cancel" hidden>Отмена</button></div><div id="sh-link"></div><p class="sg-out" id="sh-out" role="status"></p>'+
-    '<p class="sg-out">'+(ui.owner?'Бюджет, контакты, переписка, подписки и клиенты проекта видны только тебе и его координаторам.':'Ты координатор: даёшь доступ к своим проектам на уровнях «Смотреть» и «Редактировать». Координаторов назначает владелец.')+'</p></div><div id="sh-lists"><p class="sg-out" style="margin-top:14px">Загружаю список…</p></div>';
+    '<p class="sg-out">'+(ui.owner?'Бюджет, контакты, переписка, подписки и клиенты проекта видны только его координаторам.':'Ты координатор: даёшь доступ к своим проектам на уровнях «Смотреть» и «Редактировать». Уровень «Координатор» отсюда не назначается.')+'</p></div><div id="sh-lists"><p class="sg-out" style="margin-top:14px">Загружаю список…</p></div>';
   openSheet('Доступ',h,function(b){
     Array.prototype.forEach.call(b.querySelectorAll('input[type=radio]'),function(x){x.addEventListener('change',shSync)});
     shSync();
@@ -3182,7 +3190,7 @@ function meetTick(){
 var LOG_KEEP=90,LOG_CAP=600,LOG_SKIP={activity:1,usage:1,gone:1,audit:1,evsubs:1};
 var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['верста','f'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],memory:['запись в памяти Claude','f'],settings:['настройки','p']};
 var LOGV={add:{m:'Добавлен',f:'Добавлена',n:'Добавлено',p:'Добавлены'},upd:{m:'Изменён',f:'Изменена',n:'Изменено',p:'Изменены'},del:{m:'Удалён',f:'Удалена',n:'Удалено',p:'Удалены'}};
-var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'верста',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника'};
+var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'верста',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника',team:'вся команда',att:'явка'};
 var LOGK={projects:'project',tasks:'task',milestones:'milestone',events:'event',posts:'post',services:'service',clients:'client',contacts:'contact'};
 var lg={srv:null,queue:[],mine:[],day:'',live:null,un:undefined,timer:0,tries:0,sub:false,ready:false,full:false,f:'all',pruned:false,who:'',whoMap:{},mem:false};
 function logSame(a,b){
@@ -3294,7 +3302,7 @@ function logWho(e,ct){
     var cm=(shState&&shState.members||[]).filter(function(x){return ct.id==='jn-'+x.id||(x.username&&tgUser(ct.tg).toLowerCase()===String(x.username).toLowerCase())})[0]||null;
     return {key:'u:'+(cm?cm.id:ct.id),kind:'user',name:ct.name||'Без имени',ini:logIni(ct.name||'?'),role:cm?(cm.role==='manager'?'Координатор':cm.role==='editor'?'Редактор':'Зритель'):(ct.rel||ct.role||'Контакт'),tg:tgUser((cm&&cm.username)||ct.tg),m:cm,ct:ct,c:logHue(String(cm?cm.id:ct.id))};
   }
-  if(!by||/^(владелец|owner|я|ты)$/.test(low))return ui.owner?{key:'me',kind:'me',name:'Ты',ini:'Я',role:'Владелец',c:0}:{key:'me',kind:'me',name:'Владелец',ini:'В',role:'Владелец',c:0};
+  if(!by||/^(владелец|owner|я|ты)$/.test(low))return ui.owner?{key:'me',kind:'me',name:'Ты',ini:'Я',role:'Координатор',c:0}:{key:'me',kind:'me',name:'Координатор',ini:'К',role:'Координатор',c:0};
   if(low.indexOf('claude')>=0)return {key:'ai',kind:'ai',name:'Claude',ini:'C',role:'Ассистент: действует из чата, коннектора и сессий в боте',c:1};
   if(/^(бот|bot)([^a-zа-яё]|$)/.test(low)||low.indexOf('prooloog')>=0)return {key:'bot',kind:'bot',name:'Бот Prooloog',ini:'Б',role:'Бот: сохраняет сообщения и напоминает',c:5};
   // what the server does by itself, and a work chat as a whole, is not a person
@@ -3802,6 +3810,48 @@ function evShareBox(e){
   return fld('Язык сообщений участнику','<select id="ev-lang" data-id="'+esc(e.id)+'">'+optsHtml([['','Участник выберет сам: бот спросит, вероятный язык первым'],['ru','Русский: без вопроса'],['en','English: без вопроса']],GLANG[e.lang]?e.lang:'')+'</select>')+'<div class="acts"><button type="button" class="btn sm" data-act="ev-share" data-id="'+esc(e.id)+'">'+(url?'Скопировать ссылку для участника':'Ссылка для участника')+'</button></div>'+(url?'<input id="ev-share-url" readonly value="'+esc(url)+'" style="margin-top:8px" aria-label="Ссылка для участника встречи">':'')+
     '<p class="sg-out" id="ev-share-out" role="status" style="margin-top:6px">'+(subs.length?'Подписались: '+esc(subs.map(function(x){return (x.name||'участник')+' ('+(GLANG[x.lang]?GLANG[x.lang]+', ':'')+(remList(x.rem).length?remList(x.rem).slice().reverse().map(function(m){return 'за '+remText(m)}).join(', '):'без напоминаний')+')'}).join('; '))+'.':'По этой ссылке участник открывает бота, выбирает язык и напоминания и за 5 минут до начала получает ссылку на созвон. Язык можно задать заранее: тогда бот сразу пишет на нём.')+'</p>';
 }
+// A meeting of the whole team (`team`): the bot of the server version reminds everyone in the project's team, gives each
+// a button of their own into the call and notes who came by it. The marks live on the event:
+// att[date][key] = {n: name, r: yes | no, c: came, at, by: bot | hand}; key is the person's Telegram id (a card without one: c-<card id>).
+function attKey(x){var m=x.c&&/^jn-(\d{1,20})$/.exec(x.c.id);return m?m[1]:(obUid(x.u)||(x.c?'c-'+x.c.id:''))}
+function attDay(e,d){var a=e.att&&typeof e.att==='object'?e.att[d]:null;return a&&typeof a==='object'?a:{}}
+function attDates(e){
+  var have=Object.keys(e.att&&typeof e.att==='object'?e.att:{}).filter(validDate).sort(),t=today(),out=[];
+  if(!e.repeat)return validDate(e.date)?[e.date]:have.slice(-1);
+  // a repeating meeting: the coming one (today's included) and the last two that have marks
+  for(var i=0;i<8;i++){var d=addDays(t,i);if(occurs(e,d)){out.push(d);break}}
+  have.filter(function(d){return out.indexOf(d)<0}).slice(-2).forEach(function(d){out.push(d)});
+  return out.sort().reverse();
+}
+function attRows(e,d){
+  var day=attDay(e,d),seen={},rows=[];
+  (boss()&&P(e.project)?teamOf(e.project):[]).forEach(function(x){var k=attKey(x);if(!k||seen[k])return;seen[k]=1;var a=day[k]&&typeof day[k]==='object'?day[k]:{};rows.push({k:k,name:x.name||a.n||'Участник',a:a})});
+  Object.keys(day).forEach(function(k){var a=day[k];if(!seen[k]&&a&&typeof a==='object'&&(a.c||a.r))rows.push({k:k,name:a.n||'Участник',a:a})});
+  return rows.sort(byName);
+}
+function attClock(at){var ms=Date.parse(at),z=appTz();if(!isFinite(ms))return '';if(z)return zoneParts(ms,z).t;var d=new Date(ms);return pad(d.getHours())+':'+pad(d.getMinutes())}
+function attStatus(a){
+  if(a.c)return {t:a.by==='hand'?'на созвоне, отмечено вручную':'на созвоне'+(attClock(a.at)?' с '+attClock(a.at):''),ok:1};
+  return {t:a.r==='yes'?'ответ: буду':a.r==='no'?'ответ: не смогу':'нет ответа',ok:0};
+}
+function attBox(e){
+  var can=boss()&&!ui.ro,ds=attDates(e),many=ds.length>1,h='';
+  ds.forEach(function(d){
+    var rows=attRows(e,d),came=rows.filter(function(r){return r.a.c}).length;
+    h+='<p class="att-d">'+(many?esc(fmt(d))+': ':'')+(rows.length?(many?'пришли ':'Пришли ')+came+' из '+rows.length:(boss()?'В команде проекта пока никого нет':'Отметок пока нет'))+'</p>';
+    if(rows.length)h+='<div class="att-l">'+rows.map(function(r){var st=attStatus(r.a);return '<div class="att-r"><span class="att-n">'+esc(r.name)+'</span><span class="att-s'+(st.ok?' ok':'')+'">'+esc(st.t)+'</span>'+(can?'<button type="button" class="btn sm" data-act="att" data-id="'+esc(e.id)+'" data-day="'+d+'" data-k="'+esc(r.k)+'">'+(r.a.c?'Снять отметку':'Отметить')+'</button>':'')+'</div>'}).join('')+'</div>';
+  });
+  if(!ds.length)h+='<p class="att-d">У встречи нет даты</p>';
+  var send=can&&chatNs&&typeof chatNs.announce==='function';
+  return h+(send?'<div class="acts"><button type="button" class="btn sm" data-act="ev-announce" data-id="'+esc(e.id)+'">Разослать команде через бота</button></div>':'')+
+    '<p class="sg-out" id="att-out" role="status" style="margin-top:6px">'+(botName()?'Бот напоминает каждому из команды и даёт личную кнопку входа в созвон: кто по ней вошёл, отмечается здесь сам. Через 15 минут после начала бот пишет тем, кто ведёт проект, кто пришёл. Кто зашёл по другой ссылке, отмечается кнопкой «Отметить».':'Кто пришёл, отмечает бот серверной версии: отметки приходят сюда при синхронизации. Отметить можно и вручную.')+'</p>';
+}
+function attTeamNote(pid){
+  if(!P(pid))return 'Команда есть у проекта: выбери проект.';
+  var tm=teamOf(pid);
+  if(!tm.length)return 'В команде проекта пока никого нет: люди попадают в неё через анкету проекта или кнопкой «→ В команду» на карточке.';
+  return 'В команде '+tm.length+': '+tm.map(function(x){return x.name||'участник'}).join(', ')+'. '+(botName()?'Бот напомнит каждому по правилам ниже, даст личную кнопку входа в созвон и отметит, кто пришёл.':'Напоминания и отметки о приходе делает бот серверной версии.');
+}
 function formEvent(id,pre){
   var e=id?byId(S.events,id):null;if(id&&!e)return;
   e=e||merge({title:'',project:ui.project!=='all'&&P(ui.project)?ui.project:'',date:ui.day||today(),time:'',repeat:'',until:'',contact:'',call:'',link:'',rem:remList(S.settings.rem)},pre);
@@ -3814,9 +3864,13 @@ function formEvent(id,pre){
     '<div class="f2">'+fld('Повтор',sel('repeat',[['','Не повторять'],['daily','Каждый день'],['weekly','Каждую неделю']],e.repeat||''))+fld('Повторять до',inp('until',e.until,'type="date"'))+'</div>'+
     '<div class="f2">'+fld('Созвон',sel('call',[['','Не созвон']].concat(Object.keys(CALLS).map(function(k){return [k,CALLS[k]]})),CALLS[e.call]?e.call:''))+fld('Ссылка на созвон',inp('link',e.link||'','type="url" maxlength="500" placeholder="https://" autocomplete="off"'))+'</div>'+
     '<p class="sg-out" id="ev-link-n" role="status"></p>'+
+    (boss()?fld('Вся команда проекта','<input type="checkbox" id="f-team" name="team"'+(e.team?' checked':'')+'>','fc')+'<p class="sg-out" id="ev-team-n" role="status"></p>':'')+
     '<div class="f"><span class="f-l">Уведомления бота: за сколько до начала</span><div id="ev-rem" class="rem-l"></div><div class="acts" style="margin-top:2px"><button type="button" class="btn sm" id="ev-rem-add">+ Уведомление</button></div></div>'+
     '<p class="sg-out">'+(bot?'Бот @'+esc(bot)+' пришлёт напоминания в Telegram. Если у события есть ссылка на созвон, за 5 минут до начала придёт ещё и она.':'Напоминания присылает бот серверной версии. Здесь правила сохраняются и уйдут на сервер при синхронизации.')+'</p>'+
+    (id&&(e.team||Object.keys(e.att&&typeof e.att==='object'?e.att:{}).length)?'<div class="chat-h"><h2>Команда на встрече</h2></div><div id="ev-att">'+attBox(e)+'</div>':'')+
     (id&&bot&&boss()?'<div class="chat-h"><h2>Участнику встречи</h2></div><div id="ev-share">'+evShareBox(e)+'</div>':'')),function(b){
+      var tmc=b.querySelector('#f-team'),tmn=b.querySelector('#ev-team-n'),tmp=b.querySelector('#f-project');
+      if(tmc&&tmn){var tmSync=function(){tmn.textContent=tmc.checked?attTeamNote(tmp?tmp.value:''):''};tmc.addEventListener('change',tmSync);if(tmp)tmp.addEventListener('change',tmSync);tmSync()}
       var list=b.querySelector('#ev-rem'),add=b.querySelector('#ev-rem-add'),cs=b.querySelector('#f-call'),ln=b.querySelector('#f-link'),note=b.querySelector('#ev-link-n');
       var row=function(m){
         var u=m%1440===0?1440:m%60===0?60:1,d=document.createElement('div');d.className='rem-r';
@@ -4381,6 +4435,7 @@ function save(kind,id,v,form){
     if((ecall==='zoom'||ecall==='meet')&&elink&&em[ecall]!==elink){est.meet=Object.assign({},em);est.meet[ecall]=elink}
     if(ui.owner&&Object.keys(est).length)saveSettings(est);
     if(v.contact!==undefined)data.contact=byId(S.contacts,v.contact)?v.contact:'';
+    if(v.team!==undefined)data.team=!!v.team&&!!data.project;
     if(id)patch('events',id,data);else put('events',uid('e'),data);
   }else if(kind==='money'){
     var amt=Math.round((+String(v.amount).replace(',','.')||0)*100)/100;
@@ -4690,6 +4745,22 @@ document.addEventListener('click',function(e){
       var sb=$('#ev-share');if(sb)sb.innerHTML=evShareBox(o);
       var su=$('#ev-share-url'),so2=$('#ev-share-out');
       if(su)copyText(su.value,su).then(function(ok){if(so2)so2.textContent=ok?'Ссылка скопирована. Отправь её участнику встречи.':'Скопируй ссылку из поля выше и отправь участнику.'});
+      break;
+    case 'att':
+      o=byId(S.events,d.id);if(!o||!boss()||ui.ro||!validDate(d.day)||!d.k)break;
+      var atr=attRows(o,d.day).filter(function(r){return r.k===d.k})[0],atp={att:{}};if(!atr)break;
+      atp.att[d.day]={};atp.att[d.day][d.k]=atr.a.c?{c:false,at:'',by:'hand',n:atr.name}:{c:true,at:new Date().toISOString(),by:'hand',n:atr.name};
+      patch('events',o.id,atp);
+      if(db)mergeDeep(o,JSON.parse(JSON.stringify(atp)));
+      var atb=$('#ev-att');if(atb)atb.innerHTML=attBox(byId(S.events,d.id)||o);
+      break;
+    case 'ev-announce':
+      o=byId(S.events,d.id);var ato=$('#att-out');if(!o||ui.ro||!chatNs||typeof chatNs.announce!=='function')break;
+      t.disabled=true;if(ato)ato.textContent='Рассылаю…';
+      Promise.resolve(chatNs.announce(o.id)).then(function(r){
+        t.disabled=false;var out=$('#att-out');
+        if(out)out.textContent=r&&r.ok?'Разослал: получили '+r.sent+' из '+r.total+'.'+(r.sent<r.total?' Остальные не открывали бота или остановили его.':'')+(r.tracked?' У каждого своя кнопка входа: кто по ней вошёл, отметится здесь.':''):(r&&r.message)||'Не получилось разослать.';
+      },function(){t.disabled=false;var out=$('#att-out');if(out)out.textContent='Не получилось разослать: сервер не ответил.'});
       break;
     case 'data-sync':dataSync(t);break;
     case 'activity':formActivity();break;

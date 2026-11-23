@@ -18,6 +18,7 @@ const calls = require('./calls');
 const google = require('./google');
 const T = require('./telegram');
 const join = require('./join');
+const attend = require('./attend');
 const avatar = require('./avatar');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -79,6 +80,8 @@ function build() {
   app.get('/join/:token', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
   // The same page as a preview inside the dashboard: it asks /api/onboard/:project/preview and saves nothing.
   app.get('/preview/:project', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
+  // A person of the team opens a call by a link of their own: the server notes that they came and sends them on.
+  app.get('/c/:event/:tg/:sig', limiter(120, 60000), (req, res, next) => attend.handle(req, res).catch(next));
   app.get('/robots.txt', (req, res) => res.type('text').send('User-agent: *\nDisallow: /\n'));
 
   /* ---------- Telegram webhook ---------- */
@@ -308,6 +311,14 @@ function build() {
   };
   api.post('/chats/:id/post', auth.guard('manage'), actLimit, json, chatCall((req) => groups.post(req.params.id, req.body && req.body.text, !!(req.body && req.body.buttons))));
   api.post('/chats/:id/leave', auth.guard('manage'), actLimit, chatCall((req) => groups.leave(req.params.id)));
+
+  // «Разослать команде» from the page: the same as the bot's button, for those who run the project
+  api.post('/events/:id/announce', auth.guard('manage'), actLimit, async (req, res) => {
+    const d = ID_RE.test(req.params.id) ? await db.getDoc('events', req.params.id) : null;
+    if (!d || !auth.manages(req.user, d.data.project)) return res.status(404).json({ error: 'not_found' });
+    const r = await join.announce(d.id);
+    res.json(r.error ? { ok: false, message: r.error } : Object.assign({ ok: true }, r));
+  });
 
   api.post('/files', auth.guard('write'), express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '3mb' }), async (req, res) => {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();

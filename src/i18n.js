@@ -27,6 +27,13 @@ const S = {
     saved: 'Язык: русский',
     link: 'Ссылка',
     mine: 'Напоминать мне лично',
+    enter: 'Войти в созвон',
+    going: 'Буду',
+    notGoing: 'Не смогу',
+    saidYes: 'Отметил: будешь',
+    saidNo: 'Отметил: не сможешь',
+    notTeam: 'Ты сейчас не в команде этого проекта',
+    enterHint: 'Входи по кнопке ниже: так я отмечу, что ты на встрече.',
     before(m) {
       if (m % 1440 === 0) { const d = m / 1440; return 'Через ' + d + ' ' + pluralRu(d, 'день', 'дня', 'дней'); }
       if (m % 60 === 0) { const h = m / 60; return 'Через ' + h + ' ' + pluralRu(h, 'час', 'часа', 'часов'); }
@@ -53,6 +60,13 @@ const S = {
     saved: 'Language: English',
     link: 'Link',
     mine: 'Remind me personally',
+    enter: 'Join the call',
+    going: "I'll be there",
+    notGoing: "Can't make it",
+    saidYes: 'Noted: you are coming',
+    saidNo: 'Noted: you cannot make it',
+    notTeam: 'You are not in this project\'s team now',
+    enterHint: 'Join with the button below: that is how I note that you are at the meeting.',
     before(m) {
       const one = (n, w) => 'In ' + n + ' ' + w + (n === 1 ? '' : 's');
       if (m % 1440 === 0) return one(m / 1440, 'day');

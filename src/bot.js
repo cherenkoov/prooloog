@@ -20,6 +20,7 @@ const google = require('./google');
 const calls = require('./calls');
 const stt = require('./stt');
 const digest = require('./digest');
+const attend = require('./attend');
 
 let botName = '', botId = 0, botReadsAll = false;
 
@@ -551,7 +552,7 @@ function helpText(role) {
     '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
     '• /onboard проект — ссылка-анкета для командного чата. /club проект — приглашение для личных встреч с QR-кодом.\n' +
     '• /answers проект и /answers json проект — ответы анкет файлом, /votes — итоги голосований.\n' +
-    '• /announce — разослать встречу со ссылкой команде проекта. /members — у кого есть доступ к твоим проектам.\n' +
+    '• /announce — разослать встречу команде проекта: у каждого своя кнопка входа, по ней видно, кто пришёл. /members — у кого есть доступ к твоим проектам.\n' +
     '• /digest проект — лента проекта из переписки рабочего чата, с предложениями на ревью.\n' +
     '• /login — ссылка для входа в обычном браузере.\n\n' +
     'Ответ клиента я только сохраняю. Сам проект меняется после ревью в дэшборде: подтвердить можешь ты, другой координатор или владелец.';
@@ -564,7 +565,7 @@ function helpText(role) {
     '• /ask — сессия с Claude: пишешь как в обычном чате, он видит проекты, назначает встречи, ставит и закрывает задачи. Завершается кнопкой под ответом, командой /end или после 30 минут тишины; главное сохраняется в память (/memory).\n' +
     '• /backup — копия всех данных файлом.\n' +
     '• /connect — адрес коннектора для Claude, /usage — расход API за месяц.\n' +
-    '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу со ссылкой команде проекта.\n' +
+    '• /google — подключить Google, чтобы комнаты Meet создавались сами. /announce — разослать встречу команде проекта: у каждого своя кнопка входа, по ней видно, кто пришёл.\n' +
     '• /onboard проект — ссылка-анкета для командного чата: человек заполняет её и сразу попадает в проект. /answers — ответы таблицей (все анкеты), /answers проект и /answers json проект — выгрузка одного проекта в CSV или JSON, /votes — голоса.\n' +
     '• /digest проект — лента проекта: что нового в переписке рабочего чата и в голосовых, сжато и по дням, с предложениями на ревью. /digest all проект — по всей переписке. В рабочем чате мне нужны права администратора: /admin в чате повторяет просьбу о них.\n' +
     '• /club проект — приглашение для личных встреч: постоянная ссылка, QR-код и тексты для участника и мастера. Человек заполняет анкету и попадает в контакты проекта.\n' +
@@ -712,6 +713,15 @@ async function onCallback(cq) {
   if (er) return guestToggle(cq, er[1], +er[2]);
   const el = /^el:([A-Za-z0-9_-]{1,40}):([a-z]{2,3})$/.exec(data);
   if (el) return guestLang(cq, el[1], el[2]);
+  // «Буду» / «Не смогу» under a message about a meeting of the team
+  const at = /^at:([A-Za-z0-9_-]{1,64}):(\d{8}):([yn])$/.exec(data);
+  if (at) {
+    const had = !!(msg.reply_markup && (msg.reply_markup.inline_keyboard || []).some((row) => row.some((b) => b.url)));
+    const r = await attend.rsvp(cq.from, at[1], at[2], at[3], had);
+    await ack(r.text);
+    if (r.kb && msg.message_id) await T.tg('editMessageReplyMarkup', { chat_id: chat, message_id: msg.message_id, reply_markup: r.kb }).catch(() => {});
+    return;
+  }
   const role = await auth.roleOf(cq.from);
   if (!role) return ack('У тебя нет доступа к дэшборду');
   return actor.run(await actorOf(cq.from, role), () => teamCallback(cq, role, data, chat, ack, edit));
@@ -764,7 +774,8 @@ async function teamCallback(cq, role, data, chat, ack, edit) {
     await ack();
     const r = await join.announce(data.slice(3));
     if (r.error) return say(chat, esc(r.error));
-    return say(chat, 'Разослал «' + esc(r.title) + '»: получили ' + r.sent + ' из ' + r.total + '.' + (r.sent < r.total ? ' Остальные не открывали бота или остановили его.' : ''));
+    return say(chat, 'Разослал «' + esc(r.title) + '»: получили ' + r.sent + ' из ' + r.total + '.' + (r.sent < r.total ? ' Остальные не открывали бота или остановили его.' : '') +
+      (r.tracked ? '\nУ каждого своя кнопка входа в созвон: кто по ней вошёл, отмечается во встрече, а через 15 минут после начала я пришлю, кто пришёл.' : ''));
   }
   if (data.startsWith('ob:')) {
     const p = (await projects()).find((x) => x.id === data.slice(3));
