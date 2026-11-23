@@ -219,7 +219,7 @@ function introText(p) {
     '• Карточку игрока из Quest Board сохраняю как квесты этой недели. Изменил карточку — я обновлю квесты.',
     '• Сообщение в Daily Log считаю отчётом дня: текст, голосовое или фото. Под отчётом появятся кнопки веток.',
     '• XP считаю сам по правилам 1.1: за завершённый квест по его уровню, за отчёт дня, за помощь и за общий квест. Квест завершает сам игрок кнопкой под своей карточкой: подтверждать его никому не нужно.',
-    '• /game — команда недели и XP.'].join('\n');
+    '• /game — команда недели и XP. /companion — личный AI-компаньон: поможет выбрать квесты и вести отчёты, не выходя из Telegram.'].join('\n');
 }
 
 /* ---------- a message of a player ---------- */
@@ -390,6 +390,26 @@ async function onCallback(cq, doc, ack) {
   await showReport(ch, p, d, null, thread);
 }
 
+// The player's card goes to the chat of the game on the player's word: to the topic of the quest board when the
+// bot knows it. Returns true when it was sent.
+async function postCard(p, player, week) {
+  const v = await cardView(p, player, week);
+  if (!v) return false;
+  for (const c of await db.listDocs('chats')) {
+    if (c.data.project !== p.id || c.data.on === false) continue;
+    const t = Object.keys(c.data.topics || {}).find((k) => /quest\s*board|доска/i.test(c.data.topics[k]));
+    const sent = await G.send(c.data, v.html, v.kb, t ? { message_thread_id: +t } : {}).catch(() => null);
+    if (sent) return true;
+  }
+  return false;
+}
+// /companion in the chat: the way into the private talk with the AI companion
+async function sayCompanion(ch, thread) {
+  const p = await db.getDoc('projects', ch.project), name = G.me().name;
+  if (!p || !isOn(p.data)) return G.send(ch, 'Игра в этом проекте не включена. Её включают те, кто ведёт проект: в дэшборде, в карточке проекта.', undefined, thread).catch(() => {});
+  if (!name) return;
+  return G.send(ch, '🧭 <b>AI-компаньон игры</b>\nЛичный помощник в чате со мной: знает действующие правила, помогает выбрать квесты и уровень, сохраняет карточку и отчёт дня. Никуда выходить из Telegram не нужно.\nРазговор видит только сам игрок; в игру попадают лишь квесты и отчёты, которые он попросит сохранить.', G.kb([[{ text: 'Открыть компаньона', url: 'https://t.me/' + name + '?start=gm_' + p.id }]]), thread).catch(() => {});
+}
 async function sayTable(ch, thread) {
   const p = await db.getDoc('projects', ch.project);
   if (!p || !isOn(p.data)) return G.send(ch, 'Игра в этом проекте не включена. Её включают те, кто ведёт проект: в дэшборде, в карточке проекта.', undefined, thread).catch(() => {});
@@ -406,4 +426,4 @@ async function announce(projectId) {
   }
 }
 
-module.exports = { init, isOn, score, LEVELS, wonOf, weekOf, weekLabel, parseCard, parseReport, mayWrite, onMessage, onCallback, sayTable, announce, table, introText, RULES, BR, checkId, questId, isLogTopic };
+module.exports = { init, isOn, score, LEVELS, wonOf, postCard, sayCompanion, weekOf, weekLabel, parseCard, parseReport, mayWrite, onMessage, onCallback, sayTable, announce, table, introText, RULES, BR, checkId, questId, isLogTopic };

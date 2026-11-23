@@ -11,6 +11,7 @@ const groups = require('./groups');
 const journal = require('./journal');
 const i18n = require('./i18n');
 const asks = require('./session');
+const companion = require('./companion');
 const ai = require('./ai');
 const mcp = require('./mcp');
 const usage = require('./usage');
@@ -678,6 +679,7 @@ async function onCommand(m, role, cmd, arg) {
 /* ---------- updates ---------- */
 groups.init({ say, kb, esc, projects, pname, me: () => ({ id: botId, name: botName, readsAll: botReadsAll }) });
 asks.init({ say, kb, esc, briefing, botName: () => botName });
+companion.init({ say, kb, esc, botName: () => botName });
 async function onMessage(m) {
   if (groups.isGroup(m.chat)) return groups.onMessage(m);
   if (!m.chat || m.chat.type !== 'private' || !m.from || m.from.is_bot) return;
@@ -690,6 +692,14 @@ async function onMessage(m) {
   if (inv) return inviteJoin(m, inv[1]);
   const jn = cmd && cmd[1].toLowerCase() === 'start' ? /^join_([A-Za-z0-9_-]+)$/.exec((cmd[2] || '').trim()) : null;
   if (jn) return join.start(m, jn[1]);
+  // The AI companion of a game: a player's own talk, whatever their level in the dashboard (src/companion.js).
+  const gm = cmd && cmd[1].toLowerCase() === 'start' ? /^gm_([A-Za-z0-9_-]{1,60})$/.exec((cmd[2] || '').trim()) : null;
+  if (gm) return companion.start(m, gm[1]);
+  if (cmd && /^(companion|hero)$/i.test(cmd[1])) return companion.start(m, '');
+  if ((await companion.active(m.from.id)) && !(role === 'owner' && (await asks.active()))) {
+    if (cmd && cmd[1].toLowerCase() === 'end') { await companion.end(String(m.from.id)); return say(m.chat.id, 'Разговор с компаньоном завершён, я помню его до следующего раза. Вернуться: /companion.'); }
+    if (!cmd && m.text && !m.forward_origin) return companion.say(m);
+  }
   if (!role) return cmd ? onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim()) : say(m.chat.id, closedText(m.from));
   // from here on the bot knows who it works for: their level and their projects
   return actor.run(await actorOf(m.from, role), () => {
@@ -706,6 +716,7 @@ async function onCallback(cq) {
   const uid = cq.from.id, msg = cq.message, chat = msg && msg.chat && msg.chat.id, data = String(cq.data || '');
   const ack = (text) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: text || undefined }).catch(() => {});
   if (/^g[lpqz]:/.test(data)) return groups.onCallback(cq);
+  if (/^cm:/.test(data)) return companion.onCallback(cq, ack);
   const edit = (c, html, markup) => (msg && msg.message_id
     ? T.tg('editMessageText', { chat_id: c, message_id: msg.message_id, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup }).catch(() => say(c, html, markup))
     : say(c, html, markup));

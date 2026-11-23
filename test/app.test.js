@@ -2701,3 +2701,104 @@ test('a meeting set in a zone of its own is told in that zone', async () => {
   assert.match(attend.reportText({ title: 'По Москве', time: at.t, zone: 'Europe/Moscow' }, at.d, [], '', tz), /10 мая 12:00 \(МСК, UTC\+3\)/);
   assert.deepEqual([clock.okZone('Asia/Tbilisi'), clock.okZone('x'), clock.okZone('')], [true, false, false]);
 });
+
+test('game: the AI companion talks to a player in the private chat, saves what the player agreed to, keeps the talk to itself', async () => {
+  const game = require('../src/game'), db = require('../src/db'), clock = require('../src/clock');
+  const GID = -1001234500888, chat = { id: GID, type: 'supergroup', title: 'Life Game', is_forum: true };
+  const VLAD = { id: 777302, first_name: 'Влад', last_name: 'Исаков' }, DAVID = { id: 777305, first_name: 'David' }, OUT = { id: 777306, first_name: 'Чужой' };
+  const sec = () => Math.floor(Date.now() / 1000);
+  const said = (n, to, method) => sinceMark(n, method || 'sendMessage').filter((c) => String(c.params.chat_id) === String(to));
+  const day = clock.parts(Date.now(), await clock.appTz()).d, week = game.weekOf(day);
+  const mine = async (coll, uid) => (await call('GET', '/api/db/' + coll, { token: ownerToken })).json.docs.filter((d) => d.data.project === 'p-game' && String(d.data.player) === String(uid));
+  const tool = (name, input) => ({ content: [{ type: 'tool_use', id: 'tu' + (++mid), name, input }], stop_reason: 'tool_use' });
+  const text = (t) => ({ content: [{ type: 'text', text: t }] });
+
+  // the way in from the chat of the game
+  let n = tgCalls.length;
+  await update({ update_id: ++mid, message: { message_id: ++mid, date: sec(), chat, from: DAVID, text: '/companion' } });
+  const door = said(n, GID)[0];
+  assert.match(door.params.text, /AI-компаньон игры[\s\S]*Никуда выходить из Telegram не нужно[\s\S]*видит только сам игрок/);
+  assert.equal(door.params.reply_markup.inline_keyboard[0][0].url, 'https://t.me/prooloog_test_bot?start=gm_p-game');
+
+  // somebody who is not in the chat and has no project does not get in
+  tgMember[String(OUT.id)] = 'left';
+  n = tgCalls.length;
+  await update(msg(OUT, { text: '/start gm_p-game' }));
+  assert.match(said(n, OUT.id)[0].params.text, /открыт её игрокам/);
+  assert.equal(await db.kvGet('comp:' + OUT.id), null);
+
+  // a member of the chat without any access to the dashboard: the talk opens, the companion knows the rules and the player
+  n = tgCalls.length;
+  aiScript.push(text('Привет, David! **Что** хочется изменить за неделю?'));
+  await update(msg(DAVID, { text: '/start gm_p-game' }));
+  let out = said(n, DAVID.id);
+  assert.match(out[0].params.text, /AI-компаньон игры «Life Game»[\s\S]*видишь только ты[\s\S]*Стереть разговор/);
+  assert.equal(out[1].params.text, 'Привет, David! Что хочется изменить за неделю?');
+  assert.equal(out[1].params.parse_mode, undefined);
+  assert.deepEqual(out[1].params.reply_markup.inline_keyboard[0].map((b) => b.callback_data), ['cm:end', 'cm:wipe']);
+  let req = aiSrv.last.body;
+  assert.match(req.system, /личный AI-компаньон[\s\S]*правила 1\.1[\s\S]*L1 10, L2 20, L3 30[\s\S]*Игрок: David[\s\S]*Квестов в этом спринте у игрока пока нет/);
+  assert.deepEqual(req.tools.map((t) => t.name), ['save_quests', 'save_report', 'finish_quest', 'add_idea']);
+  assert.equal(req.messages.length, 1);
+
+  // plain messages now go to the companion; it saves the quests only through its tool, and posts the card when asked
+  n = tgCalls.length;
+  aiScript.push(tool('save_quests', { quests: [{ branch: 'soul', title: 'Гитара', why: 'для радости', result: '5 занятий', min: '15 минут', freq: 5, level: 2 }, { branch: 'nope', title: 'x', level: 1 }], party: 'ранний сон', publish: true }), text('Сохранил и опубликовал карточку.'));
+  await update(msg(DAVID, { text: 'Да, сохраняй и публикуй. Мой секрет: боюсь сцены' }));
+  let qs = await mine('quests', DAVID.id);
+  assert.deepEqual(qs.map((d) => [d.data.branch, d.data.title, d.data.level, d.data.freq, d.data.week, d.data.name, d.data.src]).sort(), [['party', 'ранний сон', undefined, undefined, week, 'David', 'companion'], ['soul', 'Гитара', 2, 5, week, 'David', 'companion']]);
+  assert.equal(said(n, DAVID.id).pop().params.text, 'Сохранил и опубликовал карточку.');
+  const card = said(n, GID)[0];
+  assert.match(card.params.text, /Квесты <b>David<\/b> на спринт[\s\S]*♡ Душа: Гитара · L2\n🌍 Общий квест: ранний сон/);
+  assert.equal(card.params.message_thread_id, 5);                           // the Quest Board topic
+  req = aiSrv.last.body;
+  assert.equal(req.messages[req.messages.length - 1].content[0].type, 'tool_result');
+  assert.match(req.messages[req.messages.length - 1].content[0].content, /"published":true/);
+
+  // the day's report and a finished quest
+  aiScript.push(tool('save_report', { soul: true, text: 'Играл гаммы', insight: 'утром проще', signal: 'flow' }), tool('finish_quest', { branch: 'soul', done: true }), text('Отчёт сохранён, квест завершён.'));
+  await update(msg(DAVID, { text: 'Сегодня играл гаммы, и квест уже выполнен' }));
+  const ck = (await mine('checkins', DAVID.id))[0];
+  assert.deepEqual([ck.id, ck.data.soul, ck.data.spirit, ck.data.text, ck.data.insight, ck.data.signal, ck.data.date], [game.checkId('p-game', '777305', day), true, null, 'Играл гаммы', 'утром проще', 'flow', day]);
+  assert.equal((await mine('quests', DAVID.id)).find((d) => d.data.branch === 'soul').data.status, 'done');
+  const row = (await game.table(await db.getDoc('projects', 'p-game'), week)).find((r) => r.player === '777305');
+  assert.equal(row.xp.total, 25);                                           // L2 quest 20 + report 5
+  // the next request carries what the player has by now
+  aiScript.push(text('Дальше — по плану.'));
+  await update(msg(DAVID, { text: 'Что дальше?' }));
+  assert.match(aiSrv.last.body.system, /- Душа, L2: Гитара; результат: 5 занятий; дневной минимум: 15 минут; дней в неделю: 5; статус: done[\s\S]*XP игрока: за спринт 25/);
+
+  // the talk stays with the bot: not in the project's messages, not in a copy of the data
+  const exp = JSON.stringify((await call('GET', '/api/export', { token: ownerToken })).json);
+  assert.ok(!exp.includes('боюсь сцены') && exp.includes('Гитара'));
+  assert.ok(!JSON.stringify((await call('GET', '/api/db/messages', { token: ownerToken })).json).includes('боюсь сцены'));
+  assert.ok(JSON.stringify(await db.kvGet('comp:' + DAVID.id)).includes('боюсь сцены'));
+
+  // the owner plays too, with a talk of their own; a player's /end closes the talk, plain text then goes the usual way
+  aiScript.push(text('Привет, Alex!'));
+  await update(msg(OWNER, { text: '/companion' }));
+  assert.match(aiSrv.last.body.system, /Игрок: Alex Owner/);
+  await update(msg(OWNER, { text: '/end' }));
+  assert.equal((await db.kvGet('comp:' + OWNER.id)).on, false);
+  n = tgCalls.length;
+  await update(msg(DAVID, { text: '/end' }));
+  assert.match(said(n, DAVID.id)[0].params.text, /завершён, я помню его/);
+  n = tgCalls.length;
+  await update(msg(DAVID, { text: 'ещё вопрос' }));
+  assert.doesNotMatch(said(n, DAVID.id)[0].params.text, /по плану/);       // the closed dashboard answers, not the companion
+  // coming back: the talk goes on; «Стереть разговор» wipes it and leaves the records of the game
+  aiScript.push(text('Мы остановились на гитаре.'));
+  await update(msg(DAVID, { text: '/companion' }));
+  assert.ok(aiSrv.last.body.messages.length > 4);
+  n = tgCalls.length;
+  await update({ update_id: ++mid, callback_query: { id: 'cq' + (++mid), from: DAVID, data: 'cm:wipe', message: { message_id: 5100, chat: { id: DAVID.id, type: 'private' } } } });
+  assert.match(said(n, DAVID.id)[0].params.text, /Разговор стёрт/);
+  assert.deepEqual((await db.kvGet('comp:' + DAVID.id)).turns, []);
+  assert.equal((await mine('quests', DAVID.id)).length, 2);
+  // an error of Claude is said in words, the message is not lost in the talk
+  aiMode = 'badkey';
+  n = tgCalls.length;
+  await update(msg(DAVID, { text: '/companion' }));
+  assert.match(said(n, DAVID.id).pop().params.text, /не принял ключ/);
+  aiMode = 'ok';
+});

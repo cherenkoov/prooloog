@@ -19,7 +19,7 @@ const stt = require('./stt');
 const game = require('./game');
 
 let B = null; // what the bot lends: say, kb, esc, projects, pname, me()
-const init = (ctx) => { B = ctx; game.init({ send, saveChat, person, esc: B.esc, kb: B.kb }); };
+const init = (ctx) => { B = ctx; game.init({ send, saveChat, person, esc: B.esc, kb: B.kb, me: B.me }); };
 
 const PART = 7600; // characters in one part of a day's record: the dashboard's message form holds 8000
 const ASK_MS = Math.max(0, +process.env.GROUP_ASK_MS || (process.env.GROUP_ASK_MS === '0' ? 0 : 2500));
@@ -110,7 +110,7 @@ async function aboutText(ch, p) {
   else lines.push('• Переписку этого чата не сохраняю.');
   if (ch.read) lines.push('• /project — что сейчас по проекту: задачи, вёрсты, события.');
   lines.push('• /task текст — предложить задачу, /note текст — оставить заметку. В проект они попадут, когда их подтвердит координатор.');
-  if (game.isOn(p.data)) lines.push('• Игра: карточку игрока из Quest Board сохраняю как квесты недели, сообщение в Daily Log считаю отчётом дня и сам считаю XP. Квест завершает сам игрок кнопкой под карточкой; квесты и отчёты никто не подтверждает. /game — команда недели.');
+  if (game.isOn(p.data)) lines.push('• Игра: карточку игрока из Quest Board сохраняю как квесты недели, сообщение в Daily Log считаю отчётом дня и сам считаю XP. Квест завершает сам игрок кнопкой под карточкой; квесты и отчёты никто не подтверждает. /game — команда недели, /companion — личный AI-компаньон.');
   return lines.join('\n');
 }
 async function announce(doc) {
@@ -434,6 +434,7 @@ async function heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }) {
       return prompt(ch, name, m.from, m.message_id);
     }
     if (name === 'game' || name === 'xp') return game.sayTable(ch, thread);
+    if (name === 'companion' || name === 'hero') return game.sayCompanion(ch, thread);
     if (name === 'project' || name === 'status' || name === 'start' || name === 'help') {
       if (!ch.read) return send(ch, 'Здесь я веду записи по проекту для его координаторов. Предложить задачу: /task текст.', undefined, thread).catch(() => {});
       const html = name === 'help' ? await aboutText(ch, (await B.projects()).find((x) => x.id === ch.project) || { data: {} }) : await view('card', ch);
