@@ -896,6 +896,49 @@ button.pl-d:hover b{color:var(--accent)}
 .lg-full{padding-top:calc(16px + var(--sat))}
 #tabs{padding-bottom:var(--sab)}
 @media (max-width:899px){#top{padding-top:calc(10px + var(--sat))}.lg-full{padding-top:calc(12px + var(--sat))}}
+/* game: sprints, quests by branch, a report a day */
+.gm-wk{display:flex;align-items:center;gap:8px;font-weight:600;font-variant-numeric:tabular-nums}
+.gm-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:8px 0 14px}
+.gm-xp b{font:600 36px/1 var(--display);font-variant-numeric:tabular-nums}
+.gm-xp span{color:var(--mute);margin-left:8px}
+.gm-xp small{display:block;color:var(--mute);font-size:13px;margin-top:6px}
+.gm-days{display:flex;gap:6px}
+.gm-d{width:42px;padding:6px 0;border-radius:10px;border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--mute)}
+.gm-d b{font:600 15px/1 var(--body);color:var(--ink);font-variant-numeric:tabular-nums}
+.gm-d.rep{background:color-mix(in srgb,var(--pc) 16%,var(--surface));border-color:transparent}
+.gm-d.now span{color:var(--pc);font-weight:600}
+.gm-d.on{border-color:var(--pc);box-shadow:inset 0 0 0 1px var(--pc)}
+.gm-d:disabled{opacity:.4;cursor:default}
+.gm-br{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.gm-q{border:1px solid var(--line);border-radius:var(--r-s);padding:12px;display:flex;flex-direction:column;gap:7px;min-width:0}
+.gm-q.none{border-style:dashed}
+.gm-q.done{background:color-mix(in srgb,var(--good) 7%,var(--surface))}
+.gm-qh{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.gm .gi{font-size:17px;line-height:1;color:var(--pc);letter-spacing:0}
+.gm-qh .pill{margin-left:auto;text-transform:none;letter-spacing:0}
+.gm-qt{font-weight:600;font-size:16px;overflow-wrap:anywhere}
+.gm-qm{font-size:13px;color:var(--mute);overflow-wrap:anywhere}
+.gm-qa{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:4px}
+.gm-t.on{background:var(--pc);border-color:var(--pc);color:var(--surface)}
+.gm-party{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border-radius:var(--r-s);background:var(--surface2);font-size:14px}
+.gm-pt{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.gm-pm{margin-left:auto}
+.gm-rep{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.gm-row{display:flex;gap:8px 10px;align-items:center;flex-wrap:wrap}
+.gm-row .pri{margin-left:auto}
+.gm-h{font:600 12px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:20px 0 8px}
+.gm-ql{display:block;color:var(--mute);font-size:12px;font-weight:400;margin-top:2px}
+.gm-calls{font-size:14px;margin-bottom:8px}
+.gm .tbl td:first-child{min-width:170px}
+.gm-ins p{font-size:14px;padding:8px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.gm-li{padding:10px 0;border-top:1px solid var(--line)}
+.gm-li .gm-row .btn{margin-left:auto}
+.gm-lv{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center;font-size:14px;margin-top:6px}
+.gm-lv span:first-child{color:var(--mute);white-space:nowrap}
+.gm-rules{margin-top:16px;font-size:13px;color:var(--mute)}
+.gm-rules summary{cursor:pointer;font-weight:500}
+.gm-rules p{margin-top:6px;max-width:75ch}
+@media (max-width:760px){.gm-br{grid-template-columns:1fr}.gm-days{width:100%}.gm-d{width:auto;flex:1}.gm-party .gm-pm{margin-left:0;flex-basis:100%}}
 </style>
 </head>
 <body>
@@ -923,8 +966,8 @@ button.pl-d:hover b{color:var(--accent)}
 'use strict';
 
 var CORE=['projects','tasks','milestones','events','inbox','log','posts','channels','services'];
-var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','chats','activity','gone']);
-var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],chats:[],activity:[],gone:[],audit:[],settings:{capacity:40}};
+var COLLS=CORE.concat(['money','contacts','messages','subs','clients','usage','evsubs','chats','activity','gone','quests','checkins']);
+var S={projects:[],tasks:[],milestones:[],events:[],inbox:[],log:[],posts:[],channels:[],services:[],subs:[],money:[],contacts:[],messages:[],clients:[],usage:[],evsubs:[],chats:[],activity:[],gone:[],audit:[],quests:[],checkins:[],settings:{capacity:40}};
 var loaded={};
 var ui={view:'overview',project:'all',boardMode:'tasks',col:'todo',pcol:'active',month:null,day:null,dragging:false,justDragged:false,needDraw:false,ro:false,owner:true,mg:false,mode:'loading',budMonth:null,cur:null,pshow:'people',relf:'',cshow:'posts',cweek:'',clf:'all',sshow:'all',bshow:'flow',subf:'on',plan:'day',pday:'',pproj:'',msOpen:{},tagf:'',msSel:null,msKb:false};
 var db=null;
@@ -1210,7 +1253,7 @@ function drawOverviewOne(p){
   var links=(Array.isArray(p.links)?p.links:[]).filter(function(l){return l&&/^https?:\/\//i.test(l.u||'')});
   if(links.length)h+='<div class="links">'+links.map(function(l){return '<a class="lnk" href="'+esc(l.u)+'" target="_blank" rel="noopener noreferrer">'+esc(l.t||l.u)+' ↗</a>'}).join('')+'</div>';
   if(p.notes)h+='<p class="notes">'+rich(p.notes)+'</p>';
-  h+='</section>'+repWidget(p,true);
+  h+='</section>'+repWidget(p,true)+gamePanel(p);
   var ms=S.milestones.filter(function(m){return m.project===p.id}).sort(msSort);
   var open=sorted(S.tasks.filter(function(t){return t.project===p.id&&t.status!=='done'}));
   open.sort(function(a,b){return (a.status==='doing'?0:1)-(b.status==='doing'?0:1)});
@@ -1221,6 +1264,198 @@ function drawOverviewOne(p){
   h+=cyclePanel(p,true);
   if(boss())h+=clientsPanel(p)+'<div class="two">'+moneyPanel(p)+peoplePanel(p)+'</div>'+chatsPanel(p)+teamRow(p)+subsPanel(p);
   return h+notesPanel(p);
+}
+
+/* ---------- game: a project played in weekly sprints (rules of Life Game 1.1) ---------- */
+var GBR=['spirit','soul','body'],GBN={spirit:'Дух',soul:'Душа',body:'Тело'},GBG={spirit:'Духа',soul:'Души',body:'Тела'},GBI={spirit:'🜁',soul:'♡',body:'△'};
+var GLV=[10,20,30],GRULES={report:5,help:10,helpMax:3,all:30,party:20,team:10};
+var GST={active:'В процессе',done:'Завершён',paused:'Отложен',adjusted:'Скорректирован'};
+var GSIG=[['flow','🟢','Иду'],['stuck','🟡','Застрял'],['help','🔴','Помощь']];
+var GLN=['🌱 L1: лёгкий старт','⚡ L2: устойчивое развитие','🔥 L3: серьёзный вызов'];
+function gOn(p){return !!(p&&p.game&&p.game.on)}
+function gRules(p){var r=Object.assign({},GRULES),o=p&&p.game&&p.game.rules;if(o&&typeof o==='object')Object.keys(GRULES).forEach(function(k){if(isFinite(+o[k])&&+o[k]>=0&&+o[k]<=1000)r[k]=Math.round(+o[k])});return r}
+function gMe(){return String((ui.me&&ui.me.id)||'me')}
+function gMyName(){return (ui.me&&ui.me.name)||'Я'}
+function gLv(q){return Math.min(3,Math.max(1,Math.round(+q.level||1)))}
+function gWeek(){return validDate(ui.gweek)?ui.gweek:weekStart(today())}
+function gDay(){var w=gWeek(),t=today(),end=addDays(w,6);if(validDate(ui.gday)&&ui.gday>=w&&ui.gday<=end&&ui.gday<=t)return ui.gday;return t>=w&&t<=end?t:(t>end?end:'')}
+function gWkLabel(w){var a=parse(w),b=parse(addDays(w,6));return a.getMonth()===b.getMonth()?a.getDate()+'–'+b.getDate()+' '+MON[b.getMonth()]:a.getDate()+' '+MON[a.getMonth()]+' – '+b.getDate()+' '+MON[b.getMonth()]}
+function gWon(p,w){return !!(p&&p.game&&p.game.partyDone&&p.game.partyDone[w])}
+// the XP of one player in one week; the same count the server makes (src/game.js)
+function gScore(quests,checks,R,won){
+  var out={total:0,spirit:0,soul:0,body:0,bonus:0,report:0,help:0,party:0,team:0,days:0,marks:{spirit:0,soul:0,body:0}},part=false,days={},helps=0;
+  quests.forEach(function(q){
+    if(!q||q.lib)return;
+    if(q.branch==='party'){part=true;if(q.status==='done')out.party=R.party;return}
+    if(GBR.indexOf(q.branch)<0||q.status!=='done')return;
+    out[q.branch]=Math.max(out[q.branch],GLV[gLv(q)-1]);
+  });
+  out.bonus=GBR.every(function(b){return out[b]>0})?R.all:0;
+  out.team=part&&won?R.team:0;
+  checks.forEach(function(c){if(!c||!validDate(c.date))return;var cur=days[c.date];if(!cur||String(c.u||'')>=String(cur.u||''))days[c.date]=c});
+  Object.keys(days).forEach(function(d){var c=days[d];out.days++;out.report+=R.report;GBR.forEach(function(b){if(c[b]===true)out.marks[b]++});helps+=Math.max(0,Math.min(R.helpMax,Math.round(+c.help||0)))});
+  out.help=Math.min(R.helpMax,helps)*R.help;
+  out.total=out.spirit+out.soul+out.body+out.bonus+out.report+out.help+out.party+out.team;
+  return out;
+}
+function gQuests(pid,week,player){return S.quests.filter(function(q){return q.project===pid&&!q.lib&&(!week||q.week===week)&&(player===undefined||String(q.player)===player)})}
+function gChecks(pid,week,player){return S.checkins.filter(function(c){return c.project===pid&&(!week||c.week===week)&&(player===undefined||String(c.player)===player)})}
+function gCkId(pid,player,date){return ('k'+date.replace(/-/g,'')+'-'+player+'-'+pid).slice(0,64)}
+function gCheck(pid,player,date){return byId(S.checkins,gCkId(pid,player,date))||S.checkins.filter(function(c){return c.project===pid&&String(c.player)===player&&c.date===date})[0]||null}
+function gSetCheck(pid,date,data){
+  var me=gMe(),c=gCheck(pid,me,date);
+  if(c)return patch('checkins',c.id,data);
+  return put('checkins',gCkId(pid,me,date),Object.assign({project:pid,player:me,name:gMyName(),date:date,week:weekStart(date),spirit:null,soul:null,body:null,text:'',insight:'',signal:'',help:0,src:'app'},data));
+}
+// a field keeps what is being typed across redraws by its id: the id follows the saved value, so a fresh value from the server is not hidden by an old draft
+function gKey(v){var s=String(v||''),n=s.length,i;for(i=0;i<s.length;i++)n=(n*31+s.charCodeAt(i))%1000003;return n}
+function gMine(q){return boss()||String(q.lib?q.by:q.player)===gMe()}
+function gParts(xp){
+  var a=[];GBR.forEach(function(b){if(xp[b])a.push(GBI[b]+' '+xp[b])});
+  if(xp.bonus)a.push('баланс '+xp.bonus);if(xp.report)a.push('отчёты '+xp.report);if(xp.help)a.push('помощь '+xp.help);if(xp.party+xp.team)a.push('общий квест '+(xp.party+xp.team));
+  return a;
+}
+// every player of the project with the XP of the chosen week and of all the sprints, by name: the game does not rank
+function gTable(p,w){
+  var R=gRules(p),by={},wk={},out=[];
+  function of(id,name){if(!by[id])by[id]={player:id,name:'',quests:[],checks:[],all:0,any:false};if(name&&!by[id].name)by[id].name=name;return by[id]}
+  function wo(id,x){var k=id+'|'+x;if(!wk[k])wk[k]={id:id,w:x,q:[],c:[]};return wk[k]}
+  gQuests(p.id).forEach(function(q){var id=String(q.player),x=of(id,q.name);wo(id,q.week).q.push(q);if(q.week===w){x.quests.push(q);x.any=true}});
+  gChecks(p.id).forEach(function(c){var id=String(c.player),x=of(id,c.name);wo(id,c.week).c.push(c);if(c.week===w){x.checks.push(c);x.any=true}});
+  Object.keys(wk).forEach(function(k){var x=wk[k];by[x.id].all+=gScore(x.q,x.c,R,gWon(p,x.w)).total});
+  Object.keys(by).forEach(function(id){var x=by[id];if(!x.any&&id!==gMe())return;x.xp=gScore(x.quests,x.checks,R,gWon(p,w));out.push(x)});
+  return out.sort(function(a,b){return String(a.name).localeCompare(String(b.name),'ru')});
+}
+function gQuestCard(p,b,q,day,ck,t){
+  var head='<div class="gm-qh"><span class="gi" aria-hidden="true">'+GBI[b]+'</span>'+GBN[b];
+  if(!q)return '<div class="gm-q none">'+head+'</div><p class="gm-qm">Квеста в этой ветке нет. Можно играть и одной веткой.</p><div class="gm-qa"><button class="btn sm" data-act="g-quest" data-b="'+b+'">+ Квест '+GBG[b]+'</button></div></div>';
+  var on=!!(ck&&ck[b]===true),n=0,done=q.status==='done',xp=GLV[gLv(q)-1];
+  gChecks(p.id,q.week,String(q.player)).forEach(function(c){if(c[b]===true)n++});
+  var meta=[q.min?'Минимум: '+q.min:'','L'+gLv(q),(+q.freq>0?n+' из '+(+q.freq)+' дн.':n?n+' дн.':'')].filter(Boolean).map(esc).join(' · ');
+  return '<div class="gm-q'+(done?' done':'')+'">'+head+'<span class="pill'+(done?' st-active':q.status==='paused'?' st-paused':'')+'">'+esc(done?'Завершён · +'+xp+' XP':GST[q.status]||GST.active)+'</span></div>'+
+    '<div class="gm-qt">'+esc(q.title)+'</div>'+(q.result?'<div class="gm-qm">Результат: '+esc(q.result)+'</div>':'')+'<div class="gm-qm">'+meta+'</div>'+
+    '<div class="gm-qa">'+(day&&q.status!=='paused'?'<button class="btn sm gm-t'+(on?' on':'')+'" data-act="g-tog" data-b="'+b+'" aria-pressed="'+on+'">'+(on?'✓ ':'')+(day===t?'Сегодня':fmt(day))+'</button>':'')+
+    '<button class="btn sm" data-act="g-done" data-id="'+esc(q.id)+'">'+(done?'Вернуть в работу':'Завершить · +'+xp+' XP')+'</button><button class="btn sm" data-act="g-quest" data-id="'+esc(q.id)+'">Изменить</button></div></div>';
+}
+function gamePanel(p){
+  if(!gOn(p))return '';
+  var w=gWeek(),t=today(),me=gMe(),R=gRules(p),day=gDay(),cur=w===weekStart(t),won=gWon(p,w),i,d,c;
+  var mq=gQuests(p.id,w,me),mc=gChecks(p.id,w,me),xp=gScore(mq,mc,R,won),ck=day?gCheck(p.id,me,day):null,rows=gTable(p,w);
+  var mine=rows.filter(function(x){return x.player===me})[0],all=mine?mine.all:xp.total,parts=gParts(xp);
+  var party=(p.game.party&&p.game.party[w])||'',pq=mq.filter(function(q){return q.branch==='party'})[0];
+  var h='<section class="panel gm" style="--pc:'+pc(p.id)+'"><div class="ph"><h2>Игра</h2><div class="gm-wk"><button class="btn sm ic" data-act="g-week" data-n="-1" aria-label="Предыдущий спринт">‹</button><span>'+(cur?'Спринт · ':'')+esc(gWkLabel(w))+'</span><button class="btn sm ic" data-act="g-week" data-n="1" aria-label="Следующий спринт">›</button></div></div>';
+  h+='<div class="gm-top"><div class="gm-xp"><b>'+xp.total+'</b><span>XP за спринт</span><small>'+(parts.length?esc(parts.join(' · '))+' · ':'')+'всего за игру '+all+'</small></div><div class="gm-days" role="group" aria-label="День отчёта">';
+  for(i=0;i<7;i++){d=addDays(w,i);c=gCheck(p.id,me,d);h+='<button class="gm-d'+(c?' rep':'')+(d===day?' on':'')+(d===t?' now':'')+'" data-act="g-day" data-d="'+d+'"'+(d>t?' disabled':'')+' aria-label="'+esc(fmt(d)+(c?', отчёт есть':', отчёта нет'))+'"'+(d===day?' aria-pressed="true"':'')+'><span>'+DOW[i]+'</span><b>'+parse(d).getDate()+'</b></button>'}
+  h+='</div></div>';
+  h+='<div class="gm-br">'+GBR.map(function(b){return gQuestCard(p,b,mq.filter(function(q){return q.branch===b})[0],day,ck,t)}).join('')+'</div>';
+  if(!mq.length){var prev=gQuests(p.id,addDays(w,-7),me);if(prev.length)h+='<p class="gm-row" style="margin-top:10px"><button class="btn sm" data-act="g-copy">Продолжить квесты прошлого спринта</button></p>'}
+  // the team's quest
+  h+='<div class="gm-party"><span class="gm-pt">🌍 Общий квест</span><span>'+(party?'<b>'+esc(party)+'</b>'+(won?' · цель команды достигнута':''):'Тема на этот спринт не выбрана')+'</span>'+(boss()?'<button class="btn sm" data-act="g-party">'+(party?'Изменить':'Выбрать тему')+'</button>'+(party?'<button class="btn sm" data-act="g-won">'+(won?'Снять «цель достигнута»':'Цель достигнута · +'+R.team+' XP участникам')+'</button>':''):'')+
+    '<span class="gm-pm">'+(pq?'Мой вклад: <b>'+esc(pq.title)+'</b>'+(pq.status==='done'?' · выполнен, +'+R.party+' XP':''):'Мой вклад не выбран')+'</span>'+(pq?'<button class="btn sm" data-act="g-done" data-id="'+esc(pq.id)+'">'+(pq.status==='done'?'Вернуть в работу':'Выполнен · +'+R.party+' XP')+'</button>':'')+'<button class="btn sm" data-act="g-quest" '+(pq?'data-id="'+esc(pq.id)+'"':'data-b="party"')+'>'+(pq?'Изменить':'+ Мой вклад')+'</button></div>';
+  // the report of the chosen day
+  if(day){
+    var help=ck?Math.round(+ck.help||0):0,sig=ck?ck.signal||'':'';
+    h+='<form class="form gm-rep" data-form="g-rep" data-d="'+day+'"><div class="gm-row"><b>Отчёт за '+(day===t?'сегодня':esc(fmt(day)))+'</b><span class="mute">'+(ck?'сохранён · +'+R.report+' XP'+(help?' · помощь +'+Math.min(R.helpMax,help)*R.help:''):'+'+R.report+' XP за честный отчёт, день отдыха тоже считается')+'</span></div>'+
+      fld('Что сделал','<textarea class="keep" id="g-text-'+day+'-'+gKey(ck&&ck.text)+'" name="text" rows="2" maxlength="1500" placeholder="Коротко. Можно написать «сегодня отдыхал»">'+esc(ck?ck.text||'':'')+'</textarea>')+
+      (ck&&ck.chat?'<p class="gm-qm">Из чата: '+esc(ck.chat)+'</p>':'')+
+      fld('Открытие дня','<input class="keep" id="g-ins-'+day+'-'+gKey(ck&&ck.insight)+'" name="insight" maxlength="600" value="'+esc(ck?ck.insight||'':'')+'">')+
+      '<div class="gm-row"><div class="seg" role="group" aria-label="Сигнал команде">'+GSIG.map(function(s){return '<button type="button" class="'+(sig===s[0]?'on':'')+'" data-act="g-sig" data-v="'+s[0]+'" aria-pressed="'+(sig===s[0])+'">'+s[1]+' '+s[2]+'</button>'}).join('')+'</div>'+
+      '<button type="button" class="btn sm" data-act="g-help">🤝 Помог игроку'+(help?': '+help:'')+'</button><button type="submit" class="btn pri sm">Сохранить отчёт</button></div></form>';
+  }
+  // the team
+  var calls=[];rows.forEach(function(x){x.checks.forEach(function(k){if((k.signal==='stuck'||k.signal==='help')&&k.date>=addDays(t,-1))calls.push((k.signal==='help'?'🔴 ':'🟡 ')+(x.name||'Игрок')+(k.signal==='help'?' просит помощи':' застрял, нужен совет')+' · '+fmt(k.date))})});
+  h+='<h3 class="gm-h">Команда спринта</h3>'+(calls.length?'<p class="gm-calls">'+calls.map(esc).join('<br>')+'</p>':'');
+  if(rows.length){
+    h+='<div class="tbl-w"><table class="tbl"><thead><tr><th>Игрок</th>'+GBR.map(function(b){return '<th aria-label="'+GBN[b]+'">'+GBI[b]+'</th>'}).join('')+'<th>Баланс</th><th>Отчёты</th><th>Помощь</th><th>Общий</th><th>Спринт</th><th>Всего</th></tr></thead><tbody>'+
+      rows.map(function(x){
+        var qs=GBR.map(function(b){return x.quests.filter(function(q){return q.branch===b})[0]}).filter(Boolean);
+        return '<tr><td><b>'+esc(x.name||'Игрок')+(x.player===me?' · я':'')+'</b>'+(qs.length?'<small class="gm-ql">'+qs.map(function(q){return esc(GBI[q.branch]+' '+q.title+' · L'+gLv(q)+(q.status==='done'?' ✓':q.status==='paused'?' ⏸':''))}).join('<br>')+'</small>':'')+'</td>'+
+          GBR.map(function(b){return '<td>'+(x.xp[b]||'<span class="mute">'+(x.xp.marks[b]?x.xp.marks[b]+' дн.':'—')+'</span>')+'</td>'}).join('')+
+          '<td>'+(x.xp.bonus||'—')+'</td><td>'+(x.xp.report||'—')+'</td><td>'+(x.xp.help||'—')+'</td><td>'+((x.xp.party+x.xp.team)||'—')+'</td><td><b>'+x.xp.total+'</b></td><td>'+x.all+'</td></tr>';
+      }).join('')+'</tbody></table></div><p class="gm-qm" style="margin-top:6px">Игроки стоят по алфавиту: в игре не сравнивают чужой путь со своим. В столбцах веток — XP за завершённый квест или число отмеченных дней.</p>';
+  }else h+='<p class="mute">В этом спринте пока нет ни квестов, ни отчётов.</p>';
+  var ins=[];gChecks(p.id,w).forEach(function(k){if(k.insight)ins.push(k)});ins.sort(function(a,b){return a.date<b.date?1:-1});
+  if(ins.length)h+='<h3 class="gm-h">Открытия недели</h3><div class="gm-ins">'+ins.slice(0,12).map(function(k){return '<p><b>'+esc(k.name||'Игрок')+'</b> <span class="mute">'+esc(fmt(k.date))+'</span><br>'+esc(k.insight)+'</p>'}).join('')+'</div>';
+  // the library
+  var lib=S.quests.filter(function(q){return q.project===p.id&&q.lib});
+  h+='<div class="ph" style="margin-top:18px"><h3 class="gm-h" style="margin:0">Библиотека квестов</h3><button class="btn sm" data-act="g-lib">+ Идея квеста</button></div>';
+  h+=lib.length?'<div class="gm-lib">'+GBR.map(function(b){
+    var it=lib.filter(function(q){return q.branch===b});if(!it.length)return '';
+    return it.map(function(q){
+      return '<div class="gm-li"><div class="gm-row"><span class="gi" aria-hidden="true">'+GBI[b]+'</span><b>'+esc(q.title)+'</b>'+(gMine(q)?'<button class="btn sm" data-act="g-lib" data-id="'+esc(q.id)+'">Изменить</button>':'')+'</div>'+(q.why?'<div class="gm-qm">'+esc(q.why)+'</div>':'')+
+        [1,2,3].map(function(n){var v=q['l'+n];return v?'<div class="gm-lv"><span>'+['🌱 L1','⚡ L2','🔥 L3'][n-1]+'</span><span>'+esc(v)+'</span><button class="btn sm" data-act="g-take" data-id="'+esc(q.id)+'" data-n="'+n+'">Взять</button></div>':''}).join('')+'</div>';
+    }).join('');
+  }).join('')+'</div>':'<p class="mute">Пока пусто. Библиотека — меню возможностей, а не список обязанностей: идеи может добавлять каждый.</p>';
+  h+='<details class="gm-rules"><summary>Как считается XP</summary><p>Завершённый недельный квест: L1 — '+GLV[0]+', L2 — '+GLV[1]+', L3 — '+GLV[2]+' XP, один раз, когда игрок подтверждает результат. Квесты во всех трёх ветках завершены: +'+R.all+'. Отчёт дня: +'+R.report+', день отдыха тоже считается. Помощь другому игроку: +'+R.help+', не больше '+R.helpMax+' раз в неделю. Общий квест: +'+R.party+' за свой вклад и +'+R.team+' каждому участнику, если команда достигла цели. Отметки дней по веткам показывают прогресс и очков не дают.</p></details>';
+  return h+'</section>';
+}
+function gActs(kind,id,delLabel){return '<div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button>'+(id?'<button type="button" class="btn dng" data-act="g-del" data-id="'+esc(id)+'">'+(delLabel||'Удалить')+'</button>':'')+'</div>'}
+function formQuest(id,pre){
+  var q=id?byId(S.quests,id):null;if(id&&(!q||!gMine(q)))return;
+  q=q||merge({branch:'spirit',title:'',why:'',result:'',action:'',min:'',freq:'',level:1,status:'active'},pre);
+  if(q.branch==='party'){
+    openSheet('Мой вклад в общий квест','<form class="form" data-form="g-quest" data-id="'+esc(id||'')+'" data-b="party">'+fld('Что я делаю для общей цели',inp('title',q.title,'required maxlength="200" placeholder="Может совпадать с личным квестом"'))+fld('Статус',sel('status',[['active','В процессе'],['done','Выполнен']],q.status==='done'?'done':'active'))+gActs('g-quest',id)+'</form>',null,!id);
+    return;
+  }
+  openSheet(id?'Квест '+GBG[q.branch]:'Новый квест','<form class="form" data-form="g-quest" data-id="'+esc(id||'')+'" data-b="'+esc(q.branch)+'">'+
+    (id?'':fld('Ветка',sel('branch',GBR.map(function(b){return [b,GBI[b]+' '+GBN[b]]}),q.branch)))+
+    fld('Квест: чего хочу достичь',inp('title',q.title,'required maxlength="200"'))+
+    fld('Зачем: личный смысл',inp('why',q.why,'maxlength="300"'))+
+    fld('Результат: как пойму, что квест завершён',inp('result',q.result,'maxlength="300"'))+
+    fld('Действие: что буду делать регулярно',inp('action',q.action,'maxlength="300"'))+
+    fld('Дневной минимум',inp('min',q.min,'maxlength="300"'))+
+    '<div class="f2">'+fld('Сложность',sel('level',GLN.map(function(n,i){return [String(i+1),n+' · '+GLV[i]+' XP']}),String(gLv(q))))+fld('Дней в неделю',inp('freq',+q.freq>0?q.freq:'','type="number" min="1" max="7" step="1" inputmode="numeric"'))+'</div>'+
+    fld('Статус',sel('status',Object.keys(GST).map(function(k){return [k,GST[k]]}),GST[q.status]?q.status:'active'))+gActs('g-quest',id)+'</form>',null,!id);
+}
+function formLib(id){
+  var q=id?byId(S.quests,id):null;if(id&&(!q||!gMine(q)))return;
+  q=q||{branch:'spirit',title:'',why:'',l1:'',l2:'',l3:''};
+  openSheet(id?'Идея квеста':'Новая идея квеста','<form class="form" data-form="g-lib" data-id="'+esc(id||'')+'">'+
+    fld('Ветка',sel('branch',GBR.map(function(b){return [b,GBI[b]+' '+GBN[b]]}),q.branch))+fld('Название',inp('title',q.title,'required maxlength="200"'))+fld('Для чего',inp('why',q.why,'maxlength="300"'))+
+    fld('🌱 L1: минимальный шаг',inp('l1',q.l1,'maxlength="300"'))+fld('⚡ L2: регулярная практика',inp('l2',q.l2,'maxlength="300"'))+fld('🔥 L3: амбициозный вызов',inp('l3',q.l3,'maxlength="300"'))+gActs('g-lib',id)+'</form>',null,!id);
+}
+function formParty(){
+  var p=P(ui.project);if(!p||!boss())return;var w=gWeek();
+  openSheet('Общий квест спринта','<form class="form" data-form="g-party" data-id="'+esc(p.id)+'">'+fld('Тема на '+esc(gWkLabel(w))+': общая цель, у каждого свой способ',inp('party',(p.game.party&&p.game.party[w])||'','maxlength="200" placeholder="Например: Энергия"'))+'<div class="acts"><button type="submit" class="btn pri">Сохранить</button><button type="button" class="btn" data-act="close">Отмена</button></div></form>',null,true);
+}
+function gSave(kind,id,v,form){
+  var pid=ui.project,p=P(pid),w=gWeek(),o,data;if(!p||!gOn(p))return;
+  if(kind==='g-rep'){var d=form.dataset.d;if(!validDate(d))return;gSetCheck(pid,d,{text:(v.text||'').slice(0,1500),insight:(v.insight||'').slice(0,600)});toast('Отчёт сохранён');return}
+  if(kind==='g-party'){if(!boss())return;o={};o[w]=(v.party||'').slice(0,200);patch('projects',pid,{game:{party:o}});closeSheet();return}
+  if(kind==='g-lib'){
+    if(!v.title)return;
+    data={branch:GBR.indexOf(v.branch)<0?'spirit':v.branch,title:v.title,why:v.why||'',l1:v.l1||'',l2:v.l2||'',l3:v.l3||''};
+    if(id)patch('quests',id,data);else put('quests',uid('ql'),Object.assign({project:pid,lib:true,by:gMe(),name:gMyName()},data));
+    closeSheet();return;
+  }
+  if(kind==='g-quest'){
+    if(!v.title)return;
+    var b=id?(byId(S.quests,id)||{}).branch:(form.dataset.b==='party'?'party':(GBR.indexOf(v.branch)<0?'spirit':v.branch));
+    data=b==='party'?{title:v.title,status:v.status==='done'?'done':'active'}:{title:v.title,why:v.why||'',result:v.result||'',action:v.action||'',min:v.min||'',freq:Math.max(0,Math.min(7,Math.round(+v.freq||0))),level:Math.max(1,Math.min(3,Math.round(+v.level||1))),status:GST[v.status]?v.status:'active'};
+    // one quest a branch in a sprint: a second one replaces the first
+    if(!id){o=gQuests(pid,w,gMe()).filter(function(q){return q.branch===b})[0];if(o)id=o.id}
+    if(id)patch('quests',id,data);else put('quests',uid('q'),Object.assign({project:pid,player:gMe(),name:gMyName(),week:w,branch:b,src:'app'},data));
+    closeSheet();
+  }
+}
+function gClick(d,t){
+  var pid=ui.project,p=P(pid),o,day,c,x;
+  if(!p||!gOn(p))return;
+  switch(d.act){
+    case 'g-week':ui.gweek=addDays(gWeek(),7*(+d.n||0));ui.gday='';render();break;
+    case 'g-day':ui.gday=d.d;render();break;
+    case 'g-tog':day=gDay();if(day&&GBR.indexOf(d.b)>=0){c=gCheck(pid,gMe(),day);x={};x[d.b]=c&&c[d.b]===true?null:true;gSetCheck(pid,day,x)}break;
+    case 'g-sig':day=gDay();if(day){c=gCheck(pid,gMe(),day);gSetCheck(pid,day,{signal:c&&c.signal===d.v?'':d.v})}break;
+    case 'g-help':day=gDay();if(day){c=gCheck(pid,gMe(),day);gSetCheck(pid,day,{help:((c?Math.round(+c.help||0):0)+1)%(gRules(p).helpMax+1)})}break;
+    case 'g-done':o=byId(S.quests,d.id);if(o&&gMine(o))patch('quests',o.id,{status:o.status==='done'?'active':'done'});break;
+    case 'g-quest':if(d.id)formQuest(d.id);else formQuest(null,{branch:d.b});break;
+    case 'g-lib':formLib(d.id||null);break;
+    case 'g-take':o=byId(S.quests,d.id);if(o)formQuest(null,{branch:o.branch,title:o.title,why:o.why,min:o['l'+d.n],level:+d.n});break;
+    case 'g-party':formParty();break;
+    case 'g-won':if(boss()){x={};x[gWeek()]=!gWon(p,gWeek());patch('projects',pid,{game:{partyDone:x}})}break;
+    case 'g-copy':gQuests(pid,addDays(gWeek(),-7),gMe()).forEach(function(q){put('quests',uid('q'),{project:pid,player:gMe(),name:gMyName(),week:gWeek(),branch:q.branch,title:q.title,why:q.why||'',result:q.result||'',action:q.action||'',min:q.min||'',freq:+q.freq||0,level:gLv(q),status:'active',src:'app'})});break;
+    case 'g-del':o=byId(S.quests,d.id);if(!o||!gMine(o))break;if(t.dataset.armed){del('quests',o.id);closeSheet()}else{t.dataset.armed='1';t.textContent='Точно удалить?'}break;
+  }
 }
 
 /* ---------- project report: an analytics page that lives inside a project ---------- */
@@ -3188,7 +3423,7 @@ function meetTick(){
 // On the server the journal is kept by the server for everybody (the owner, guests, the bot, Claude through
 // the connector), and the page only shows it. Copies, merges and syncs do not carry the journal.
 var LOG_KEEP=90,LOG_CAP=600,LOG_SKIP={activity:1,usage:1,gone:1,audit:1,evsubs:1};
-var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['верста','f'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],memory:['запись в памяти Claude','f'],settings:['настройки','p']};
+var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['верста','f'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],memory:['запись в памяти Claude','f'],quests:['квест','m'],checkins:['отчёт дня','m'],settings:['настройки','p']};
 var LOGV={add:{m:'Добавлен',f:'Добавлена',n:'Добавлено',p:'Добавлены'},upd:{m:'Изменён',f:'Изменена',n:'Изменено',p:'Изменены'},del:{m:'Удалён',f:'Удалена',n:'Удалено',p:'Удалены'}};
 var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'верста',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника',team:'вся команда',att:'явка'};
 var LOGK={projects:'project',tasks:'task',milestones:'milestone',events:'event',posts:'post',services:'service',clients:'client',contacts:'contact'};
@@ -3506,7 +3741,7 @@ function formActivity(){
 }
 
 /* ---------- data: what is stored, export to a file, import from a file ---------- */
-var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Вёрсты',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',chats:'Рабочие чаты',usage:'Расход Claude',evsubs:'Подписки участников встреч',activity:'Активность',gone:'Отметки об удалении',settings:'Настройки'};
+var COLN={projects:'Проекты',tasks:'Задачи',milestones:'Вёрсты',events:'События',inbox:'Входящие',log:'Комментарии',posts:'Посты',channels:'Каналы',services:'Услуги',money:'Бюджет',subs:'Подписки',contacts:'Контакты',messages:'Сообщения',clients:'Клиенты продуктов',chats:'Рабочие чаты',usage:'Расход Claude',evsubs:'Подписки участников встреч',activity:'Активность',gone:'Отметки об удалении',quests:'Квесты игры',checkins:'Отчёты дня',settings:'Настройки'};
 var dlNs=null,dataIn=null;
 function dataDump(){
   var docs={},n=0;
@@ -3773,6 +4008,7 @@ function formProject(id){
     fld('Зачем этот проект',ta('why',p.why,2))+
     fld('Витрина: что о проекте видят гости',ta('show',p.show,3,'maxlength="2000" placeholder="Что это за проект, простыми словами. Этот текст видят люди, которые заполнили анкету-приглашение; задач и внутренних записей они не видят"'))+
     fld('Следующий шаг',inp('next',p.next,'maxlength="240"'))+
+    fld('Игра: недельные спринты, квесты по веткам Дух, Душа и Тело, отчёт дня и XP','<input type="checkbox" id="f-game" name="game"'+(gOn(p)?' checked':'')+'>','fc rev')+
     fld('Люди',inp('people',p.people,'maxlength="240" placeholder="Кто участвует"'))+
     fld('Ссылки: по одной в строке, «Название | https://…»',ta('links',links,3))+
     fld('Заметки',ta('notes',p.notes,5))),null,!id);
@@ -4413,7 +4649,7 @@ function save(kind,id,v,form){
   if(kind==='project'){
     if(!v.name)return;
     var links=(v.links||'').split('\n').map(function(l){var i=l.lastIndexOf('|'),t=i<0?'':l.slice(0,i).trim(),u=(i<0?l:l.slice(i+1)).trim();return /^https?:\/\//i.test(u)?{t:(t||u.replace(/^https?:\/\//i,'')).slice(0,80),u:u.slice(0,500)}:null}).filter(Boolean).slice(0,12);
-    data={name:v.name,area:v.area||'',status:STO.indexOf(v.status)<0?'idea':v.status,color:+v.color||0,why:(v.why||'').replace(/\s+/g,' ').slice(0,240),next:v.next||'',hours:Math.max(0,Math.min(100,+v.hours||0)),people:v.people||'',links:links,notes:v.notes||'',show:(v.show||'').trim().slice(0,2000)};
+    data={name:v.name,area:v.area||'',status:STO.indexOf(v.status)<0?'idea':v.status,color:+v.color||0,why:(v.why||'').replace(/\s+/g,' ').slice(0,240),next:v.next||'',hours:Math.max(0,Math.min(100,+v.hours||0)),people:v.people||'',links:links,notes:v.notes||'',show:(v.show||'').trim().slice(0,2000),game:{on:!!v.game}};
     if(id)patch('projects',id,data);else{id=uid('p');data.order=maxOrder(S.projects)+1;put('projects',id,data);setProject(id,true)}
   }else if(kind==='task'){
     if(!v.title||!v.project)return;
@@ -4543,7 +4779,7 @@ function removeEntity(kind,id){
   var map={project:'projects',task:'tasks',milestone:'milestones',event:'events',money:'money',contact:'contacts',message:'messages',note:'log',post:'posts',channel:'channels',service:'services',sub:'subs',client:'clients'},coll=map[kind];if(!coll)return;
   var chain=Promise.resolve();
   if(kind==='project'){
-    ['tasks','milestones','events','log','messages'].forEach(function(c){S[c].filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return del(c,x.id)})})});
+    ['tasks','milestones','events','log','messages','quests','checkins'].forEach(function(c){S[c].filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return del(c,x.id)})})});
     S.money.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('money',x.id,{project:''})})});
     S.posts.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('posts',x.id,{project:''})})});
     S.subs.filter(function(x){return x.project===id}).forEach(function(x){chain=chain.then(function(){return patch('subs',x.id,{project:''})})});
@@ -4616,6 +4852,7 @@ document.addEventListener('click',function(e){
   var t=e.target.closest('[data-act]');if(!t)return;
   if(ui.dragging||ui.justDragged)return;
   var d=t.dataset,o;
+  if(/^g-/.test(d.act||'')){gClick(d,t);return}
   switch(d.act){
     case 'view':if(!$('#sheet').hidden)closeSheet();setView(d.v);break;
     case 'proj':setProject(d.id);break;
@@ -4792,6 +5029,7 @@ document.addEventListener('keydown',function(e){
 document.addEventListener('submit',function(e){
   e.preventDefault();
   var f=e.target,i,txt;
+  if(/^g-/.test(f.dataset.form||'')){gSave(f.dataset.form,f.dataset.id,vals(f),f);return}
   if(ui.ro)return;
   if(f.id==='inbox-f'){i=$('#inbox-i');txt=i.value.trim();if(!txt)return;i.value='';put('inbox',uid('i'),ui.scoped&&defProject()?{text:txt.slice(0,300),project:defProject()}:{text:txt.slice(0,300)})}
   else if(f.id==='log-f'){i=$('#log-i');txt=i.value.trim();if(!txt||ui.project==='all')return;i.value='';put('log',uid('l'),{project:ui.project,text:txt.slice(0,4000),tag:tagFromLabel(($('#log-tag')||{}).value||'insight'),at:new Date().toISOString()})}
@@ -4978,6 +5216,7 @@ function start(){
     if(!u||typeof u.can!=='function')return;
     if(typeof u.isOwner==='function')Promise.resolve(u.isOwner()).then(function(v){if(v===false){ui.owner=false;render()}}).catch(function(){});
     if(typeof u.manages==='function')Promise.resolve(u.manages()).then(function(v){if(v){ui.mg=true;render()}}).catch(function(){});
+    if(typeof u.me==='function')Promise.resolve(u.me()).then(function(v){if(v&&v.id){ui.me={id:String(v.id),name:String(v.name||'')};render()}}).catch(function(){});
     if(typeof u.scoped==='function')Promise.resolve(u.scoped()).then(function(v){if(v){ui.scoped=true;document.body.classList.add('scoped');render()}}).catch(function(){});
     return Promise.resolve(u.can('data.write')).then(function(v){if(v===false){ui.ro=true;document.body.classList.add('ro');render()}});
   }).catch(function(){});
