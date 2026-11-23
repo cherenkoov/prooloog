@@ -704,7 +704,7 @@ async function onMessage(m) {
 async function onCallback(cq) {
   const uid = cq.from.id, msg = cq.message, chat = msg && msg.chat && msg.chat.id, data = String(cq.data || '');
   const ack = (text) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: text || undefined }).catch(() => {});
-  if (/^g[lp]:/.test(data)) return groups.onCallback(cq);
+  if (/^g[lpqz]:/.test(data)) return groups.onCallback(cq);
   const edit = (c, html, markup) => (msg && msg.message_id
     ? T.tg('editMessageText', { chat_id: c, message_id: msg.message_id, text: html, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: markup }).catch(() => say(c, html, markup))
     : say(c, html, markup));
@@ -821,6 +821,7 @@ async function teamCallback(cq, role, data, chat, ack, edit) {
 async function handleUpdate(u) {
   try {
     if (u && u.message) await onMessage(u.message);
+    else if (u && u.edited_message) { if (groups.isGroup(u.edited_message.chat)) await groups.onEdited(u.edited_message); }
     else if (u && u.callback_query) await onCallback(u.callback_query);
     else if (u && u.my_chat_member) await groups.onMember(u.my_chat_member);
   } catch (e) {
@@ -840,7 +841,7 @@ async function setup() {
     const me = await T.tg('getMe');
     botName = me.username || ''; botId = +me.id || 0; botReadsAll = !!me.can_read_all_group_messages;
     if (!https()) { console.warn('[bot] no public https address: the webhook is not set'); return false; }
-    await T.tg('setWebhook', { url: cfg.baseUrl + '/tg/' + cfg.webhookPath, secret_token: cfg.webhookSecret, allowed_updates: ['message', 'callback_query', 'my_chat_member'] });
+    await T.tg('setWebhook', { url: cfg.baseUrl + '/tg/' + cfg.webhookPath, secret_token: cfg.webhookSecret, allowed_updates: ['message', 'edited_message', 'callback_query', 'my_chat_member'] });
     // the menu everybody sees holds what everybody can do; the owner's chat gets the owner's commands on top
     const base = [{ command: 'start', description: 'Открыть ' + cfg.appName }, { command: 'login', description: 'Ссылка для входа в браузере' }, { command: 'help', description: 'Что умеет бот' }];
     await T.tg('setMyCommands', { commands: base });

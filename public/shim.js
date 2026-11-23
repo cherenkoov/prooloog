@@ -265,7 +265,9 @@
     // true for a coordinator: runs the projects they see next to the owner
     manages: function () { return Promise.resolve(!!me && me.role === 'manager'); },
     // true for a member who sees only some of the projects
-    scoped: function () { return Promise.resolve(!!me && Array.isArray(me.projects)); }
+    scoped: function () { return Promise.resolve(!!me && Array.isArray(me.projects)); },
+    // who the visitor is: a game keeps a player's quests and reports under this id
+    me: function () { return Promise.resolve(me && me.user ? { id: String(me.user.id), name: me.user.name || (me.user.username ? '@' + me.user.username : '') } : null); }
   };
   // Work chats the bot sits in: write there through the bot, or take the bot out. For the owner only.
   var chatNs = {

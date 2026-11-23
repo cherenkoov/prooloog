@@ -20,6 +20,7 @@ const T = require('./telegram');
 const join = require('./join');
 const attend = require('./attend');
 const avatar = require('./avatar');
+const game = require('./game');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const SEED = cfg.seedFile || path.join(__dirname, '..', 'seed', 'initial.json');
@@ -56,7 +57,7 @@ function collOf(req, res, write) {
   if (!cfg.collections.includes(coll)) { res.status(404).json({ error: 'unknown_collection' }); return null; }
   // the owner's collections: a coordinator gets some of them, cut down to their projects
   if (cfg.ownerOnly.has(coll) && req.user.role !== 'owner' && !(req.user.role === 'manager' && cfg.managed.has(coll))) { res.status(403).json({ error: 'forbidden' }); return null; }
-  if (write && req.user.role === 'viewer') { res.status(403).json({ error: 'forbidden' }); return null; }
+  if (write && req.user.role === 'viewer' && !cfg.game.has(coll)) { res.status(403).json({ error: 'forbidden' }); return null; }
   if (write && coll === 'audit') { res.status(403).json({ error: 'forbidden' }); return null; } // the journal is written by the server only
   return coll;
 }
@@ -158,38 +159,51 @@ function build() {
     names.set(req.user.id, { name, at: Date.now() });
     return name;
   };
-  api.put('/db/:coll/:id', auth.guard('write'), json, async (req, res) => {
+  // the records of a game are written by every player, a viewer too: game.mayWrite says whose they are
+  const wguard = (req, res, next) => auth.guard(cfg.game.has(req.params.coll) ? 'read' : 'write')(req, res, next);
+  const gameOk = async (req, res, coll, cur, next) => {
+    if (!cfg.game.has(coll) || (await game.mayWrite(req.user, coll, cur && cur.data, next))) return true;
+    res.status(403).json({ error: 'forbidden' });
+    return false;
+  };
+  const gameOn = (d) => !!(d && d.game && d.game.on);
+  api.put('/db/:coll/:id', wguard, json, async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
     const cur = await db.getDoc(coll, req.params.id);
     const data = coll === 'contacts' && req.user.projects ? auth.cardWrite(req.user.projects, cur && cur.data, req.body.data) : req.body.data;
     if (!mayWrite(req, res, coll, req.params.id, cur, data)) return;
+    if (!(await gameOk(req, res, coll, cur, data))) return;
     const d = await db.setDoc(coll, req.params.id, data);
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     journal.note(cur ? 'upd' : 'add', coll, d.id, d.data, cur && cur.data, await who(req));
     if (coll === 'events') await calls.ensure(d.id).catch((e) => console.error('[calls]', e.message));
     if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
+    if (coll === 'projects' && gameOn(d.data) && !gameOn(cur && cur.data)) await game.announce(d.id).catch((e) => console.error('[game]', e.message));
     res.json({ ok: true, version: d.version });
   });
-  api.patch('/db/:coll/:id', auth.guard('write'), json, async (req, res) => {
+  api.patch('/db/:coll/:id', wguard, json, async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id) || !isObj(req.body && req.body.data)) return res.status(400).json({ error: 'bad_request' });
     const cur = await db.getDoc(coll, req.params.id);
     const card = coll === 'contacts' && req.user.projects && cur ? auth.cardWrite(req.user.projects, cur.data, Object.assign({}, cur.data, req.body.data)) : null;
     if (!mayWrite(req, res, coll, req.params.id, cur, card || Object.assign({}, cur ? cur.data : {}, req.body.data))) return;
+    if (cur && !(await gameOk(req, res, coll, cur, Object.assign({}, cur.data, req.body.data)))) return;
     const d = card ? await db.setDoc(coll, req.params.id, card) : await db.updateDoc(coll, req.params.id, req.body.data);
     if (!d) return res.status(404).json({ error: 'not_found' });
     hub.publish(coll, d.id, d.data, d.version, srcOf(req), cur && cur.data);
     journal.note('upd', coll, d.id, d.data, cur && cur.data, await who(req));
     if (coll === 'events') await calls.ensure(d.id).catch((e) => console.error('[calls]', e.message));
     if (coll === 'chats') await groups.onSettings(cur && cur.data, d).catch((e) => console.error('[chats]', e.message));
+    if (coll === 'projects' && gameOn(d.data) && !gameOn(cur && cur.data)) await game.announce(d.id).catch((e) => console.error('[game]', e.message));
     res.json({ ok: true, version: d.version });
   });
-  api.delete('/db/:coll/:id', auth.guard('write'), async (req, res) => {
+  api.delete('/db/:coll/:id', wguard, async (req, res) => {
     const coll = collOf(req, res, true); if (!coll) return;
     if (!ID_RE.test(req.params.id)) return res.status(400).json({ error: 'bad_request' });
     const cur = await db.getDoc(coll, req.params.id);
     if (!mayWrite(req, res, coll, req.params.id, cur, null)) return;
+    if (cur && !(await gameOk(req, res, coll, cur, null))) return;
     // a card that also belongs to projects outside the coordinator's list is not theirs to delete
     if (coll === 'contacts' && req.user.projects && cur && auth.cardProjects(cur.data).some((p) => !req.user.projects.includes(p))) return res.status(403).json({ error: 'forbidden' });
     const was = await db.deleteDoc(coll, req.params.id);

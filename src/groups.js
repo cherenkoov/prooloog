@@ -16,9 +16,10 @@ const clock = require('./clock');
 const remind = require('./remind');
 const journal = require('./journal');
 const stt = require('./stt');
+const game = require('./game');
 
 let B = null; // what the bot lends: say, kb, esc, projects, pname, me()
-const init = (ctx) => { B = ctx; };
+const init = (ctx) => { B = ctx; game.init({ send, saveChat, person, esc: B.esc, kb: B.kb }); };
 
 const PART = 7600; // characters in one part of a day's record: the dashboard's message form holds 8000
 const ASK_MS = Math.max(0, +process.env.GROUP_ASK_MS || (process.env.GROUP_ASK_MS === '0' ? 0 : 2500));
@@ -114,6 +115,7 @@ async function aboutText(ch, p) {
   else lines.push('• Переписку этого чата не сохраняю.');
   if (ch.read) lines.push('• /project — что сейчас по проекту: задачи, вёрсты, события.');
   lines.push('• /task текст — предложить задачу, /note текст — оставить заметку. В проект они попадут, когда ' + who + ' подтвердит.');
+  if (game.isOn(p.data)) lines.push('• Игра: карточку игрока из Quest Board сохраняю как квесты недели, сообщение в Daily Log считаю отчётом дня и сам считаю XP. Квест завершает сам игрок кнопкой под карточкой; квесты и отчёты никто не подтверждает. /game — команда недели.');
   return lines.join('\n');
 }
 async function announce(doc) {
@@ -395,9 +397,28 @@ async function onMessage(m) {
   if (c.title && c.title !== doc.data.title) doc = await saveChat(c.id, { title: one(c.title, 120), pub: !!c.username });
   const ch = doc.data, rt = m.reply_to_message, toMe = !!(rt && rt.from && me.id && rt.from.id === me.id);
   const thread = m.is_topic_message && m.message_thread_id ? { message_thread_id: m.message_thread_id } : {};
+  doc = await topicSeen(m, doc);
   try { return await heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }); }
   // whatever reached the bot is a moment to ask for the rights again, when it is time (askAdmin keeps the limits)
   finally { if (!ch.admin && name !== 'admin' && name !== 'unlink') await askAdmin(doc, false, thread).catch(() => {}); }
+}
+// The names of the chat's topics, as Telegram tells them: when a topic is made or renamed, and with every
+// message inside a topic (it carries the service message that opened the topic).
+async function topicSeen(m, doc) {
+  const id = m.message_thread_id ? String(m.message_thread_id) : '', rt = m.reply_to_message;
+  const name = one((m.forum_topic_created && m.forum_topic_created.name) || (m.forum_topic_edited && m.forum_topic_edited.name) || (rt && rt.forum_topic_created && rt.forum_topic_created.name), 80);
+  const known = doc.data.topics && doc.data.topics[id];
+  // a quoted opening message keeps the first name of the topic: it only fills a gap
+  if (!id || !name || known === name || (known && !m.forum_topic_created && !m.forum_topic_edited)) return doc;
+  return saveChat(m.chat.id, (cur) => { const t = Object.assign({}, cur.topics); if (Object.keys(t).length < 60 || t[id]) t[id] = name; return { topics: t }; });
+}
+// A message was edited: a game follows the player's card and report, nothing else is read again.
+async function onEdited(m) {
+  if (!isGroup(m.chat) || !m.from || m.from.is_bot) return;
+  const doc = await chatOf(m.chat.id);
+  if (!doc || !doc.data.project || doc.data.on === false) return;
+  const thread = m.is_topic_message && m.message_thread_id ? { message_thread_id: m.message_thread_id } : {};
+  await game.onMessage(m, doc, thread, true);
 }
 async function heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }) {
   const c = m.chat, ch = doc.data, me = B.me(), rt = m.reply_to_message;
@@ -417,6 +438,7 @@ async function heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }) {
       if (quoted) return suggest(m, doc, name, (name === 'task' ? quoted : person(rt.from) + ': ' + quoted));
       return prompt(ch, name, m.from, m.message_id);
     }
+    if (name === 'game' || name === 'xp') return game.sayTable(ch, thread);
     if (name === 'project' || name === 'status' || name === 'start' || name === 'help') {
       if (!ch.read) return send(ch, 'Здесь я веду записи по проекту для ' + B.esc(await ownerName()) + '. Предложить задачу: /task текст.', undefined, thread).catch(() => {});
       const html = name === 'help' ? await aboutText(ch, (await B.projects()).find((x) => x.id === ch.project) || { data: {} }) : await view('card', ch);
@@ -431,6 +453,7 @@ async function heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }) {
   }
   const called = !!me.name && new RegExp('@' + me.name + '(?![A-Za-z0-9_])', 'i').test(text);
   if (ch.collect === 'all' || (ch.collect === 'ask' && (toMe || called))) await collect(m, doc);
+  await game.onMessage(m, doc, thread).catch((err) => console.error('[game]', err.message));
   // the bot's name alone is a question: what is going on?
   if (called && ch.read && !text.replace(new RegExp('@' + me.name, 'ig'), '').trim()) {
     const html = await view('card', ch);
@@ -488,6 +511,11 @@ async function onCallback(cq) {
     await ack(r ? 'Привязал' : 'Проекта уже нет');
     return edit(r ? 'Чат «' + B.esc(doc.data.title || '') + '» привязан к проекту <b>' + B.esc(B.pname(r.project)) + '</b>. Я поздоровался там и рассказал, что делаю.\nНастройки чата: в дэшборде, на странице проекта, блок «Чаты».' : 'Этого проекта уже нет. Напиши в чате /link, чтобы выбрать другой.');
   }
+  if (/^g[qz]:/.test(data)) {
+    const gd = isGroup(chat) ? await chatOf(chat.id) : null;
+    if (!gd || !gd.data.project || gd.data.on === false) return ack('Чат не привязан к проекту');
+    return game.onCallback(cq, gd, ack);
+  }
   const gp = /^gp:(card|new|tasks|ms|ev|sug|app|adm)$/.exec(data);
   if (!gp || !isGroup(chat)) return ack();
   const doc = await chatOf(chat.id);
@@ -544,4 +572,4 @@ async function leave(id) {
   return true;
 }
 
-module.exports = { init, isGroup, onMessage, onCallback, onMember, onSettings, post, leave, view, docId, sweep, askAdmin };
+module.exports = { init, isGroup, onMessage, onEdited, onCallback, onMember, onSettings, post, leave, view, docId, sweep, askAdmin };

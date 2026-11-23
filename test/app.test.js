@@ -2519,3 +2519,164 @@ test('attendance: a meeting of the whole team, a way in of one\'s own, who said 
   await put('events/e-att3', { title: 'Без ссылки', project: 'p-att', date: day });
   assert.deepEqual((await call('POST', '/api/events/e-att3/announce', { token: ownerToken })).json, { ok: false, message: 'У встречи пока нет ссылки на созвон.' });
 });
+
+test('game: quests and reports of a player come from the chat and the app, XP is counted, nobody reviews them', async () => {
+  const game = require('../src/game'), db = require('../src/db'), clock = require('../src/clock');
+  // the rules themselves
+  const full = [{ branch: 'spirit', status: 'done', level: 3 }, { branch: 'soul', status: 'done', level: 3 }, { branch: 'body', status: 'done', level: 3 }, { branch: 'party', status: 'done' }];
+  const week7 = [0, 1, 2, 3, 4, 5, 6].map((i) => ({ date: '2026-11-2' + (3 + i), spirit: true, soul: true, body: true, help: i < 4 ? 1 : 0, u: 'a' }));
+  assert.equal(game.score(full, week7, null, true).total, 215);            // 90 + 30 + 35 + 30 + 20 + 10
+  assert.equal(game.score(full, week7).total, 205);                        // the team has not reached its goal
+  assert.equal(game.score([{ branch: 'spirit', status: 'done', level: 2 }], week7).total, 85); // 20 + 35 + 30: the days themselves bring nothing
+  assert.equal(game.score([{ branch: 'spirit', status: 'active', level: 3 }, { branch: 'soul', status: 'done' }], []).total, 10); // an unfinished quest brings nothing, L1 by default
+  assert.equal(game.score([{ branch: 'body', status: 'paused' }], week7.slice(0, 1)).total, 15); // the report and the help
+  assert.equal(game.score([], [{ date: '2026-11-23', spirit: true, u: 'a' }, { date: '2026-11-23', u: 'b' }]).total, 5); // one report a day
+  // both templates of the card: the chat's and the AI companion's
+  assert.deepEqual(game.parseCard('🜁 ДУХ\n🎯 Квест: Чтение\n💭 Зачем: думать яснее\n⚡ Уровень: L3\n📍 Статус: ACTIVE\n\n🌍 PARTY QUEST\nТема группы: Энергия\nМоё участие: пока не определён\n\n🤝 Нужна помощь:\n🚀 Первый шаг: купить книгу'), { quests: { spirit: { title: 'Чтение', why: 'думать яснее', level: 3, status: 'active' } }, party: '' });
+  assert.equal(game.parseReport('🜁 Дух: ✅\n💡 Что заметил: легче утром\n🚦 Статус: 🟢 FLOW').insight, 'легче утром');
+  assert.equal(game.weekOf('2026-11-29'), '2026-11-23');
+
+  const GID = -1001234500888, CH = 'g1001234500888', chat = { id: GID, type: 'supergroup', title: 'Life Game', is_forum: true };
+  const KOLYA = { id: 777301, first_name: 'Коля', username: 'kolya_t' }, VLAD = { id: 777302, first_name: 'Влад', last_name: 'Исаков' }, IRA = { id: 777303, first_name: 'Ира' };
+  const sec = () => Math.floor(Date.now() / 1000);
+  const root = (name) => ({ message_id: 1, forum_topic_created: { name } });
+  const gmsg = (from, extra, key) => ({ update_id: ++mid, [key || 'message']: Object.assign({ message_id: ++mid, date: sec(), chat, from }, extra) });
+  const inTopic = (id, name, extra) => Object.assign({ is_topic_message: true, message_thread_id: id, reply_to_message: Object.assign({ message_thread_id: id }, root(name)) }, extra);
+  const gtap = (from, data, msgId) => ({ update_id: ++mid, callback_query: { id: 'cq' + (++mid), from, data, message: { message_id: msgId, chat, is_topic_message: true, message_thread_id: 13 } } });
+  const said = (n, method) => sinceMark(n, method || 'sendMessage').filter((c) => String(c.params.chat_id) === String(GID));
+  const acks = (n) => sinceMark(n, 'answerCallbackQuery').map((c) => c.params);
+  const docs = async (coll, token) => (await call('GET', '/api/db/' + coll, { token: token || ownerToken })).json.docs;
+  const mine = async (coll) => (await docs(coll)).filter((d) => d.data.project === 'p-game');
+  const cbs = (c) => c.params.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
+  const day = clock.parts(Date.now(), await clock.appTz()).d, week = game.weekOf(day), key = day.replace(/-/g, '');
+
+  await call('PUT', '/api/db/projects/p-game', { token: ownerToken, json: { data: { name: 'Life Game', status: 'active', order: 95 } } });
+  await update(gmsg(OWNER, { text: '/start p_p-game' }));
+  // without the game a card in the chat is only a message
+  await update(gmsg(VLAD, { text: '🜁 ДУХ\n🎯 Квест: Рано вставать' }));
+  assert.equal((await mine('quests')).length, 0);
+  // the game is switched on in the project: the chat hears what the bot now keeps
+  let n = tgCalls.length;
+  assert.equal((await call('PATCH', '/api/db/projects/p-game', { token: ownerToken, json: { data: { game: { on: true } } } })).status, 200);
+  assert.match(said(n)[0].params.text, /включена игра[\s\S]*Quest Board[\s\S]*Daily Log[\s\S]*правилам 1\.1[\s\S]*подтверждать его никому не нужно[\s\S]*\/game/);
+  n = tgCalls.length;
+  await call('PATCH', '/api/db/projects/p-game', { token: ownerToken, json: { data: { next: 'Первый спринт' } } });
+  assert.equal(said(n).length, 0);
+
+  // topics: the bot learns their names
+  await update(gmsg(KOLYA, { is_topic_message: true, message_thread_id: 5, forum_topic_created: { name: '📜 QUEST BOARD' } }));
+  await update(gmsg(KOLYA, { is_topic_message: true, message_thread_id: 18, forum_topic_created: { name: '🔥 CAMPFIRE' } }));
+  // the empty templates and the rules of a topic are neither a card nor a report
+  n = tgCalls.length;
+  await update(gmsg(KOLYA, inTopic(5, '📜 QUEST BOARD', { text: '🎮 PLAYER CARD — SPRINT 01\n👤 Игрок:\n⭐ XP: 0\n\n🜁 ДУХ\n\n🎯 Квест:\n🏁 Результат:\n⚡ Сложность: L1 / L2 / L3\n📍 Статус: 🎯 ACTIVE\n\n🏆 ИТОГ НЕДЕЛИ\n\n🜁 Дух:\n♡ Душа:' })));
+  await update(gmsg(KOLYA, inTopic(13, '⚡ DAILY LOG', { text: '⚡ DAILY LOG — DAY __\n\n👤 Игрок:\n\n🜁 Дух: ✅ / ❌ / —\n♡ Душа: ✅ / ❌ / —\n△ Тело: ✅ / ❌ / —\n\n🎯 Что сделал:\n\n💡 Открытие дня:\n\n🚦 Статус: 🟢 / 🟡 / 🔴' })));
+  await update(gmsg(KOLYA, inTopic(13, '⚡ DAILY LOG', { text: '⚡ DAILY LOG\nЗдесь мы фиксируем ежедневный прогресс!\n' + 'Регулярность важнее идеальности. '.repeat(45) })));
+  assert.equal((await mine('quests')).length + (await mine('checkins')).length, 0);
+  assert.equal(said(n).length, 0);
+  assert.deepEqual((await docs('chats')).find((d) => d.id === CH).data.topics, { 5: '📜 QUEST BOARD', 18: '🔥 CAMPFIRE', 13: '⚡ DAILY LOG' });
+
+  // a player's card: the quests of this week
+  n = tgCalls.length;
+  const card = (title) => '🎮 PLAYER CARD — SPRINT 01\n👤 Игрок: Влад\n\n⸻\n\n🜁 ДУХ\n\n🎯 Квест: ' + title + '\n🏁 Результат: 5 уроков\n🔁 Действие: урок в приложении\n🌱 Дневной минимум: 10 минут\n📅 Частота: 5 дней\n⚡ Сложность: L2\n📍 Статус: 🎯 ACTIVE\n\n⸻\n\n♡ ДУША\n\n🎯 Квест:\n⚡ Сложность: L1 / L2 / L3\n\n⸻\n\n△ ТЕЛО\n\n🎯 Квест: Бег\n🌱 Дневной минимум: 2 км\n📅 Частота: каждый день\n⚡ Сложность: L3\n\n🌍 PARTY QUEST\n\nМоё участие: сон до 23\n\n🏆 ИТОГ НЕДЕЛИ\n\n🜁 Дух:\n△ Тело:';
+  const cardMsg = gmsg(VLAD, inTopic(5, '📜 QUEST BOARD', { text: card('Английский') }));
+  await update(cardMsg);
+  let qs = await mine('quests');
+  assert.deepEqual(qs.map((d) => [d.data.branch, d.data.title, d.data.level, d.data.freq, d.data.status, d.data.player, d.data.week]).sort(), [['body', 'Бег', 3, 7, 'active', '777302', week], ['party', 'сон до 23', undefined, undefined, 'active', '777302', week], ['spirit', 'Английский', 2, 5, 'active', '777302', week]]);
+  assert.equal(qs.find((d) => d.data.branch === 'spirit').data.min, '10 минут');
+  assert.match(said(n)[0].params.text, /Квесты <b>Влад Исаков<\/b> на спринт[\s\S]*🜁 Дух: Английский · L2\n△ Тело: Бег · L3\n🌍 Общий квест: сон до 23\nКвест завершён\? Отметь кнопкой/);
+  const wkey = week.replace(/-/g, ''), cardAck = said(n)[0];
+  assert.deepEqual(cbs(cardAck), ['gz:s:' + wkey + ':777302', 'gz:b:' + wkey + ':777302', 'gz:p:' + wkey + ':777302']);
+  assert.equal(said(n)[0].params.message_thread_id, 5);
+  // the card was edited: the quests follow, the bot does not answer twice
+  n = tgCalls.length;
+  await update(gmsg(VLAD, Object.assign({}, cardMsg.message, { text: card('Английский: 20 минут'), edit_date: sec() }), 'edited_message'));
+  qs = await mine('quests');
+  assert.equal(qs.length, 3);
+  assert.equal(qs.find((d) => d.data.branch === 'spirit').data.title, 'Английский: 20 минут');
+  assert.equal(said(n).length, 0);
+  // nothing of it waits for a review
+  assert.equal((await docs('messages')).filter((d) => d.data.project === 'p-game' && d.data.proposal).length, 0);
+
+  // a message in Daily Log is the report of the day; the branches are marked on the buttons
+  n = tgCalls.length;
+  const rep1 = gmsg(VLAD, inTopic(13, '⚡ DAILY LOG', { text: 'Сделал урок, пробежка вечером' }));
+  await update(rep1);
+  let ck = (await mine('checkins'))[0];
+  assert.equal(ck.id, 'k' + key + '-777302-p-game');
+  assert.deepEqual([ck.data.spirit, ck.data.body, ck.data.chat, ck.data.date, ck.data.week], [null, null, 'Сделал урок, пробежка вечером', day, week]);
+  let ack = said(n)[0];
+  assert.match(ack.params.text, /Отчёт: <b>Влад Исаков<\/b>[\s\S]*🜁 Дух — · ♡ Душа — · △ Тело —\n\+5 XP за отчёт · 5 XP за спринт/);
+  assert.deepEqual(cbs(ack), ['gq:s:' + key + ':777302', 'gq:b:' + key + ':777302', 'gq:h:' + key + ':777302']);
+  assert.equal(ack.params.reply_parameters.message_id, rep1.message.message_id);
+  const ackId = (await mine('checkins'))[0].data.ack.id;
+  // somebody else's report is not theirs to mark
+  n = tgCalls.length;
+  await update(gtap(IRA, 'gq:s:' + key + ':777302', ackId));
+  assert.match(acks(n)[0].text, /другого игрока/);
+  assert.equal((await mine('checkins'))[0].data.spirit, null);
+  await update(gtap(VLAD, 'gq:s:' + key + ':777302', ackId));
+  assert.equal((await mine('checkins'))[0].data.spirit, true);
+  const ed = said(n, 'editMessageText')[0];
+  assert.equal(ed.params.message_id, ackId);
+  assert.match(ed.params.text, /🜁 Дух ✅[\s\S]*\+5 XP за отчёт · 5 XP за спринт/); // a day's mark is progress, not XP
+  // an answer to another player in the topic is support, not a report
+  await update(gmsg(IRA, { is_topic_message: true, message_thread_id: 13, text: 'Круто!', reply_to_message: { message_id: rep1.message.message_id, from: VLAD, text: 'Сделал урок' } }));
+  assert.equal((await mine('checkins')).length, 1);
+  // a report by the template, from anywhere: the marks join the day's report, a call for help reaches Campfire
+  n = tgCalls.length;
+  await update(gmsg(VLAD, { text: '⚡ DAILY LOG — DAY 1\n👤 Игрок: Влад\n🜁 Дух: ✅\n♡ Душа: ✅\n△ Тело: ✅\n🎯 Что сделал: 2 км\n💡 Открытие дня: утром легче\n🚦 Статус: 🔴' }));
+  ck = (await mine('checkins'))[0];
+  assert.deepEqual([ck.data.spirit, ck.data.soul, ck.data.body, ck.data.insight, ck.data.signal], [true, true, true, 'утром легче', 'help']);
+  assert.equal(ck.data.chat, 'Сделал урок, пробежка вечером\n2 км');
+  assert.match(said(n, 'editMessageText')[0].params.text, /Дух ✅ · ♡ Душа ✅ · △ Тело ✅\n\+5 XP за отчёт · 5 XP за спринт\n🔴 Нужна помощь/);
+  const fire = said(n).find((c) => c.params.message_thread_id === 18);
+  assert.match(fire.params.text, /🔴 <b>Влад Исаков<\/b> просит помощи[\s\S]*t\.me\/c\/1234500888\//);
+  // the help button: up to three a week
+  await update(gtap(VLAD, 'gq:h:' + key + ':777302', ackId));
+  assert.equal((await mine('checkins'))[0].data.help, 1);
+  // a quest brings its XP once, when the player says it is done: the button under the card
+  n = tgCalls.length;
+  await update(gtap(IRA, 'gz:s:' + wkey + ':777302', 9001));
+  assert.match(acks(n)[0].text, /другого игрока/);
+  await update(gtap(VLAD, 'gz:s:' + wkey + ':777302', 9001));
+  assert.equal((await mine('quests')).find((d) => d.data.branch === 'spirit').data.status, 'done');
+  assert.match(said(n, 'editMessageText')[0].params.text, /🜁 Дух: Английский: 20 минут · L2 — ✅ \+20 XP\n△ Тело: Бег · L3\n/);
+  await update(gtap(VLAD, 'gz:b:' + wkey + ':777302', 9001));
+  await update(gtap(VLAD, 'gz:b:' + wkey + ':777302', 9001));                      // taken back
+  assert.equal((await mine('quests')).find((d) => d.data.branch === 'body').data.status, 'active');
+  // /game: the week by players, by name
+  n = tgCalls.length;
+  await update(gmsg(IRA, inTopic(13, '⚡ DAILY LOG', { text: 'Сегодня отдыхала' })));
+  await update(gmsg(IRA, { text: '/game' }));
+  const tbl = said(n).pop().params.text;
+  assert.match(tbl, /<b>Life Game<\/b> · спринт[\s\S]*<b>Влад Исаков<\/b> — 35 XP \(🜁 20 · отчёты 5 · помощь 10\)\n<b>Ира<\/b> — 5 XP \(отчёты 5\)/);
+
+  // the app: a player writes their own records whatever their level, and nobody else's
+  await db.upsertMember(String(VLAD.id), '', 'Влад Исаков', 'viewer'); await db.setMemberAccess(String(VLAD.id), 'viewer', ['p-game']);
+  await db.upsertMember(String(IRA.id), '', 'Ира', 'editor'); await db.setMemberAccess(String(IRA.id), 'editor', ['p-game', 'p-feed']);
+  const vlad = (await call('POST', '/api/auth/telegram', { json: { initData: initData(VLAD) } })).json, ira = (await call('POST', '/api/auth/telegram', { json: { initData: initData(IRA) } })).json;
+  assert.equal(vlad.role, 'viewer');
+  assert.deepEqual(vlad.user.id, '777302');
+  assert.equal((await docs('quests', vlad.token)).length, 3);
+  const w = (m, path, token, data) => call(m, '/api/db/' + path, { token, json: data ? { data } : undefined });
+  const q = (player, extra) => Object.assign({ project: 'p-game', player, name: 'x', week, branch: 'soul', title: 'Рисовать', status: 'active', level: 1 }, extra);
+  assert.equal((await w('PUT', 'quests/q-v-soul', vlad.token, q('777302'))).status, 200);
+  assert.equal((await w('PATCH', 'quests/q-v-soul', vlad.token, { status: 'done' })).status, 200);
+  assert.equal((await w('PUT', 'quests/q-fake', vlad.token, q('777303'))).status, 403);
+  assert.equal((await w('PATCH', 'quests/q-v-soul', ira.token, { title: 'Чужое' })).status, 403);
+  assert.equal((await w('PATCH', 'quests/q-v-soul', vlad.token, { player: '777303' })).status, 403);
+  assert.equal((await w('DELETE', 'quests/q-v-soul', ira.token)).status, 403);
+  assert.equal((await w('PATCH', 'checkins/' + ck.id, ira.token, { spirit: false })).status, 403);
+  assert.equal((await w('PATCH', 'checkins/' + ck.id, vlad.token, { text: 'из приложения' })).status, 200);
+  assert.equal((await w('PUT', 'checkins/k-ira', ira.token, { project: 'p-game', player: '777303', name: 'Ира', date: day, week, body: true })).status, 200);
+  // a viewer stays a viewer for the rest of the project; a game that is off takes nothing
+  assert.equal((await w('PUT', 'tasks/t-v', vlad.token, { project: 'p-game', title: 'x' })).status, 403);
+  assert.equal((await w('PUT', 'quests/q-off', ira.token, q('777303', { project: 'p-feed' }))).status, 403);
+  assert.equal((await w('PUT', 'quests/q-else', vlad.token, q('777302', { project: 'p-feed' }))).status, 403);
+  // an idea for the library belongs to the one who brought it; those who run the project change anything
+  assert.equal((await w('PUT', 'quests/q-lib', ira.token, { project: 'p-game', lib: true, by: '777303', branch: 'body', title: 'Планка', l1: '30 секунд' })).status, 200);
+  assert.equal((await w('DELETE', 'quests/q-lib', vlad.token)).status, 403);
+  assert.equal((await w('PATCH', 'quests/q-v-soul', ownerToken, { title: 'Рисовать каждый день' })).status, 200);
+  assert.equal((await w('DELETE', 'quests/q-lib', ownerToken)).status, 200);
+  assert.equal((await w('DELETE', 'quests/q-v-soul', vlad.token)).status, 200);
+});
