@@ -32,16 +32,11 @@ const one = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 const STATUS = { idea: 'идея', active: 'в работе', paused: 'на паузе', done: 'завершён' };
 const DEFAULTS = { title: '', project: '', collect: 'all', read: true, app: false, remind: false, on: true, admin: false, pub: false, n: 0 };
 
-async function ownerName() {
-  const p = await db.kvGet('owner_profile');
-  return one(p && p.name, 60).split(' ')[0] || (p && p.username ? '@' + p.username : 'владелец');
-}
 const sees = (ch) => !!ch.admin || !!B.me().readsAll;
-// Who reads what the bot keeps from this chat, in words for the chat itself: the owner, and the project's
-// coordinators when it has them. The chat is told the truth about it.
-async function readers(ch) {
-  const who = B.esc(await ownerName());
-  return (await auth.managersOf(ch.project)).length ? 'видят ' + who + ' и координаторы проекта' : 'видит только ' + who;
+// Who reads what the bot keeps from this chat, in words for the chat itself. Nobody is named: the owner
+// is one of the project's coordinators to the people in the chat.
+async function readers() {
+  return 'видят только координаторы проекта';
 }
 
 /* ---------- the chat's record ---------- */
@@ -107,14 +102,14 @@ async function view(kind, ch) {
 }
 
 async function aboutText(ch, p) {
-  const e = B.esc, who = e(await ownerName()), lines = ['Привет! Я бот ' + e(cfg.appName) + ' и помогаю вести проект <b>' + e(B.pname(p)) + '</b>.'];
+  const e = B.esc, lines = ['Привет! Я бот ' + e(cfg.appName) + ' и помогаю вести проект <b>' + e(B.pname(p)) + '</b>.'];
   const rd = await readers(ch);
   if (ch.collect === 'all') lines.push(sees(ch) ? '• Сохраняю сообщения этого чата в переписку проекта. Их ' + rd + '.'
     : '• Сохраняю в переписку проекта то, что адресовано мне: команды и ответы на мои сообщения. Это ' + rd + '.');
   else if (ch.collect === 'ask') lines.push('• Сохраняю в переписку проекта только то, что адресовано мне: ответы на мои сообщения' + (sees(ch) ? ' и упоминания' : '') + '. Это ' + rd + '.');
   else lines.push('• Переписку этого чата не сохраняю.');
   if (ch.read) lines.push('• /project — что сейчас по проекту: задачи, вёрсты, события.');
-  lines.push('• /task текст — предложить задачу, /note текст — оставить заметку. В проект они попадут, когда ' + who + ' подтвердит.');
+  lines.push('• /task текст — предложить задачу, /note текст — оставить заметку. В проект они попадут, когда их подтвердит координатор.');
   if (game.isOn(p.data)) lines.push('• Игра: карточку игрока из Quest Board сохраняю как квесты недели, сообщение в Daily Log считаю отчётом дня и сам считаю XP. Квест завершает сам игрок кнопкой под карточкой; квесты и отчёты никто не подтверждает. /game — команда недели.');
   return lines.join('\n');
 }
@@ -348,7 +343,7 @@ async function suggest(m, doc, kind, body) {
   hub.publish('messages', d.id, d.data, d.version);
   journal.note('add', 'messages', d.id, Object.assign({}, d.data, { from: '' }), null, 'чат «' + one(ch.title, 50) + '»: ' + person(m.from));
   await saveChat(ch.tg, { last: at });
-  await send(ch, (kind === 'task' ? 'Записал задачу.' : 'Записал заметку.') + ' В проекте она появится, когда ' + B.esc(await ownerName()) + ' подтвердит.',
+  await send(ch, (kind === 'task' ? 'Записал задачу.' : 'Записал заметку.') + ' В проекте она появится, когда её подтвердит координатор.',
     undefined, { reply_parameters: { message_id: m.message_id, allow_sending_without_reply: true } }).catch(() => {});
 }
 // «Напиши ответом»: the answer reaches the bot even when Telegram hides the rest of the chat from it
@@ -440,7 +435,7 @@ async function heard(m, doc, { cmd, name, arg, text, isOwner, toMe, thread }) {
     }
     if (name === 'game' || name === 'xp') return game.sayTable(ch, thread);
     if (name === 'project' || name === 'status' || name === 'start' || name === 'help') {
-      if (!ch.read) return send(ch, 'Здесь я веду записи по проекту для ' + B.esc(await ownerName()) + '. Предложить задачу: /task текст.', undefined, thread).catch(() => {});
+      if (!ch.read) return send(ch, 'Здесь я веду записи по проекту для его координаторов. Предложить задачу: /task текст.', undefined, thread).catch(() => {});
       const html = name === 'help' ? await aboutText(ch, (await B.projects()).find((x) => x.id === ch.project) || { data: {} }) : await view('card', ch);
       if (html) return send(ch, html, cardKb(ch, name === 'help'), thread).catch((err) => console.error('[groups] card not sent:', err.message));
     }
@@ -477,7 +472,7 @@ async function openApp(cq, doc, ack) {
   // Telegram answers for certain only to an administrator; in a closed chat the button itself is seen by members only
   if (inside === false || (inside === null && ch.pub)) return ack('Проект открывается только участникам этого чата.', true);
   const cur = await db.getMember(uid);
-  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager' && !cur.projects.includes(ch.project)) return ack('Этот проект координатору открывает владелец в окне «Доступ».', true);
+  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager' && !cur.projects.includes(ch.project)) return ack('Этот проект координатору открывают в окне «Доступ», сам он этого сделать не может.', true);
   const role = cur && cur.role === 'editor' ? 'editor' : 'viewer';
   const list = !cur ? [ch.project] : Array.isArray(cur.projects) ? [...new Set(cur.projects.concat([ch.project]))] : null;
   if (!cur || (Array.isArray(cur.projects) && !cur.projects.includes(ch.project))) {
@@ -497,7 +492,7 @@ async function onCallback(cq) {
   const ack = (text, alert) => T.tg('answerCallbackQuery', { callback_query_id: cq.id, text: text || undefined, show_alert: !!alert }).catch(() => {});
   const gl = /^gl:(g\d{1,20}):([A-Za-z0-9_-]{1,60})$/.exec(data);
   if (gl) {
-    if (String(await auth.ownerId()) !== String(cq.from.id)) return ack('Чат к проекту привязывает владелец');
+    if (String(await auth.ownerId()) !== String(cq.from.id)) return ack('Привязка чата к проекту тебе не открыта');
     const doc = await db.getDoc('chats', gl[1]);
     const edit = (html) => T.tg('editMessageText', { chat_id: chat.id, message_id: msg.message_id, text: html, parse_mode: 'HTML' }).catch(() => B.say(chat.id, html));
     if (!doc) { await ack(); return edit('Этого чата у меня уже нет.'); }

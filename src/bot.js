@@ -55,8 +55,8 @@ async function projects() {
 }
 const mine = (pid) => { const a = me(); return !a.scope || a.scope.includes(pid); };
 // what the bot says when somebody asks for more than their level gives: it names who can, not «only the owner»
-const LEADS_ONLY = 'Это делают те, кто ведёт проект: владелец и координаторы. Тебе в боте доступны дэшборд, /login и сохранение сообщений клиентов в проект.';
-const WHOLE_ONLY = 'Эта команда относится ко всему дэшборду, а не к одному проекту (копии данных, подключения, сессии с Claude, доступ ко всем проектам), поэтому её выполняет владелец. То, что касается твоих проектов, делается в дэшборде.';
+const LEADS_ONLY = 'Это делают координаторы проекта. Тебе в боте доступны дэшборд, /login и сохранение сообщений клиентов в проект.';
+const WHOLE_ONLY = 'Эта команда относится ко всему дэшборду, а не к одному проекту (копии данных, подключения, сессии с Claude, доступ ко всем проектам), поэтому в боте она тебе не открыта. То, что касается твоих проектов, делается в дэшборде.';
 const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/gi, ' ').trim();
 const stem = (w) => w.slice(0, Math.max(4, w.length - 2));
 function tokensOf(p) { return (norm(pname(p)) + ' ' + norm(p.id.replace(/^p-/, ''))).split(' ').filter(Boolean); }
@@ -152,7 +152,7 @@ async function finish(chat, uid, draft, projectId, reply) {
   if (draft.file && draft.file.kind === 'audio' && !draft.text) stt.later(id);
   const html = 'Сохранил в проект <b>' + esc(pname(p)) + '</b>' + (draft.from ? ' от <b>' + esc(draft.from) + '</b>' : '') + '.\n' +
     (draft.file && draft.file.kind === 'audio' && !draft.text ? (stt.enabled() ? 'Расшифровка голосового появится в сообщении в течение минуты.\n' : 'Это аудио без расшифровки: текст можно вписать в дэшборде.\n') : '') +
-    (isLead() ? 'Сам проект не менялся: сообщение ждёт ревью' + (a.role === 'owner' ? '.' : ', подтвердить изменения можешь ты или другой координатор.') : 'Сам проект не менялся: сообщение ждёт ревью. Его подтверждают владелец и координаторы проекта, им я написал.');
+    (isLead() ? 'Сам проект не менялся: сообщение ждёт ревью' + (a.role === 'owner' ? '.' : ', подтвердить изменения можешь ты или другой координатор.') : 'Сам проект не менялся: сообщение ждёт ревью. Его подтверждают координаторы проекта, им я написал.');
   // the others who run the project hear that something waits for them
   if (a.role !== 'owner') await join.tell(projectId, a.id, '<b>' + esc(a.name) + '</b> сохранил(а) в проект <b>' + esc(pname(p)) + '</b> сообщение' + (draft.from ? ' от <b>' + esc(draft.from) + '</b>' : '') + '. Оно ждёт ревью в дэшборде.').catch(() => {});
   const b = isLead() ? openBtn('Открыть ревью', '/?open=msg-' + id) : null;
@@ -331,7 +331,7 @@ async function inviteJoin(m, tok) {
   if ((await auth.roleOf(m.from)) === 'owner') return say(chat, 'Это твоя собственная ссылка-приглашение. Отправь её тому, кому хочешь открыть доступ.');
   const cur = await db.getMember(id);
   // a coordinator's level covers all of their projects, so a link must not add a project to it: the owner does that
-  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager') return say(chat, 'Ты координатор, и ссылка-приглашение твой доступ не меняет: новый проект координатору добавляет владелец в окне «Доступ».');
+  if (cur && auth.memberRole(cur.role, cur.projects) === 'manager') return say(chat, 'Ты координатор, и ссылка-приглашение твой доступ не меняет: новый проект координатору добавляют в окне «Доступ», сам он этого сделать не может.');
   const inv = await db.useInviteLink(tok, id);
   if (!inv) return say(chat, 'Эта ссылка-приглашение уже использована или устарела. Попроси новую у того, кто её прислал.');
   const role = inv.role === 'editor' ? 'editor' : 'viewer';
@@ -532,8 +532,8 @@ async function feed(chat, arg) {
 }
 
 function closedText(from) {
-  return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ к проекту дают те, кто его ведёт: владелец и координаторы.' +
-    (from.username ? ' Попроси у них ссылку-приглашение или анкету проекта. Владелец может ещё отправить мне: /invite @' + esc(from.username) : ' Чтобы тебя можно было пригласить, задай имя пользователя в настройках Telegram.');
+  return 'Это закрытый дэшборд ' + esc(cfg.appName) + '. Доступ к проекту дают его координаторы.' +
+    (from.username ? ' Попроси у них ссылку-приглашение или анкету проекта. Ещё тебя могут пригласить командой: /invite @' + esc(from.username) : ' Чтобы тебя можно было пригласить, задай имя пользователя в настройках Telegram.');
 }
 async function setMenu(chat) {
   if (!https()) return;
@@ -546,8 +546,8 @@ function helpText(role) {
     '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
     '• Ответ клиента или партнёра: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст». Я сохраню его в проект и напишу тем, кто проект ведёт.\n' +
     '• /login — ссылка для входа в обычном браузере.\n\n' +
-    'Сообщение я только сохраняю. Сам проект меняется после ревью: его подтверждают владелец и координаторы проекта.';
-  if (role === 'manager') return '<b>' + n + '</b> на связи. Ты координатор: в своих проектах делаешь в боте то же, что владелец.\n\n' +
+    'Сообщение я только сохраняю. Сам проект меняется после ревью: его подтверждают координаторы проекта.';
+  if (role === 'manager') return '<b>' + n + '</b> на связи. Ты координатор: свои проекты ведёшь и в боте.\n\n' +
     '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
     '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
     '• /onboard проект — ссылка-анкета для командного чата. /club проект — приглашение для личных встреч с QR-кодом.\n' +
@@ -555,7 +555,7 @@ function helpText(role) {
     '• /announce — разослать встречу команде проекта: у каждого своя кнопка входа, по ней видно, кто пришёл. /members — у кого есть доступ к твоим проектам.\n' +
     '• /digest проект — лента проекта из переписки рабочего чата, с предложениями на ревью.\n' +
     '• /login — ссылка для входа в обычном браузере.\n\n' +
-    'Ответ клиента я только сохраняю. Сам проект меняется после ревью в дэшборде: подтвердить можешь ты, другой координатор или владелец.';
+    'Ответ клиента я только сохраняю. Сам проект меняется после ревью в дэшборде: подтвердить можешь ты или другой координатор.';
   return '<b>' + n + '</b> на связи.\n\n' +
     '• Дэшборд: кнопка ниже или кнопка «' + n + '» рядом с полем ввода.\n' +
     '• Ответ клиента: перешли мне его сообщение или голосовое и выбери проект. Можно сразу написать «от имя, проект: текст».\n' +
@@ -659,7 +659,7 @@ async function onCommand(m, role, cmd, arg) {
     const scope = (x) => !Array.isArray(x.projects) ? 'все проекты' : all.filter((p) => x.projects.includes(p.id)).map(pname).join(', ') || 'проекты удалены';
     const lines = ms.map((x) => '• ' + esc(x.name || 'без имени') + (x.username ? ' @' + esc(x.username) : '') + ': ' + (auth.memberRole(x.role, x.projects) === 'manager' ? 'координатор' : x.role === 'editor' ? 'редактор' : 'зритель') + ', ' + esc(scope(x)))
       .concat(inv.map((x) => '• @' + esc(x.username) + ': приглашён, ещё не зашёл'));
-    if (!owner) return say(chat, lines.length ? 'К твоим проектам доступ есть у владельца, у тебя и ещё:\n' + lines.join('\n') + '\n\nИзменить или закрыть доступ: окно «Доступ» в дэшборде.' : 'К твоим проектам доступ пока есть у владельца и у тебя. Пригласить: «Поделиться» в проекте.');
+    if (!owner) return say(chat, lines.length ? 'К твоим проектам доступ есть у координаторов и ещё:\n' + lines.join('\n') + '\n\nИзменить или закрыть доступ: окно «Доступ» в дэшборде.' : 'К твоим проектам доступ пока есть только у координаторов. Пригласить: «Поделиться» в проекте.');
     return say(chat, lines.length ? 'Доступ есть у тебя и ещё:\n' + lines.join('\n') + '\n\nУбрать: /remove @имя' : 'Пока в команде никого, кроме тебя. Пригласить: /invite @имя editor или «Поделиться» в проекте.');
   }
   if (cmd === 'remove') {
@@ -693,7 +693,7 @@ async function onMessage(m) {
   // from here on the bot knows who it works for: their level and their projects
   return actor.run(await actorOf(m.from, role), () => {
     if (cmd) return onCommand(m, role, cmd[1].toLowerCase(), (cmd[2] || '').trim());
-    if (role === 'viewer') return say(m.chat.id, 'Сообщения клиентов и заметки я принимаю от тех, кто работает в проекте: владельца, координаторов и редакторов. У тебя доступ «смотреть»: дэшборд открывается командой /start.');
+    if (role === 'viewer') return say(m.chat.id, 'Сообщения клиентов и заметки я принимаю от тех, кто работает в проекте: координаторов и редакторов. У тебя доступ «смотреть»: дэшборд открывается командой /start.');
     if (m.document) {
       const cap = /^\/([a-z_]+)/i.exec(String(m.caption || '').trim());
       return onDocument(m, cap ? cap[1].toLowerCase() : '');
@@ -729,8 +729,8 @@ async function onCallback(cq) {
 // a button in a private chat with somebody of the team
 async function teamCallback(cq, role, data, chat, ack, edit) {
   const uid = cq.from.id, msg = cq.message;
-  if (data === 'as:end' || data === 'k:a' || data === 'rs:y') { if (role !== 'owner') return ack('Это делает владелец: относится ко всему дэшборду'); }
-  else if (/^(an|ob|cl):/.test(data)) { if (!isLead()) return ack('Это делают владелец и координаторы проекта'); }
+  if (data === 'as:end' || data === 'k:a' || data === 'rs:y') { if (role !== 'owner') return ack('Это относится ко всему дэшборду и тебе не открыто'); }
+  else if (/^(an|ob|cl):/.test(data)) { if (!isLead()) return ack('Это делают координаторы проекта'); }
   else if (data !== 'x' && role === 'viewer') return ack('У тебя доступ «смотреть»');
   const st = await db.getState(uid);
   const stale = async () => { await ack('Уже обработано'); return edit(chat, 'Здесь уже нечего сохранять. Пришли сообщение ещё раз.'); };

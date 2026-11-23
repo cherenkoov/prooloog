@@ -329,7 +329,7 @@ test('team: invite, roles, owner-only data, removal', async () => {
   await update(msg(BOB, { text: 'от Ravi, индия: тест' }));
   const bobSaid = sinceMark(bn, 'sendMessage').map((c) => [String(c.params.chat_id), c.params.text, c.params.reply_markup]);
   const toBob = bobSaid.find((x) => x[0] === String(BOB.id)), toOwner = bobSaid.find((x) => x[0] === String(OWNER.id));
-  assert.match(toBob[1], /Сохранил в проект <b>Кастинги в Индии<\/b> от <b>Ravi<\/b>[\s\S]*подтверждают владелец и координаторы проекта/);
+  assert.match(toBob[1], /Сохранил в проект <b>Кастинги в Индии<\/b> от <b>Ravi<\/b>[\s\S]*подтверждают координаторы проекта/);
   assert.equal(toBob[2], undefined, 'no review button for somebody who cannot open the review');
   assert.match(toOwner[1], /<b>Bob<\/b> сохранил\(а\) в проект <b>Кастинги в Индии<\/b> сообщение от <b>Ravi<\/b>/);
   const bobMsg = (await call('GET', '/api/db/messages', { token: ownerToken })).json.docs.filter((d) => d.data.by === 'Bob');
@@ -342,11 +342,11 @@ test('team: invite, roles, owner-only data, removal', async () => {
   await update(tap(BOB, 'x'));
   // what belongs to the whole dashboard stays with the owner, and the bot says why instead of «only the owner»
   await update(msg(BOB, { text: '/backup' }));
-  assert.match(lastSay().params.text, /относится ко всему дэшборду[\s\S]*выполняет владелец/);
+  assert.match(lastSay().params.text, /относится ко всему дэшборду[\s\S]*в боте она тебе не открыта/);
   await update(msg(BOB, { text: '/onboard индия' }));
-  assert.match(lastSay().params.text, /владелец и координаторы/);
+  assert.match(lastSay().params.text, /Это делают координаторы проекта/);
   await update(msg(BOB, { text: '/help' }));
-  assert.match(lastSay().params.text, /перешли мне его сообщение[\s\S]*подтверждают владелец и координаторы/);
+  assert.match(lastSay().params.text, /перешли мне его сообщение[\s\S]*подтверждают координаторы/);
   // viewer
   await update(msg(OWNER, { text: '/invite @eve_stranger' }));
   const e = await call('POST', '/api/auth/telegram', { json: { initData: initData(EVE) } });
@@ -593,7 +593,7 @@ test('a session with Claude in the bot: a talk, actions on the data, memory at t
 
 test('connector for Claude: address from the bot, tools, review rule, merge', async () => {
   await update(msg(EVE, { text: '/connect' }));
-  assert.match(lastSay().params.text, /выполняет владелец/);
+  assert.match(lastSay().params.text, /в боте она тебе не открыта/);
   await update(msg(OWNER, { text: '/connect' }));
   const url = /<code>(https:\/\/prooloog\.test\/mcp\/[A-Za-z0-9_-]{20,})<\/code>/.exec(lastSay().params.text);
   assert.ok(url, 'the owner gets the address');
@@ -886,7 +886,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   n = tgCalls.length;
   await update(tap(OWNER, 'gl:' + CH + ':p-eco'));
   const hello = said(n, GID)[0];
-  assert.match(hello.params.text, /помогаю вести проект <b>EcoChakra<\/b>[\s\S]*то, что адресовано мне[\s\S]*видит только Alex[\s\S]*\/project[\s\S]*\/task/, 'says honestly what it keeps and for whom');
+  assert.match(hello.params.text, /помогаю вести проект <b>EcoChakra<\/b>[\s\S]*то, что адресовано мне[\s\S]*видят только координаторы проекта[\s\S]*\/project[\s\S]*\/task/, 'says honestly what it keeps and for whom');
   assert.deepEqual(cbs(hello), ['gp:new', 'gp:sug']);
   assert.ok(said(n, OWNER.id).some((c) => /сделай меня администратором/.test(c.params.text)), 'the owner learns how to let it see everything');
   let ch = (await docs('chats')).find((d) => d.id === CH).data;
@@ -950,7 +950,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   assert.equal(sug.length, 1);
   assert.deepEqual(sug[0].data.proposal.items, [{ t: 'task', title: 'Собрать список участников', due: '' }]);
   assert.deepEqual([sug[0].data.review, sug[0].data.from, sug[0].data.project, sug[0].data.proposal.by], ['pending', 'Наташа (@natakhas_t)', 'p-eco', 'bot']);
-  assert.match(said(n, GID)[0].params.text, /^Записал задачу\. В проекте она появится, когда Alex подтвердит\.$/);
+  assert.match(said(n, GID)[0].params.text, /^Записал задачу\. В проекте она появится, когда её подтвердит координатор\.$/);
   assert.equal((await docs('tasks')).length, tasksBefore, 'no task appears by itself');
   // the button asks for the task in a reply, and the reply is taken
   n = tgCalls.length;
@@ -1056,7 +1056,7 @@ test('work chat: tied to a project, collects for review, answers on buttons, let
   // the bot starts to keep more than before: the chat is told at once
   n = tgCalls.length;
   await patch('chats/' + CH, { collect: 'all', read: true });
-  assert.match(said(n, GID)[0].params.text, /Сохраняю сообщения этого чата в переписку проекта\. Их видит только Alex/);
+  assert.match(said(n, GID)[0].params.text, /Сохраняю сообщения этого чата в переписку проекта\. Их видят только координаторы проекта/);
   n = tgCalls.length;
   await patch('chats/' + CH, { collect: 'ask', remind: false });
   assert.equal(said(n, GID).length, 0, 'keeping less needs no announcement');
@@ -1233,7 +1233,7 @@ test('onboarding: a link for a chat, the form, access to one project, a poll', a
   await update(msg(OWNER, { text: '/votes' }));
   assert.match(lastSay().params.text, /Встреча 19 ноября: во сколько\?<\/b> · проголосовали: 2 · время по Тбилиси[\s\S]*✅ 21:00 — 2: Fay Mason, Alex Owner[\s\S]*Где созваниваемся\?[\s\S]*✅ Discord — 1: Fay Mason/);
   await update(msg(FAY, { text: '/votes' }));
-  assert.match(lastSay().params.text, /владелец и координаторы/);
+  assert.match(lastSay().params.text, /Это делают координаторы проекта/);
   // answers as a table, and in the backup; the owner's own access did not change
   n = tgCalls.length;
   await update(msg(OWNER, { text: '/answers' }));
@@ -2039,7 +2039,7 @@ test('work chat: the bot asks for the administrator\'s rights, hears voices, wri
   const inChat = said(n, GID);
   assert.equal(inChat.length, 2, 'the greeting, then the request');
   const req = inChat[1].params;
-  assert.match(req.text, /Мне нужны права администратора[\s\S]*только команды и ответы[\s\S]*«Лента Тест»[\s\S]*может создатель чата или администратор: @arjun_t, <a href="tg:\/\/user\?id=777202">Таша<\/a>\.[\s\S]*«Администраторы» → «Добавить администратора»[\s\S]*@prooloog_test_bot[\s\S]*видит только Alex/);
+  assert.match(req.text, /Мне нужны права администратора[\s\S]*только команды и ответы[\s\S]*«Лента Тест»[\s\S]*может создатель чата или администратор: @arjun_t, <a href="tg:\/\/user\?id=777202">Таша<\/a>\.[\s\S]*«Администраторы» → «Добавить администратора»[\s\S]*@prooloog_test_bot[\s\S]*видят только координаторы проекта/);
   assert.doesNotMatch(req.text, /no_rights|other_bot/, 'only those who can name an administrator');
   assert.deepEqual(req.reply_markup.inline_keyboard.flat().map((b) => b.callback_data), ['gp:adm']);
   assert.match(said(n, OWNER.id).map((c) => c.params.text).join('\n'), /сделай меня администратором[\s\S]*попросил об этом в чате[\s\S]*\/admin/);
@@ -2116,7 +2116,7 @@ test('work chat: the bot asks for the administrator\'s rights, hears voices, wri
   // the feed: the owner alone, Claude reads the chat and the voices, the result waits for review
   n = tgCalls.length;
   await update(msg(BOB, { text: '/digest лента' }));
-  assert.match(lastSay().params.text, /владелец и координаторы/);
+  assert.match(lastSay().params.text, /Это делают координаторы проекта/);
   const before = (await docs('tasks')).length;
   aiScript.push({ content: [{ type: 'text', text: 'Вот лента:\n' + JSON.stringify({ summary: 'Анкета утверждается, появилась идея кулонов', feed: '20 ноября\n• Арджун: утверждаем анкету завтра в 11.\n• Арджун предложил кулоны с номерами <108>.',
     changes: [{ type: 'task', title: 'Сделать вводную страницу о проекте', due: '2031-03-01' }, { type: 'comment', tag: 'decision', text: 'Анкету утверждаем на встрече' }, { type: 'status', value: 'done' }, { type: 'comment', tag: 'weird', text: 'Идея кулонов' }] }) }] });
@@ -2294,10 +2294,10 @@ test('the bot works for the team: a coordinator and an editor do in it what thei
   await update(msg(UMA, { text: '/answers мастерская' }));
   assert.match(lastSay().params.text, /Не нашёл проект/);
   await update(msg(UMA, { text: '/members' }));
-  assert.match(lastSay().params.text, /у владельца, у тебя и ещё[\s\S]*Vic[\s\S]*редактор[\s\S]*Wes[\s\S]*зритель/);
+  assert.match(lastSay().params.text, /у координаторов и ещё[\s\S]*Vic[\s\S]*редактор[\s\S]*Wes[\s\S]*зритель/);
   assert.doesNotMatch(lastSay().params.text, /Bob|Uma/);
   await update(msg(UMA, { text: '/backup' }));
-  assert.match(lastSay().params.text, /выполняет владелец/);
+  assert.match(lastSay().params.text, /в боте она тебе не открыта/);
   await call('DELETE', '/api/onboard/p-tb', { token: ownerToken });
 
   // a client reply from the coordinator: their projects to choose from, the review is theirs, the owner hears
@@ -2326,16 +2326,16 @@ test('the bot works for the team: a coordinator and an editor do in it what thei
   const note = (await db.listDocs('inbox')).find((d) => d.data.text === 'идея для встречи');
   assert.equal(note.data.project, 'p-tb');
   await update(msg(VIC, { text: '/onboard командный' }));
-  assert.match(lastSay().params.text, /владелец и координаторы/);
+  assert.match(lastSay().params.text, /Это делают координаторы проекта/);
   n = tgCalls.length;
   await update(tap(VIC, 'ob:p-tb'));
-  assert.match(sinceMark(n, 'answerCallbackQuery')[0].params.text, /владелец и координаторы/);
+  assert.match(sinceMark(n, 'answerCallbackQuery')[0].params.text, /Это делают координаторы проекта/);
   assert.ok(!(await db.listJoinLinks()).some((l) => l.project === 'p-tb'));
 
   // a viewer looks and no more; the bot names who can
   const before = (await msgs()).length;
   await update(msg(WES, { text: 'от Зоя, командный: тест' }));
-  assert.match(lastSay().params.text, /от тех, кто работает в проекте: владельца, координаторов и редакторов/);
+  assert.match(lastSay().params.text, /от тех, кто работает в проекте: координаторов и редакторов/);
   assert.equal((await msgs()).length, before);
 
   for (const d of await msgs()) await call('DELETE', '/api/db/messages/' + d.id, { token: ownerToken });
