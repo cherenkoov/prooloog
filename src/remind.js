@@ -35,16 +35,15 @@ function starts(e, tz, now) {
   for (let i = -1; i <= 31; i++) { const d = addDays(today, i); if (occurs(e, d)) out.push({ d, ms: clock.wallToMs(d, time, tz) }); }
   return out;
 }
-function offsetLabel(ms, tz) {
-  const p = clock.parts(ms, tz), min = Math.round((Date.parse(p.d + 'T' + p.t + ':00Z') - ms) / 60000), a = Math.abs(min);
-  return 'UTC' + (min < 0 ? '−' : '+') + Math.floor(a / 60) + (a % 60 ? ':' + String(a % 60).padStart(2, '0') : '');
-}
+const offsetLabel = clock.offsetLabel;
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const dayLabel = (d) => +d.slice(8, 10) + ' ' + MON[+d.slice(5, 7) - 1];
 // lang: the language of the one who gets the reminder; the owner reads Russian
 function text(e, s, m, tz, project, guest, lang) {
   const timed = /^\d{2}:\d{2}$/.test(e.time || ''), L = i18n.of(guest ? lang : 'ru');
-  return '⏰ ' + L.before(m) + ': <b>' + esc(e.title || L.meeting) + '</b>\n' + L.day(s.d) + (timed ? ', ' + e.time + (guest ? ' (' + offsetLabel(s.ms, tz) + ')' : '') : '') +
+  // a meeting set in a zone of its own is told in that zone, to everybody
+  const w = timed ? clock.shown(e, s.ms, tz, guest ? lang : 'ru') : { d: s.d };
+  return '⏰ ' + L.before(m) + ': <b>' + esc(e.title || L.meeting) + '</b>\n' + L.day(w.d) + (timed ? ', ' + w.t + (guest || w.own ? ' (' + w.label + ')' : '') : '') +
     (project && !guest ? ' · ' + esc(project) : '') + (okLink(e.link) && m <= 60 ? '\n' + L.link + ': ' + esc(e.link) : '');
 }
 async function claim(key) {
@@ -111,7 +110,7 @@ async function tick(nowMs) {
         if (!fresh) continue;
         const heads = [...new Set([owner].concat(await auth.managersOf(e.project)).filter(Boolean).map(String))];
         for (const h of heads) {
-          try { await T.tg('sendMessage', { chat_id: h, text: attend.reportText(fresh.data, s.d, members, projects[e.project]), parse_mode: 'HTML', link_preview_options: { is_disabled: true } }); sent++; }
+          try { await T.tg('sendMessage', { chat_id: h, text: attend.reportText(fresh.data, s.d, members, projects[e.project], tz), parse_mode: 'HTML', link_preview_options: { is_disabled: true } }); sent++; }
           catch (err) { console.error('[remind] report not delivered to ' + h + ':', err.message); }
         }
       }

@@ -1032,6 +1032,22 @@ function wallToMs(local,z){
 }
 function tzLabel(z){var off=zoneOffset(Date.now(),z),a=Math.abs(off);return 'UTC'+(off<0?'−':'+')+Math.floor(a/60)+(a%60?':'+pad(a%60):'')}
 function tzName(z){for(var i=0;i<TZL.length;i++)if(TZL[i][0]===z)return TZL[i][1].split(':')[0];return z.split('/').pop().replace(/_/g,' ')}
+/* A meeting can be set in a zone of its own (events.zone): the form shows and takes its time in that zone, the record
+   keeps date and time by the app's clock as before, so the calendar and the reminders need nothing new. */
+var EVZ=[['Europe/Moscow','Москва (МСК)'],['Asia/Tbilisi','Тбилиси'],['Africa/Cairo','Египет: Каир'],['Europe/Istanbul','Стамбул'],['Asia/Dubai','Дубай'],['Asia/Kolkata','Индия'],['Europe/Kiev','Киев'],['Asia/Almaty','Алматы'],['Asia/Bangkok','Бангкок'],['Asia/Makassar','Бали'],['Europe/Berlin','Берлин'],['Europe/London','Лондон'],['Europe/Lisbon','Лиссабон'],['America/New_York','Нью-Йорк'],['America/Los_Angeles','Лос-Анджелес'],['UTC','UTC']];
+function storeTz(){return appTz()||deviceTz()}
+function evzName(z){for(var i=0;i<EVZ.length;i++)if(EVZ[i][0]===z)return EVZ[i][1];return tzName(z)}
+function evzOpts(cur){
+  var dev=deviceTz(),o=[[dev,'Местное: '+evzName(dev)+' · '+tzLabel(dev)]],has=function(z){return o.some(function(x){return x[0]===z})};
+  EVZ.forEach(function(x){if(tzOk(x[0])&&!has(x[0]))o.push([x[0],x[1]+' · '+tzLabel(x[0])])});
+  [storeTz(),cur].forEach(function(z){if(tzOk(z)&&!has(z))o.push([z,evzName(z)+' · '+tzLabel(z)])});
+  return o;
+}
+// the date and time of a meeting as the clock of a zone shows them; without a time nothing is moved
+function evInZone(date,time,from,to){
+  if(!validDate(date)||!/^\d{2}:\d{2}$/.test(time||'')||!tzOk(from)||!tzOk(to)||from===to)return {d:date,t:time||''};
+  var ms=wallToMs(date+'T'+time,from);return isFinite(ms)?zoneParts(ms,to):{d:date,t:time};
+}
 function nowClock(){var z=appTz(),d=new Date();return z?zoneParts(d.getTime(),z):{d:iso(d),t:pad(d.getHours())+':'+pad(d.getMinutes())}}
 function tzChanged(before){if(appTz()!==before){ui.day=today();ui.month=ui.day.slice(0,7);ui.pday=''}}
 function today(){return nowClock().d}
@@ -3425,7 +3441,7 @@ function meetTick(){
 var LOG_KEEP=90,LOG_CAP=600,LOG_SKIP={activity:1,usage:1,gone:1,audit:1,evsubs:1};
 var LOGN={projects:['проект','m'],tasks:['задача','f'],milestones:['верста','f'],events:['событие','n'],inbox:['запись во входящих','f'],log:['комментарий','m'],posts:['пост','m'],channels:['канал','m'],services:['услуга','f'],money:['запись бюджета','f'],subs:['подписка','f'],contacts:['контакт','m'],messages:['сообщение','n'],clients:['клиент','m'],chats:['рабочий чат','m'],memory:['запись в памяти Claude','f'],quests:['квест','m'],checkins:['отчёт дня','m'],settings:['настройки','p']};
 var LOGV={add:{m:'Добавлен',f:'Добавлена',n:'Добавлено',p:'Добавлены'},upd:{m:'Изменён',f:'Изменена',n:'Изменено',p:'Изменены'},del:{m:'Удалён',f:'Удалена',n:'Удалено',p:'Удалены'}};
-var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'верста',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника',team:'вся команда',att:'явка'};
+var LOGF={title:'название',name:'название',status:'статус',st:'статус',due:'срок',date:'дата',time:'время',done:'готовность',next:'следующий шаг',notes:'заметки',project:'проект',text:'текст',amount:'сумма',review:'ревью',milestone:'верста',contact:'контакт',hours:'часы в неделю',why:'зачем',area:'категория',color:'цвет',links:'ссылки',people:'люди',rem:'напоминания',link:'ссылка',call:'созвон',variants:'варианты',week:'неделя цикла',weekGoal:'цель недели',sales:'условия',paidTo:'оплачено до',price:'цена',fee:'подключение',role:'роль',rel:'роль в отношениях',tg:'Telegram',phone:'телефон',email:'почта',summary:'суть',proposal:'предложения',applied:'применённое',collect:'что сохранять',read:'просмотр в чате',app:'доступ в приложении',remind:'напоминания',capacity:'часы в неделю',tz:'часовой пояс',currency:'валюта',active:'активность',period:'период',cat:'категория',kind:'тип',plan:'план',pillar:'рубрика',core:'суть',repeat:'повтор',until:'до даты',tag:'тег',from:'от кого',channel:'канал',cur:'валюта',photo:'фото',desc:'описание',tagline:'подзаголовок',meet:'ссылки созвонов',metricoolBlog:'Metricool',projects:'проекты',group:'группа',start:'начало',trialTo:'пробный до',feePaid:'оплата подключения',share:'ссылка участника',url:'ссылка',media:'медиа',audience:'аудитория',voice:'тон',formats:'форматы',pillars:'рубрики',cadence:'ритм',goal:'цель',cta:'призыв',limit:'лимит',net:'сеть',incl:'что входит',format:'формат',dur:'длительность',pmode:'цена',ctaUrl:'ссылка',video:'видео',reviewedAt:'ревью',file:'файл',chat:'обсуждение',lang:'язык участника',team:'вся команда',att:'явка',zone:'часовой пояс'};
 var LOGK={projects:'project',tasks:'task',milestones:'milestone',events:'event',posts:'post',services:'service',clients:'client',contacts:'contact'};
 var lg={srv:null,queue:[],mine:[],day:'',live:null,un:undefined,timer:0,tries:0,sub:false,ready:false,full:false,f:'all',pruned:false,who:'',whoMap:{},mem:false};
 function logSame(a,b){
@@ -4092,11 +4108,15 @@ function formEvent(id,pre){
   var e=id?byId(S.events,id):null;if(id&&!e)return;
   e=e||merge({title:'',project:ui.project!=='all'&&P(ui.project)?ui.project:'',date:ui.day||today(),time:'',repeat:'',until:'',contact:'',call:'',link:'',rem:remList(S.settings.rem)},pre);
   var meet=S.settings.meet&&typeof S.settings.meet==='object'?S.settings.meet:{},bot=botName();
+  // a new meeting starts in the zone of this device; a meeting that has no zone was set by the app's clock
+  var ezone=tzOk(e.zone)?e.zone:(id?storeTz():deviceTz()),ewall=id?evInZone(e.date,e.time,storeTz(),ezone):{d:e.date,t:e.time};
   openSheet(id?'Событие':'Новое событие',formHtml('event',id,
     fld('Что будет',inp('title',e.title,'required maxlength="200"'))+
     fld('Проект',sel('project',projOpts(true),e.project||''))+
     (boss()&&S.contacts.length?fld('С кем',sel('contact',cOpts(e.project||'',e.contact),byId(S.contacts,e.contact)?e.contact:'')):'')+
-    '<div class="f2">'+fld('Дата',inp('date',e.date,'type="date" required'))+fld('Время',inp('time',e.time,'type="time"'))+'</div>'+
+    '<div class="f2">'+fld('Дата',inp('date',ewall.d,'type="date" required'))+fld('Время',inp('time',ewall.t,'type="time"'))+'</div>'+
+    fld('Часовой пояс времени',sel('zone',evzOpts(ezone),ezone))+
+    '<p class="sg-out" id="ev-zone-n" role="status"></p>'+
     '<div class="f2">'+fld('Повтор',sel('repeat',[['','Не повторять'],['daily','Каждый день'],['weekly','Каждую неделю']],e.repeat||''))+fld('Повторять до',inp('until',e.until,'type="date"'))+'</div>'+
     '<div class="f2">'+fld('Созвон',sel('call',[['','Не созвон']].concat(Object.keys(CALLS).map(function(k){return [k,CALLS[k]]})),CALLS[e.call]?e.call:''))+fld('Ссылка на созвон',inp('link',e.link||'','type="url" maxlength="500" placeholder="https://" autocomplete="off"'))+'</div>'+
     '<p class="sg-out" id="ev-link-n" role="status"></p>'+
@@ -4105,6 +4125,12 @@ function formEvent(id,pre){
     '<p class="sg-out">'+(bot?'Бот @'+esc(bot)+' пришлёт напоминания в Telegram. Если у события есть ссылка на созвон, за 5 минут до начала придёт ещё и она.':'Напоминания присылает бот серверной версии. Здесь правила сохраняются и уйдут на сервер при синхронизации.')+'</p>'+
     (id&&(e.team||Object.keys(e.att&&typeof e.att==='object'?e.att:{}).length)?'<div class="chat-h"><h2>Команда на встрече</h2></div><div id="ev-att">'+attBox(e)+'</div>':'')+
     (id&&bot&&boss()?'<div class="chat-h"><h2>Участнику встречи</h2></div><div id="ev-share">'+evShareBox(e)+'</div>':'')),function(b){
+      var zs=b.querySelector('#f-zone'),zd=b.querySelector('#f-date'),zt=b.querySelector('#f-time'),zn=b.querySelector('#ev-zone-n');
+      var zSync=function(){
+        var st=storeTz(),w=evInZone(zd.value,zt.value,zs.value,st);
+        zn.textContent=!zt.value?'У события без времени пояс не нужен.':zs.value===st?'':'В календаре приложения это '+(w.d!==zd.value?fmt(w.d)+', ':'')+w.t+' ('+evzName(st)+', '+tzLabel(st)+'). Бот напишет участникам время в выбранном поясе.';
+      };
+      [zs,zd,zt].forEach(function(x){x.addEventListener('change',zSync);x.addEventListener('input',zSync)});zSync();
       var tmc=b.querySelector('#f-team'),tmn=b.querySelector('#ev-team-n'),tmp=b.querySelector('#f-project');
       if(tmc&&tmn){var tmSync=function(){tmn.textContent=tmc.checked?attTeamNote(tmp?tmp.value:''):''};tmc.addEventListener('change',tmSync);if(tmp)tmp.addEventListener('change',tmSync);tmSync()}
       var list=b.querySelector('#ev-rem'),add=b.querySelector('#ev-rem-add'),cs=b.querySelector('#f-call'),ln=b.querySelector('#f-link'),note=b.querySelector('#ev-link-n');
@@ -4672,6 +4698,12 @@ function save(kind,id,v,form){
     if(ui.owner&&Object.keys(est).length)saveSettings(est);
     if(v.contact!==undefined)data.contact=byId(S.contacts,v.contact)?v.contact:'';
     if(v.team!==undefined)data.team=!!v.team&&!!data.project;
+    // the time was typed by the clock of the chosen zone; the record keeps it by the app's clock and remembers the zone
+    if(v.zone!==undefined){
+      var ez=data.time&&tzOk(v.zone)?v.zone:'',ew=ez?evInZone(data.date,data.time,ez,storeTz()):null;
+      if(ew){data.date=ew.d;data.time=ew.t}
+      data.zone=ez;
+    }
     if(id)patch('events',id,data);else put('events',uid('e'),data);
   }else if(kind==='money'){
     var amt=Math.round((+String(v.amount).replace(',','.')||0)*100)/100;

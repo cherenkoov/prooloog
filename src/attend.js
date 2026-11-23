@@ -134,12 +134,14 @@ async function rsvp(from, evId, ymd, yn, keepJoin) {
 }
 
 /* ---------- the report to those who run the project ---------- */
-function reportText(e, date, people, project) {
+function reportText(e, date, people, project, tz) {
   const day = isObj(e.att) && isObj(e.att[date]) ? e.att[date] : {};
   const nm = (p) => esc(p.name || (p.username ? '@' + p.username : 'участник'));
   const came = people.filter((p) => isObj(day[p.tg]) && day[p.tg].c), rest = people.filter((p) => !came.includes(p));
+  const w = timed(e) && tz ? clock.shown(e, clock.wallToMs(date, e.time, tz), tz, 'ru') : null;
+  const when = w ? remind.dayLabel(w.d) + ' ' + w.t + (w.own ? ' (' + w.label + ')' : '') : remind.dayLabel(date) + (timed(e) ? ' ' + e.time : '');
   const why = (p) => { const r = isObj(day[p.tg]) ? day[p.tg].r : ''; return r === 'no' ? ' (ответ: не смогу)' : r === 'yes' ? ' (ответ: буду)' : ''; };
-  return 'Созвон <b>' + esc(e.title || 'Встреча') + '</b>' + (project ? ' · ' + esc(project) : '') + ', ' + remind.dayLabel(date) + (timed(e) ? ' ' + e.time : '') +
+  return 'Созвон <b>' + esc(e.title || 'Встреча') + '</b>' + (project ? ' · ' + esc(project) : '') + ', ' + when +
     '\nПришли ' + came.length + ' из ' + people.length + (came.length ? ': ' + came.map(nm).join(', ') : '') + '.' +
     (rest.length ? '\nНе открывали ссылку: ' + rest.map((p) => nm(p) + why(p)).join(', ') + '.' : '') +
     '\n\nСчитаю тех, кто вошёл по своей кнопке от меня. Кто зашёл иначе или позже, отмечается в самой встрече в дэшборде.';

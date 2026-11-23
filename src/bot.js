@@ -278,7 +278,8 @@ async function guestText(e, rem, tz, lang) {
     const ms = clock.wallToMs(e.data.date, timed ? e.data.time : '09:00', tz);
     if (ms > Date.now() - 600000) s = { d: e.data.date, ms };
   }
-  return '<b>' + esc(e.data.title || L.meeting) + '</b>\n' + (s ? L.dayFull(s.d, clock.parts(Date.now(), tz).d.slice(0, 4)) + (timed ? ', ' + e.data.time + ' (' + remind.offsetLabel(s.ms, tz) + ')' : '') : L.tbd) +
+  const w = s && timed ? clock.shown(e.data, s.ms, tz, lang) : null;
+  return '<b>' + esc(e.data.title || L.meeting) + '</b>\n' + (s ? L.dayFull(w ? w.d : s.d, clock.parts(Date.now(), tz).d.slice(0, 4)) + (w ? ', ' + w.t + ' (' + w.label + ')' : '') : L.tbd) +
     (remind.okLink(e.data.link) ? '\n\n' + L.linkNow(esc(e.data.link)) : '') +
     '\n\n' + (rem.length ? L.will(rem.slice().sort((a, b) => a - b).map((m) => L.rules[m] || '').filter(Boolean).join(', ')) : L.off) + '\n' + L.choose;
 }

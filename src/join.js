@@ -547,8 +547,8 @@ async function whenText(e) {
   const tz = await clock.appTz(), timed = /^\d{2}:\d{2}$/.test(e.time || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date || '')) return '';
   if (!timed) return ruDay(e.date);
-  const ms = clock.wallToMs(e.date, e.time, tz);
-  return ruDay(e.date) + ', ' + e.time + ' (' + require('./remind').offsetLabel(ms, tz) + ')';
+  const w = clock.shown(e, clock.wallToMs(e.date, e.time, tz), tz, 'ru');
+  return ruDay(w.d) + ', ' + w.t + ' (' + w.label + ')';
 }
 async function pollWhen(id, e) {
   for (const f of forms()) for (const p of f.polls || []) {

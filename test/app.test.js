@@ -2680,3 +2680,24 @@ test('game: quests and reports of a player come from the chat and the app, XP is
   assert.equal((await w('DELETE', 'quests/q-lib', ownerToken)).status, 200);
   assert.equal((await w('DELETE', 'quests/q-v-soul', vlad.token)).status, 200);
 });
+
+test('a meeting set in a zone of its own is told in that zone', async () => {
+  const remind = require('../src/remind'), clock = require('../src/clock'), attend = require('../src/attend');
+  const put = (path, data) => call('PUT', '/api/db/' + path, { token: ownerToken, json: { data } });
+  const tz = await clock.appTz(), start = Date.UTC(2031, 4, 10, 9, 0), at = clock.parts(start, tz);   // 12:00 in Moscow and in Cairo (summer time there)
+  await put('events/e-zone', { title: 'По Москве', date: at.d, time: at.t, rem: [60], zone: 'Europe/Moscow' });
+  await put('events/e-zone2', { title: 'По Каиру', date: at.d, time: at.t, rem: [60], zone: 'Africa/Cairo', link: 'https://meet.example/z', share: 'zonesharetoken01' });
+  await put('events/e-zone3', { title: 'Без пояса', date: at.d, time: at.t, rem: [60], zone: 'Nowhere/Land' });
+  const n = tgCalls.length;
+  await remind.tick(start - 60 * 60000 + 1000);
+  const texts = sinceMark(n, 'sendMessage').filter((c) => String(c.params.chat_id) === String(OWNER.id)).map((c) => c.params.text);
+  assert.match(texts.find((t) => /По Москве/.test(t)), /\n10 мая, 12:00 \(МСК, UTC\+3\)/);
+  assert.match(texts.find((t) => /По Каиру/.test(t)), /\n10 мая, 12:00 \(Каир, UTC\+3\)/);
+  const plain = texts.find((t) => /Без пояса/.test(t));
+  assert.ok(plain.includes('\n' + remind.dayLabel(at.d) + ', ' + at.t) && !/UTC/.test(plain), 'an unknown zone is ignored: the app\'s clock, as before');
+  // a participant reads the same zone, in their language; the report to the owner too
+  await update(msg(EVE, { text: '/start even_zonesharetoken01', from: Object.assign({}, EVE, { language_code: 'en' }) }));
+  assert.match(lastSay().params.text, /May 10, 2031, 12:00 \(Cairo, UTC\+3\)/);
+  assert.match(attend.reportText({ title: 'По Москве', time: at.t, zone: 'Europe/Moscow' }, at.d, [], '', tz), /10 мая 12:00 \(МСК, UTC\+3\)/);
+  assert.deepEqual([clock.okZone('Asia/Tbilisi'), clock.okZone('x'), clock.okZone('')], [true, false, false]);
+});
