@@ -2902,3 +2902,140 @@ test('notes: a notetaker sends the transcript of a call, the breakdown lands on 
   assert.equal((await ev('e-nt')).notes[day], undefined);
   assert.equal(await db.getDoc('transcripts', 'e-nt__' + ymd), null);
 });
+
+test('a document the team answers: a file to the bot, a message to the work chat, «Согласен» and «Хочу уточнить» on its page', async () => {
+  const db = require('../src/db');
+  const GID = -1001234500999, CH = 'g1001234500999';
+  await db.setDoc('chats', CH, { tg: GID, title: 'Команда блога', kind: 'supergroup', project: 'p-blog', on: true, collect: 'ask' });
+  const md = '# Оффер: приложение\n\nПервая версия за **4 недели** и 4 000 $.\n\n## Этапы\n\n| Этап | Срок |\n| --- | --- |\n| Основа | Неделя 1 |\n\n- [ ] Список чатов\n';
+  tgFiles['files/OFFERFILE1'] = Buffer.from(md);
+  const file = (cap, id) => msg(OWNER, { document: { file_id: id || 'OFFERFILE1', file_name: 'offer.md', mime_type: 'text/markdown', file_size: Buffer.byteLength(md) }, caption: cap });
+  const to = (id, n) => sinceMark(n, 'sendMessage').map((c) => c.params).filter((p) => String(p.chat_id) === String(id));
+  const buttons = (p) => ((p.reply_markup && p.reply_markup.inline_keyboard) || []).flat();
+
+  // without a project the bot asks for one; with a project it keeps the text and shows what the chat will get
+  let n = tgCalls.length;
+  await update(file('/offer'));
+  assert.match(to(OWNER.id, n).pop().text, /К какому проекту относится документ/);
+  await update(file('/offer зюзюка'));
+  assert.match(lastSay().params.text, /Не нашёл проект «зюзюка»/);
+  assert.equal((await db.listDocs('offers')).length, 0);
+  n = tgCalls.length;
+  await update(file('/offer блог'));
+  const card = to(OWNER.id, n).pop();
+  assert.match(card.text, /Документ <b>«Оффер: приложение»<\/b> сохранён в проекте <b>Личный блог<\/b>/);
+  assert.match(card.text, /<blockquote><b>Оффер: приложение<\/b>\n\nПервая версия за 4 недели и 4 000 \$\.\n\nОткройте документ кнопкой ниже/);
+  const doc = (await db.listDocs('offers'))[0], token = doc.data.token;
+  assert.match(token, /^[A-Za-z0-9_-]{16}$/);
+  assert.deepEqual([doc.data.project, doc.data.title, doc.data.md], ['p-blog', 'Оффер: приложение', md.trim()]);
+  assert.equal(buttons(card).find((b) => b.web_app).web_app.url, 'https://prooloog.test/o/' + token);
+  const sendBtn = buttons(card).find((b) => /^of:s:/.test(b.callback_data || ''));
+  assert.equal(sendBtn.text, 'Отправить в чат «Команда блога»');
+  assert.equal(sendBtn.callback_data, 'of:s:' + doc.id + ':' + CH);
+
+  // the work chat gets the message with a button that leads to the bot
+  n = tgCalls.length;
+  await update(tap(OWNER, sendBtn.callback_data));
+  const inChat = to(GID, n);
+  assert.equal(inChat.length, 1);
+  assert.match(inChat[0].text, /^<b>Оффер: приложение<\/b>\n\nПервая версия/);
+  assert.deepEqual(buttons(inChat[0]), [{ text: 'Открыть документ', url: 'https://t.me/prooloog_test_bot?start=of_' + token }]);
+  assert.match(to(OWNER.id, n).pop().text, /Отправил «Оффер: приложение» в чат «Команда блога»/);
+  assert.equal((await db.getDoc('offers', doc.id)).data.sent.length, 1);
+  // a chat of another project is not a place for it
+  await db.setDoc('chats', 'g1001234500998', { tg: -1001234500998, title: 'Чужой', project: 'p-india', on: true });
+  n = tgCalls.length;
+  await update(tap(OWNER, 'of:s:' + doc.id + ':g1001234500998'));
+  assert.equal(to(-1001234500998, n).length, 0);
+
+  // anybody with the link opens it through the bot; outside Telegram the page gives away only the title
+  const NINA = { id: 777301, first_name: 'Нина', last_name: 'Ким', username: 'nina_kim' };
+  n = tgCalls.length;
+  await update(msg(NINA, { text: '/start of_' + token }));
+  const hello = to(NINA.id, n).pop();
+  assert.match(hello.text, /^<b>Оффер: приложение<\/b>/);
+  assert.equal(buttons(hello)[0].web_app.url, 'https://prooloog.test/o/' + token);
+  await update(msg(NINA, { text: '/start of_AAAAAAAAAAAAAAAA' }));
+  assert.match(lastSay().params.text, /больше не доступен/);
+  assert.match((await call('GET', '/o/' + token)).text, /Ваш ответ/);
+  const open = await call('GET', '/api/offer/' + token);
+  assert.deepEqual(open.json, { title: 'Оффер: приложение', app: 'Prooloog', bot: 'prooloog_test_bot', start: 'of_' + token });
+  assert.equal((await call('POST', '/api/offer/' + token + '/me', { json: {} })).status, 401);
+  assert.equal((await call('POST', '/api/offer/' + token + '/me', { json: { initData: initData(NINA, 0, '999:OTHER') } })).status, 401);
+  assert.equal((await call('POST', '/api/offer/AAAAAAAAAAAAAAAA/me', { json: { initData: initData(NINA) } })).status, 404);
+  const me = await call('POST', '/api/offer/' + token + '/me', { json: { initData: initData(NINA) } });
+  assert.deepEqual([me.json.title, me.json.md, me.json.project, me.json.user.name, me.json.mine], ['Оффер: приложение', md.trim(), 'Личный блог', 'Нина Ким', { yes: '', asks: [] }]);
+
+  // a question: kept on the document, saved to the project's messages for review, told to those who run the project
+  const say = (j) => call('POST', '/api/offer/' + token + '/answer', { json: Object.assign({ initData: initData(NINA) }, j) });
+  assert.equal((await say({ kind: 'maybe' })).status, 400);
+  assert.equal((await say({ kind: 'ask', text: ' ' })).status, 400);
+  n = tgCalls.length;
+  const before = (await db.listDocs('messages')).length;
+  const asked = await say({ kind: 'ask', text: '  Что входит   в поддержку?\n\n\n\nИ <b>сроки</b>  ' });
+  assert.equal(asked.status, 200);
+  assert.deepEqual(asked.json.mine.asks.map((a) => a.text), ['Что входит в поддержку?\n\nИ <b>сроки</b>']);
+  const news = to(OWNER.id, n).pop();
+  assert.match(news.text, /<b>Нина Ким<\/b> \(@nina_kim\) хочет уточнить по документу «Оффер: приложение»:\n<blockquote>Что входит в поддержку\?\n\nИ &lt;b&gt;сроки&lt;\/b&gt;<\/blockquote>\nОтветить: @nina_kim/);
+  let msgs = (await db.listDocs('messages')).filter((d) => d.data.src === 'offer');
+  assert.equal((await db.listDocs('messages')).length, before + 1);
+  assert.deepEqual([msgs[0].data.project, msgs[0].data.review, msgs[0].data.from], ['p-blog', 'pending', 'Нина Ким (@nina_kim)']);
+  assert.match(msgs[0].data.text, /^Вопрос по документу «Оффер: приложение»: Что входит/);
+  // the same question tapped twice is one question
+  await say({ kind: 'ask', text: 'Что входит в поддержку?\n\nИ <b>сроки</b>' });
+  assert.equal((await db.getDoc('offers', doc.id)).data.answers.length, 1);
+
+  // agreement is said once
+  n = tgCalls.length;
+  const yes = await say({ kind: 'yes' });
+  assert.ok(yes.json.mine.yes);
+  assert.match(to(OWNER.id, n).pop().text, /<b>Нина Ким<\/b> \(@nina_kim\): согласен с условиями документа «Оффер: приложение»\./);
+  n = tgCalls.length;
+  assert.equal((await say({ kind: 'yes' })).json.mine.yes, yes.json.mine.yes);
+  assert.equal(to(OWNER.id, n).length, 0);
+  assert.equal((await db.getDoc('offers', doc.id)).data.answers.length, 2);
+  msgs = (await db.listDocs('messages')).filter((d) => d.data.src === 'offer');
+  assert.equal(msgs.length, 2);
+  // the owner answering their own document hears nothing about it
+  n = tgCalls.length;
+  assert.equal((await call('POST', '/api/offer/' + token + '/answer', { json: { initData: initData(OWNER), kind: 'yes' } })).status, 200);
+  assert.equal(to(OWNER.id, n).length, 0);
+
+  // «/offer»: the documents with their counts; «Ответы»: who said what
+  n = tgCalls.length;
+  await update(msg(OWNER, { text: '/offer' }));
+  const listed = to(OWNER.id, n).pop();
+  assert.match(listed.text, /• <b>Оффер: приложение<\/b>, Личный блог: согласны 2, вопросов 1/);
+  assert.equal(buttons(listed)[0].callback_data, 'of:c:' + doc.id);
+  await update(tap(OWNER, 'of:a:' + doc.id));
+  assert.match(lastSay().params.text, /<b>Согласны \(2\):<\/b>\n• Нина Ким \(@nina_kim\)\n• Alex Owner \(@alex_owner\)\n\n<b>Вопросы \(1\):<\/b>\n• Нина Ким \(@nina_kim\): Что входит в поддержку\? И &lt;b&gt;сроки&lt;\/b&gt;/);
+
+  // the words for the chat can be one's own: the caption from its second line
+  n = tgCalls.length;
+  await update(file('/offer блог\nКоллеги, это условия <разработки>.'));
+  assert.match(to(OWNER.id, n).pop().text, /<blockquote>Коллеги, это условия &lt;разработки&gt;\.\n\nОткройте документ кнопкой ниже/);
+  const second = (await db.listDocs('offers')).find((d) => d.id !== doc.id);
+
+  // somebody without the project's reins neither adds nor sends
+  const VERA = { id: 777302, first_name: 'Вера', username: 'vera_ed' };
+  await db.upsertMember(String(VERA.id), 'vera_ed', 'Вера', 'editor');
+  await db.setMemberAccess(String(VERA.id), 'editor', ['p-blog']);
+  n = tgCalls.length;
+  await update(Object.assign(file('/offer блог'), { message: Object.assign(file('/offer блог').message, { from: VERA, chat: { id: VERA.id, type: 'private' } }) }));
+  assert.match(to(VERA.id, n).pop().text, /Это делают координаторы проекта/);
+  await update(tap(VERA, 'of:s:' + doc.id + ':' + CH));
+  assert.equal((await db.listDocs('offers')).length, 2);
+  assert.equal((await db.getDoc('offers', doc.id)).data.sent.length, 1);
+
+  // deleting asks first; after it the link is closed, the messages of the project stay
+  await update(tap(OWNER, 'of:d:' + second.id));
+  assert.match(lastSay().params.text, /Удалить документ «Оффер: приложение» вместе с ответами\?/);
+  assert.ok(await db.getDoc('offers', second.id));
+  await update(tap(OWNER, 'of:D:' + second.id));
+  assert.equal(await db.getDoc('offers', second.id), null);
+  assert.equal((await call('GET', '/api/offer/' + second.data.token)).status, 404);
+  await update(tap(OWNER, 'of:D:' + doc.id));
+  assert.equal((await call('POST', '/api/offer/' + token + '/me', { json: { initData: initData(NINA) } })).status, 404);
+  assert.equal((await db.listDocs('messages')).filter((d) => d.data.src === 'offer').length, 3);
+  await db.removeMember(String(VERA.id));
+});
