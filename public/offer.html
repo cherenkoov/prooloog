@@ -42,6 +42,14 @@ a.btn{text-decoration:none;color:inherit}
 a.btn.pri{color:var(--on-accent)}
 .btn[disabled]{opacity:.55}
 
+/* a link alone on its line is a button; the arrow in the corner leads down to the last one */
+.doc p.cta{font-size:16px}
+.doc p.cta a{display:flex;width:100%;text-decoration:none}
+#down{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:5;width:54px;height:54px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;box-shadow:0 8px 22px rgba(10,20,15,.28);animation:nudge 1.8s ease-in-out infinite}
+#down:active{transform:scale(.96)}
+@keyframes nudge{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+@media (prefers-reduced-motion:reduce){#down{animation:none}}
+
 /* the text */
 .doc{display:flex;flex-direction:column;gap:14px;overflow-wrap:break-word}
 .doc h1{font:600 30px/1.12 var(--display);letter-spacing:-.02em;text-wrap:balance}
@@ -99,6 +107,7 @@ a.btn.pri{color:var(--on-accent)}
 </head>
 <body>
 <div id="app" aria-live="polite"><p class="lead">Загружаю документ…</p></div>
+<button id="down" type="button" hidden><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
 <script>
 (function(){
 'use strict';
@@ -157,6 +166,8 @@ function md(src){
         :'<'+(ord?'ol':'ul')+'>'+items.map(function(t){return '<li>'+inline(t)+'</li>'}).join('')+'</'+(ord?'ol':'ul')+'>');
       continue;
     }
+    // a link that stands alone on its line is a button; the arrow in the corner leads to the last one
+    if((m=/^\s*\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)\s*$/.exec(l))&&(i+1>=L.length||!L[i+1].trim()||isBlock(L[i+1]))){out.push('<p class="cta"><a class="btn pri" data-open href="'+esc(m[2])+'" target="_blank" rel="noopener noreferrer">'+esc(m[1])+'</a></p>');i++;continue}
     var p=[l.trim()];i++;
     while(i<L.length&&L[i].trim()&&!isBlock(L[i])){p.push(L[i].trim());i++}
     out.push('<p>'+inline(p.join(' '))+'</p>');
@@ -188,8 +199,27 @@ function render(keepScroll){
     app.innerHTML=(S.project?'<p class="kick">'+esc(S.project)+'</p>':'')+'<article class="doc">'+md(S.md)+'</article>'+answerBox();
     if(mode==='ask'){var t=document.getElementById('q');if(t&&!busy){t.focus();t.setSelectionRange(t.value.length,t.value.length)}}
     if(keepScroll)window.scrollTo(0,y);
+    arrow();
   }
 }
+/* the arrow in the corner: one tap brings the reader down to the button the document ends with */
+var down=document.getElementById('down'), io=null, target=null;
+function arrow(){
+  var all=app.querySelectorAll('.doc .cta');target=all.length?all[all.length-1]:null;
+  if(io){io.disconnect();io=null}
+  if(!target){down.hidden=true;return}
+  down.setAttribute('aria-label','Вниз, к кнопке «'+target.textContent.trim()+'»');
+  var see=function(){var r=target.getBoundingClientRect();down.hidden=r.top<window.innerHeight-40}
+  if('IntersectionObserver' in window){io=new IntersectionObserver(see,{threshold:[0,1]});io.observe(target)}
+  see();
+}
+window.addEventListener('scroll',function(){if(target){var r=target.getBoundingClientRect();down.hidden=r.top<window.innerHeight-40}},{passive:true});
+down.addEventListener('click',function(){if(target)target.scrollIntoView({behavior:window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth',block:'center'})});
+// inside Telegram a link of the document opens in its browser, so the document stays where it was
+document.addEventListener('click',function(ev){
+  var a=ev.target.closest&&ev.target.closest('a[data-open]');if(!a)return;
+  try{if(tg&&tg.openLink){ev.preventDefault();tg.openLink(a.href)}}catch(e){}
+});
 function gate(text,link){
   app.innerHTML='<div class="gate">'+(info?'<p class="kick">'+esc(info.app)+'</p><h1>'+esc(info.title)+'</h1>':'')+'<p class="lead">'+esc(text)+'</p>'+(link?'<a class="btn pri" href="'+esc(link)+'">Открыть в Telegram</a>':'')+'</div>';
 }
