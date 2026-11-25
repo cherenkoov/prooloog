@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoChakra: прототип</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geologica:wght@500;600;700&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a phone-first app shell. Role switcher on top, the role's sections under it,
+   one column of content that widens to a two-column catalog on a laptop. */
+:root{
+  --bg:#eef2ec; --surface:#ffffff; --surface2:#f4f7f2; --ink:#15241c; --mute:#5a6b61; --line:#d6dfd5;
+  --accent:#1f6b4a; --on-accent:#ffffff; --sun:#b8770c; --sun-bg:#fbf0d9;
+  --ok:#1f7a4d; --warn:#9a6400; --warn-bg:#fdf1d6; --crit:#b3372c;
+  --display:"Geologica","Onest",system-ui,sans-serif;
+  --body:"Onest",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --r:16px;
+  --thumb:#b9c9bd; --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.500 6.400l2.400 2.400L9.600 3.700' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1613; --surface:#17211c; --surface2:#1d2a23; --ink:#e8f0ea; --mute:#93a59a; --line:#28372f;
+    --accent:#58c391; --on-accent:#072417; --sun:#f0b44c; --sun-bg:#33290f;
+    --ok:#58c391; --warn:#f0b44c; --warn-bg:#33290f; --crit:#f2766a;
+    --thumb:#3a4d42; --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.500 6.400l2.400 2.400L9.600 3.700' fill='none' stroke='%23072417' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1613; --surface:#17211c; --surface2:#1d2a23; --ink:#e8f0ea; --mute:#93a59a; --line:#28372f;
+  --accent:#58c391; --on-accent:#072417; --sun:#f0b44c; --sun-bg:#33290f;
+  --ok:#58c391; --warn:#f0b44c; --warn-bg:#33290f; --crit:#f2766a;
+  --thumb:#3a4d42; --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.500 6.400l2.400 2.400L9.600 3.700' fill='none' stroke='%23072417' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--body);-webkit-text-size-adjust:100%;display:flex;flex-direction:column;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+h1,h2,h3,p,ul{margin:0}
+ul{padding:0;list-style:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+[hidden]{display:none!important}
+.num{font-variant-numeric:tabular-nums}
+
+/* shell: header with the role's sections, pages side by side that switch by a sideways swipe, role bar at the bottom */
+.top{flex:none;background:var(--bg);border-bottom:1px solid var(--line)}
+.top-in{max-width:1040px;margin:0 auto;padding:12px 16px 10px;display:flex;flex-direction:column;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:9px;font:700 18px/1 var(--display);letter-spacing:-.01em}
+.logo i{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 210deg,var(--accent),var(--sun),var(--accent));display:block}
+.demo{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)}
+.demo b{font-weight:600;color:var(--sun);background:var(--sun-bg);padding:3px 8px;border-radius:99px}
+.demo .sm{display:none}
+@media (max-width:600px){.demo>span{display:none}.demo .lg{display:none}.demo .sm{display:inline}.logo{font-size:17px;gap:7px}.tz .nm{display:none}}
+.tz{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 9px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:600;color:var(--mute);white-space:nowrap}
+.tz:hover{border-color:var(--accent);color:var(--ink)}
+.tz svg{flex:none}
+.tzlist{display:flex;flex-direction:column}
+.tzlist button{display:flex;gap:10px;justify-content:space-between;align-items:center;width:100%;padding:10px 8px;border-radius:10px;border-bottom:1px solid var(--line)}
+.tzlist button:last-child{border-bottom:0}
+.tzlist button:hover{background:var(--surface2)}
+.tzlist button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.tzlist small{display:block;color:var(--mute);font-size:12px}
+.tzlist .off{flex:none;font-weight:600;font-variant-numeric:tabular-nums;color:var(--mute)}
+.link{color:var(--accent);font-weight:500;text-decoration:underline;text-underline-offset:3px}
+.tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+.tabs::-webkit-scrollbar{display:none}
+.tabs a{flex:none;padding:7px 14px;border-radius:99px;text-decoration:none;color:var(--mute);font-weight:500;font-size:15px;border:1px solid transparent}
+.tabs a[aria-current="page"]{color:var(--ink);background:var(--surface);border-color:var(--line);font-weight:600}
+#stage{flex:1 1 auto;min-height:0;position:relative}
+#pager{position:absolute;inset:0;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain}
+#pager::-webkit-scrollbar{display:none}
+.page{flex:0 0 100%;min-width:0;scroll-snap-align:start;scroll-snap-stop:always;overflow-y:auto;overflow-x:hidden;padding:18px 16px 28px}
+#detail{position:absolute;inset:0;overflow-y:auto;background:var(--bg);padding:18px 16px 28px}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.narrow{max-width:680px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.nav{flex:none;display:grid;grid-template-columns:repeat(5,1fr);background:var(--surface);border-top:1px solid var(--line);padding:6px max(8px,calc((100% - 560px)/2)) 8px}
+.nav button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px;border-radius:12px;font-size:12px;font-weight:600;color:var(--mute);text-align:center}
+.nav button[aria-pressed="true"]{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.nav .ic{position:relative;display:grid;place-items:center;height:24px}
+.nav em{position:absolute;top:-4px;left:calc(50% + 6px);min-width:17px;height:17px;padding:0 4px;border-radius:99px;background:var(--sun);color:#fff;font:600 11px/17px var(--body);font-style:normal;text-align:center}
+
+/* type */
+h1{font:700 26px/1.15 var(--display);letter-spacing:-.02em;text-wrap:balance}
+h2{font:600 18px/1.25 var(--display);letter-spacing:-.01em;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body)}
+.lead{color:var(--mute)}
+.small{font-size:13px;color:var(--mute)}
+.kick{font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--accent)}
+
+/* pieces */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spread{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.grow{flex:1 1 auto;min-width:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-weight:600;text-align:center;text-decoration:none;color:var(--ink)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.sm{min-height:36px;padding:0 12px;font-size:14px;border-radius:10px}
+.btn.ghost{border-color:transparent;background:none;color:var(--accent);padding:0 6px}
+.btn.danger{color:var(--crit)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:6px 12px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:14px;font-weight:500;color:var(--mute)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--surface2);color:var(--mute);white-space:nowrap}
+.tag.res{background:var(--sun-bg);color:var(--sun)}
+.tag.ok{background:color-mix(in srgb,var(--ok) 15%,var(--surface));color:var(--ok)}
+.tag.warn{background:var(--warn-bg);color:var(--warn)}
+.tag.acc{background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
+.ava{flex:none;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font:600 20px/1 var(--display);color:#fff;background:linear-gradient(140deg,hsl(var(--h) 45% 38%),hsl(calc(var(--h) + 50) 55% 52%))}
+.ava.sm{width:40px;height:40px;font-size:15px}
+.seg{display:inline-grid;grid-auto-flow:column;gap:4px;padding:4px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
+.seg button{padding:7px 14px;border-radius:9px;font-weight:600;font-size:14px;color:var(--mute);text-align:center}
+.seg button[aria-pressed="true"]{background:var(--surface2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.banner{padding:12px 14px;border-radius:12px;background:var(--warn-bg);color:var(--warn);font-weight:500;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.empty{padding:20px;border:1px dashed var(--line);border-radius:var(--r);color:var(--mute);text-align:center}
+
+/* catalog */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.mcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit}
+.mcard:hover{border-color:var(--accent)}
+.mcard .mf{color:var(--mute);font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mcard .foot{margin-top:auto;display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:14px}
+.map{--land:color-mix(in srgb,var(--accent) 26%,var(--surface));background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 12px 6px;display:flex;flex-direction:column;gap:4px}
+.map .spread{flex-wrap:wrap}
+.map svg{width:100%;height:auto;max-height:340px;display:block}
+.map .dot{cursor:pointer}
+.map text{font:600 15px var(--body);fill:var(--ink);paint-order:stroke;stroke:var(--surface);stroke-width:4px;stroke-linejoin:round}
+.map .on text{fill:var(--sun)}
+
+/* shared calendar: one block per start time; classes that start together stand in one row */
+.slot{display:flex;flex-direction:column;gap:8px}
+.slot-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.slot-h .t{font:700 20px/1 var(--display)}
+.simul{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.ecard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:8px}
+.ecard .btn{margin-top:auto}
+.swipe-hint{display:none}
+@media (max-width:620px){
+  .simul.many{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px 4px;scroll-padding:0 16px;scrollbar-width:none;overscroll-behavior-x:contain}
+  .simul.many::-webkit-scrollbar{display:none}
+  .simul.many .ecard{flex:0 0 78%;scroll-snap-align:start}
+  .swipe-hint{display:inline}
+}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.split div{background:var(--surface2);border-radius:12px;padding:10px 12px}
+.split span{display:block;font-size:12px;color:var(--mute)}
+.split b{font:700 18px/1.2 var(--display)}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:14px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);background:var(--surface2)}
+td.r,th.r{text-align:right;white-space:nowrap}
+tfoot td{font-weight:700;border-bottom:0}
+
+/* profile */
+.hero{display:flex;gap:14px;align-items:center}
+.hero .ava{width:84px;height:84px;font-size:30px}
+.quote{font:500 19px/1.35 var(--display);letter-spacing:-.01em;text-wrap:balance;border-left:3px solid var(--sun);padding-left:14px}
+.list{display:flex;flex-direction:column}
+.list>*{display:flex;gap:10px;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--line)}
+.list>*:last-child{border-bottom:0;padding-bottom:0}
+.list>*:first-child{padding-top:0}
+.price{font-weight:600;white-space:nowrap}
+.cta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+dl{margin:0;display:flex;flex-direction:column;gap:10px}
+dt{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mute)}
+dd{margin:2px 0 0}
+
+/* cabinet */
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.days button{padding:8px 0;border-radius:12px;text-align:center;border:1px solid transparent;display:flex;flex-direction:column;gap:2px;align-items:center}
+.days small{font-size:11px;color:var(--mute);text-transform:uppercase}
+.days b{font:600 16px/1 var(--display)}
+.days i{width:5px;height:5px;border-radius:50%;background:transparent}
+.days .has i{background:var(--accent)}
+.days button[aria-pressed="true"]{background:var(--surface);border-color:var(--line)}
+.ev{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid var(--line)}
+.ev:last-child{border-bottom:0;padding-bottom:0}
+.ev:first-child{padding-top:0}
+.ev .t{font:600 16px/1.2 var(--display)}
+.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat div{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px}
+.stat b{display:block;font:700 24px/1.1 var(--display)}
+.stat span{font-size:13px;color:var(--mute)}
+
+/* forms */
+.field{display:flex;flex-direction:column;gap:5px}
+.field label,.field .lab{font-size:14px;font-weight:600}
+.field .hint{font-size:13px;color:var(--mute)}
+input[type=text],input[type=date],input[type=time],input[type=number],select,textarea{width:100%;min-height:44px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg)}
+textarea{min-height:88px;resize:vertical;line-height:1.45}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.check{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start}
+.check input{width:20px;height:20px;margin:2px 0 0;accent-color:var(--accent)}
+.check+.check{margin-top:8px}
+.err{color:var(--crit);font-weight:500;font-size:14px}
+.sw{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}
+.sw:last-child{border-bottom:0}
+.sw input{width:20px;height:20px;accent-color:var(--accent)}
+
+/* dialog and toast */
+.dlg{position:fixed;inset:0;z-index:20;background:rgba(10,20,15,.5);display:flex;align-items:flex-end;justify-content:center}
+.dlg-in{background:var(--surface);width:100%;max-width:520px;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:18px 16px 20px;display:flex;flex-direction:column;gap:14px}
+@media (min-width:600px){.dlg{align-items:center}.dlg-in{border-radius:20px}}
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:30;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:14px;max-width:min(92vw,440px);font-weight:500;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+@media (prefers-reduced-motion:no-preference){.toast{animation:up .2s ease-out}@keyframes up{from{opacity:0;transform:translate(-50%,8px)}}}
+
+/* native controls in the app's own look: scrollbars, selects, ticks, radios, date and number fields */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-button{display:none;width:0;height:0}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--thumb);border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:var(--accent)}
+::-webkit-scrollbar-corner{background:transparent}
+@supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--thumb) transparent}}
+#pager,.tabs,.simul.many{scrollbar-width:none}
+html{accent-color:var(--accent);caret-color:var(--accent)}
+::selection{background:color-mix(in srgb,var(--accent) 28%,transparent);color:var(--ink)}
+::placeholder{color:var(--mute);opacity:.75}
+input[type=text],input[type=date],input[type=time],input[type=number],select,textarea{transition:border-color .12s,box-shadow .12s;-webkit-appearance:none;appearance:none}
+input[type=text]:hover,input[type=date]:hover,input[type=time]:hover,input[type=number]:hover,select:hover,textarea:hover{border-color:var(--thumb)}
+input[type=text]:focus,input[type=date]:focus,input[type=time]:focus,input[type=number]:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+select{padding-right:36px;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 19px) 50%,calc(100% - 14px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+select option{background:var(--surface);color:var(--ink)}
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input[type=date],input[type=time]{cursor:pointer}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=time]::-webkit-calendar-picker-indicator{opacity:.55;cursor:pointer;padding:4px;border-radius:6px}
+input[type=date]::-webkit-calendar-picker-indicator:hover,input[type=time]::-webkit-calendar-picker-indicator:hover{opacity:1;background:var(--surface2)}
+textarea{resize:vertical}
+@supports (field-sizing:content){textarea{field-sizing:content;resize:none;max-height:280px}}
+input[type=checkbox],input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:20px;height:20px;margin:0;border:1.5px solid var(--thumb);background:var(--bg);cursor:pointer;display:inline-block;vertical-align:middle;transition:background-color .12s,border-color .12s,box-shadow .12s}
+input[type=checkbox]{border-radius:6px}
+input[type=radio]{border-radius:50%}
+input[type=checkbox]:hover,input[type=radio]:hover{border-color:var(--accent)}
+input[type=checkbox]:checked{background:var(--accent) var(--tick) center/14px no-repeat;border-color:var(--accent)}
+input[type=radio]:checked{border:6px solid var(--accent);background:var(--on-accent)}
+input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.check input{margin-top:2px}
+.sw input{width:38px;height:22px;border-radius:99px;border:0;background:var(--thumb);position:relative}
+.sw input::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.sw input:checked{background:var(--accent)}
+.sw input:checked::after{transform:translateX(16px)}
+.sw{cursor:pointer}
+label.check{cursor:pointer}
+/* buttons and links: hover, press, disabled */
+.btn{transition:background-color .12s,border-color .12s,transform .06s}
+.btn:hover{border-color:var(--accent)}
+.btn.pri:hover{background:color-mix(in srgb,var(--accent) 88%,var(--ink))}
+.btn.ghost:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.btn:active{transform:scale(.98)}
+.btn[disabled]{opacity:.5;cursor:default;transform:none}
+.btn[disabled]:hover{border-color:var(--line)}
+.chip{transition:background-color .12s,border-color .12s,color .12s}
+.chip:hover{border-color:var(--accent);color:var(--ink)}
+.chip[aria-pressed="true"]:hover{color:var(--bg)}
+.tabs a:hover{color:var(--ink)}
+.nav button{transition:background-color .12s,color .12s}
+.nav button:hover{color:var(--ink)}
+.nav button[aria-pressed="true"]:hover{color:var(--accent)}
+.seg button:hover,.days button:hover{color:var(--ink);background:var(--surface2)}
+.link:hover{text-decoration-thickness:2px}
+.list>button:hover b,.list>a:hover .link{color:var(--accent)}
+.ecard,.mcard{transition:border-color .12s}
+tbody tr:hover td{background:var(--surface2)}
+.dlg{backdrop-filter:blur(3px)}
+.err{display:block;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--crit) 10%,var(--surface))}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.days.hd button{gap:3px}
+.occ{width:14px;height:34px;border-radius:5px;background:var(--surface2);border:1px solid var(--line);display:flex;align-items:flex-end;overflow:hidden}
+.occ span{display:block;width:100%;background:var(--accent);min-height:0}
+.days.hd .has b{text-decoration:underline;text-decoration-color:var(--sun);text-decoration-thickness:2px;text-underline-offset:4px}
+.big{font:700 34px/1.1 var(--display);letter-spacing:-.02em}
+.plus{color:var(--ok)}
+.card.bal{gap:6px}
+.bar{height:8px;border-radius:99px;background:var(--surface2);overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.seg.four{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-flow:row;width:100%}
+.seg.four button{padding:7px 4px;font-size:13px}
+@media (min-width:640px){.seg.four{width:auto;display:inline-grid}.seg.four button{padding:7px 14px;font-size:14px}}
+button.sel{width:100%;min-height:44px;padding:10px 38px 10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);text-align:left;cursor:pointer;position:relative;display:flex;align-items:center;min-width:0;transition:border-color .12s,box-shadow .12s}
+button.sel span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.sel::after{content:'';position:absolute;right:16px;top:50%;width:7px;height:7px;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:translateY(-70%) rotate(45deg);transition:transform .15s}
+button.sel[aria-expanded="true"]::after{transform:translateY(-25%) rotate(225deg);border-color:var(--accent)}
+button.sel:hover{border-color:var(--thumb)}
+button.sel:focus-visible,button.sel[aria-expanded="true"]{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.sel-pop{position:fixed;z-index:40;box-sizing:border-box;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:6px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 14px 36px rgba(10,20,15,.24);display:flex;flex-direction:column;gap:2px;animation:selpop .12s ease-out}
+.sel-pop.up{animation-name:selpopup}
+.sel-pop button{flex:none;text-align:left;padding:9px 12px;border-radius:9px;min-height:40px;display:flex;justify-content:space-between;align-items:center;gap:10px;background:none;border:0;cursor:pointer;color:var(--ink)}
+.sel-pop button:hover,.sel-pop button:focus-visible{background:var(--surface2);outline:none}
+.sel-pop button[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent);font-weight:600}
+.sel-pop button[aria-selected="true"]::after{content:'';flex:none;width:6px;height:11px;margin:-3px 4px 0 0;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg)}
+@keyframes selpop{from{opacity:0;transform:translateY(-4px)}}
+@keyframes selpopup{from{opacity:0;transform:translateY(4px)}}
+@media (prefers-reduced-motion:reduce){.sel-pop{animation:none}}
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">
+    <div class="row" style="flex-wrap:nowrap;gap:8px;min-width:0"><div class="logo"><i></i>EcoChakra</div><button class="tz" id="tz" data-act="tz-open" aria-label="Часовой пояс"></button></div>
+    <div class="demo"><b><span class="lg">Прототип</span><span class="sm">Демо</span></b><span>демо-данные</span><button class="link" data-act="reset">Сбросить</button></div>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Разделы"></nav>
+</div></header>
+<div id="stage"><div id="pager"></div><div id="detail" hidden></div></div>
+<nav class="nav" id="nav" aria-label="Роль"></nav>
+<div id="dlg"></div>
+<div id="toast" aria-live="polite"></div>
+<script>
+(function(){
+'use strict';
+var KEY='ecochakra-proto-v4', ME='anna', HUB='sea';
+var $=function(id){return document.getElementById(id)};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function uid(){return Math.random().toString(36).slice(2,9)}
+function day(n){var d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+var MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'], WD=['вс','пн','вт','ср','чт','пт','сб'];
+function dparse(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2],12)}
+function dfmt(s){var d=dparse(s);return d.getDate()+' '+MON[d.getMonth()]}
+function dlong(s){return s===day(0)?'Сегодня, '+dfmt(s):s===day(1)?'Завтра, '+dfmt(s):WD[dparse(s).getDay()]+', '+dfmt(s)}
+function money(n){return '$'+String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')}
+function initials(n){return n.split(' ').map(function(w){return w[0]}).slice(0,2).join('')}
+
+/* ---------- demo data ---------- */
+var CITIES={'Батуми':[41.64,41.65],'Тбилиси':[44.79,41.72],'Ришикеш':[78.27,30.09],'Чиангмай':[98.98,18.79],'Бали':[115.26,-8.51]};
+// where the network works, and the time zone of each place
+var TZ={'Батуми':'Asia/Tbilisi','Тбилиси':'Asia/Tbilisi','Ришикеш':'Asia/Kolkata','Чиангмай':'Asia/Bangkok','Бали':'Asia/Makassar'};
+var TZ_NET=[['Asia/Tbilisi','Батуми и Тбилиси'],['Asia/Kolkata','Ришикеш'],['Asia/Bangkok','Чиангмай'],['Asia/Makassar','Бали']];
+function browserTz(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'Asia/Tbilisi'}catch(e){return 'Asia/Tbilisi'}}
+var fmtCache={};
+function tzParts(ms,tz){
+  var f=fmtCache[tz]||(fmtCache[tz]=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})),o={};
+  f.formatToParts(new Date(ms)).forEach(function(p){o[p.type]=p.value});return o;
+}
+function tzOffset(tz,ms){try{var o=tzParts(ms,tz);return Math.round((Date.UTC(+o.year,+o.month-1,+o.day,+o.hour,+o.minute)-Math.floor(ms/60000)*60000)/60000)}catch(e){return 0}}
+function offText(min){var a=Math.abs(min),h=Math.floor(a/60),m=a%60;return 'UTC'+(min<0?'−':'+')+h+(m?':'+String(m).padStart(2,'0'):'')}
+// a wall-clock time in one zone, shown in another
+function conv(d,t,from,to){
+  if(from===to)return {date:d,time:t};
+  try{var p=d.split('-'),q=t.split(':'),g=Date.UTC(+p[0],+p[1]-1,+p[2],+q[0],+q[1]),ms=g-tzOffset(from,g)*60000,o=tzParts(ms,to);return {date:o.year+'-'+o.month+'-'+o.day,time:o.hour+':'+o.minute}}
+  catch(e){return {date:d,time:t}}
+}
+// names people type that the zone list itself does not carry
+var TZ_ALIAS={Kiev:'Kyiv Киев Украина',Kyiv:'Kiev Киев Украина',Moscow:'Москва',Istanbul:'Стамбул Турция',Tbilisi:'Тбилиси Батуми Грузия',Kolkata:'Calcutta Индия Дели Ришикеш',Calcutta:'Kolkata Индия Дели Ришикеш',Bangkok:'Бангкок Чиангмай Таиланд',Makassar:'Бали Индонезия',Jakarta:'Джакарта Индонезия',Dubai:'Дубай ОАЭ',Almaty:'Алматы Казахстан',Tashkent:'Ташкент Узбекистан',Yerevan:'Ереван Армения',Baku:'Баку Азербайджан',Minsk:'Минск Беларусь',Warsaw:'Варшава Польша',Berlin:'Берлин Германия',London:'Лондон',Paris:'Париж',Madrid:'Мадрид Испания',Rome:'Рим Италия',Lisbon:'Лиссабон Португалия',Belgrade:'Белград Сербия',Podgorica:'Черногория',Nicosia:'Кипр',Jerusalem:'Израиль Тель-Авив','Tel Aviv':'Израиль Тель-Авив',Kathmandu:'Катманду Непал',Katmandu:'Катманду Непал',Colombo:'Шри-Ланка',Saigon:'Вьетнам Хошимин','Ho Chi Minh':'Вьетнам Хошимин',Singapore:'Сингапур',Tokyo:'Токио Япония','New York':'Нью-Йорк','Los Angeles':'Лос-Анджелес',Riga:'Рига Латвия',Vilnius:'Вильнюс Литва',Tallinn:'Таллин Эстония',Prague:'Прага Чехия',Vienna:'Вена Австрия',Amsterdam:'Амстердам',Chisinau:'Кишинёв Молдова',Bishkek:'Бишкек Киргизия'};
+function tzCity(id){var c=String(id).split('/').pop().replace(/_/g,' ');return c==='Kiev'?'Kyiv':c==='Calcutta'?'Kolkata':c}
+function tzName(id){var n=TZ_NET.find(function(x){return x[0]===id});return n?n[1]:tzCity(id)}
+function tzLong(id){try{var p=new Intl.DateTimeFormat('ru',{timeZone:id,timeZoneName:'longGeneric'}).formatToParts(new Date()).find(function(x){return x.type==='timeZoneName'});return p?p.value:''}catch(e){return ''}}
+var tzAll=null;
+function tzIndex(){
+  if(tzAll)return tzAll;
+  var ids;try{ids=Intl.supportedValuesOf('timeZone')}catch(e){ids=TZ_NET.map(function(x){return x[0]}).concat(['Europe/Kyiv','Europe/Moscow','Europe/Istanbul','Europe/Berlin','Europe/London','Asia/Dubai','Asia/Almaty','Asia/Tashkent','Asia/Singapore','Asia/Tokyo','America/New_York','America/Los_Angeles','Australia/Sydney','UTC'])}
+  var now=Date.now();
+  tzAll=ids.map(function(id){var off=tzOffset(id,now),long=tzLong(id);return {id:id,city:tzCity(id),long:long,off:off,q:(id+' '+long+' '+tzName(id)+' '+(TZ_ALIAS[String(id).split('/').pop().replace(/_/g,' ')]||'')+' '+offText(off).replace('−','-')).toLowerCase()}});
+  return tzAll;
+}
+function tzRow(id,title,sub){var off=offText(tzOffset(id,Date.now()));return '<button data-act="tz-set" data-v="'+esc(id)+'" aria-pressed="'+(S.tz===id)+'"><span><b>'+esc(title)+'</b>'+(sub?'<small>'+esc(sub)+'</small>':'')+'</span><span class="off">'+off+'</span></button>'}
+function tzFound(q){
+  q=q.trim().toLowerCase().replace('−','-');if(q.length<2)return '<p class="small">Введите город, страну или смещение, например «Киев», «Индия» или «UTC+3».</p>';
+  var r=tzIndex().filter(function(z){return z.q.indexOf(q)>=0}).slice(0,40);
+  return r.length?'<div class="tzlist">'+r.map(function(z){return tzRow(z.id,z.city,(z.long?z.long+' · ':'')+z.id)}).join('')+'</div>':'<p class="small">Ничего не нашлось. Попробуйте название города латиницей, например «Lisbon».</p>';
+}
+function dTz(){
+  var mine=browserTz();
+  dialog('Часовой пояс','<p class="lead">В нём показывается время занятий в календаре сети.</p>'+
+    '<h3>Ваше местоположение</h3><div class="tzlist">'+tzRow(mine,tzName(mine),(tzLong(mine)?tzLong(mine)+' · ':'')+mine)+'</div>'+
+    '<h3>Города сети</h3><div class="tzlist">'+TZ_NET.map(function(x){return tzRow(x[0],x[1],tzLong(x[0]))}).join('')+'</div>'+
+    '<div class="field"><label for="tz-q">Все часовые пояса</label><input type="text" id="tz-q" placeholder="Поиск по городу, стране или UTC" autocomplete="off"></div><div id="tz-res">'+tzFound('')+'</div>');
+  var f=document.activeElement;if(f&&f.id==='tz-q')f.blur();
+}
+// land of the Old World as a grid of 2° cells, lon 4..142, lat 62..-22: one hex row per latitude band
+var LAND='fe7ffffffffffffff8,6e3ffffffffffffff8,2c7fffffffffffffe0,28ffffffffffffffe0,7ffffffffffffffff0,fffffffffffffffff0,fffffffffffffffff0,ffffffffffffffffe0,f7f87fffffffffffc0,19f03fffffffffff80,24f7fffffffffffe08,00dfffffffffff8408,200fffffffffffe610,e000ffffffffffc4f0,f000ffffffffffc100,feffffffffffffe000,fffffdffffffffe000,fffefe7fffffffc000,fffe7f01ffffff8000,ffff7ff0ffffff0000,ffffbfe07f8ff40000,ffff9fe03f07e80000,ffffdf801e07f02000,ffffde001c01f02000,fffff8001c01f80000,fffff3000c00300800,fffffe000801000800,fffffe000200800800,7ffffc000002c18000,1ffff8000001438000,1ffff0000001cf8000,1fffe0000000c7a080,1fffc0000000672038,0fffc0000000200018,0fffc00000001c0018,07ffc0000000000008,07ffc0000000000000,0fffc20000000001c0,0fffc20000000007c0,0fffce000000001ff8,0fff0e000000001ff8,07ff0c00000000fff8'.split(',');
+var landPath='';
+LAND.forEach(function(row,r){for(var i=0;i<row.length;i++){var v=parseInt(row[i],16);for(var b=0;b<4;b++)if(v&(8>>b)){var c=i*4+b;if(c<69)landPath+='M'+(c*8+4)+' '+(r*8+4)+'h.01'}}});
+function seed(){
+  var S0=seedBase();
+  S0.role='guest';S0.tabs={guest:'catalog',master:'today',hub:'hub-today',agent:'request',center:'inbox'};S0.hday=day(0);
+  S0.cday=day(0);S0.cf={city:'',fmt:''};S0.tz=browserTz();
+  S0.rates={agent:10,center:3};S0.agent={name:'Мария Ковалёва',tg:'@maria_k'};
+  S0.clients[3].agent='Мария Ковалёва';
+  // classes of the other masters: what the shared calendar shows next to Anna's own schedule
+  S0.pub=[
+    {id:'p1',master:'timur',title:'Утренний цигун в парке',fmt:'offline',date:day(0),time:'08:00',place:'Парк Ваке',cap:20,n:11,price:12},
+    {id:'p2',master:'mira',title:'Хатха-йога, онлайн-группа',fmt:'online',date:day(0),time:'08:00',place:'Zoom',cap:30,n:17,price:8},
+    {id:'p3',master:'david',title:'Чайная церемония',fmt:'offline',date:day(0),time:'17:30',place:'Чайная на Горгиладзе',cap:10,n:6,price:15},
+    {id:'p4',master:'lena',title:'Звуковая медитация с гонгами',fmt:'offline',date:day(0),time:'19:00',place:'Убуд Лофт, шала',cap:25,n:14,price:20},
+    {id:'p5',master:'oleg',title:'Мастер-класс по керамике',fmt:'offline',date:day(1),time:'11:00',place:'Сад на холме, мастерская',cap:8,n:5,price:30},
+    {id:'p6',master:'timur',title:'Тай-чи для начинающих',fmt:'offline',date:day(1),time:'19:00',place:'Сад на холме, зал',cap:15,n:9,price:12},
+    {id:'p7',master:'mira',title:'Вечерняя медитация',fmt:'online',date:day(1),time:'19:00',place:'Zoom',cap:50,n:21,price:0},
+    {id:'p8',master:'sofia',title:'День телесной терапии',fmt:'offline',date:day(2),time:'10:00',place:'Студия в Нимман',cap:6,n:4,price:45},
+    {id:'p9',master:'david',title:'Чай и утренняя практика',fmt:'offline',date:day(3),time:'10:00',place:'Дом у моря, терраса',cap:12,n:3,price:15},
+    {id:'p10',master:'timur',title:'Курс цигун, занятие 3',fmt:'online',date:day(3),time:'10:00',place:'Zoom',cap:40,n:26,price:11},
+    {id:'p11',master:'lena',title:'Гонг-ночь',fmt:'offline',date:day(4),time:'21:00',place:'Убуд Лофт',cap:25,n:8,price:25},
+    {id:'p12',master:'mira',title:'Курс у Ганги, день 1',fmt:'offline',date:day(5),time:'09:00',place:'Ганга Хаус',cap:16,n:10,price:350}
+  ];
+  S0.leads=[
+    {id:'l1',agent:'Мария Ковалёва',agentTg:'@maria_k',task:'Выезд команды на 12 человек: дыхательные практики и чайная церемония',city:'Батуми',when:'середина декабря',budget:1500,need:'Мастер практик',reward:'pct',fix:0,guide:true,contact:'@sergey_team',st:'won',master:'anna',taken:true,sum:1400,at:day(-6)},
+    {id:'l3',agent:'Мария Ковалёва',agentTg:'@maria_k',task:'Женский ретрит на выходные для восьми подруг',city:'Батуми',when:'январь',budget:2000,need:'Организатор под ключ',reward:'pct',fix:0,guide:true,contact:'@olga_werner',st:'assigned',master:'anna',taken:true,sum:0,at:day(-2)},
+    {id:'l2',agent:'Георгий Ломидзе',agentTg:'@gio_l',task:'Посуда ручной работы для кафе: 40 чашек и 10 чайников',city:'Тбилиси',when:'до конца месяца',budget:900,need:'Ремесленник',reward:'fix',fix:50,guide:false,contact:'+995 555 44 10 02',st:'new',master:'',taken:false,sum:0,at:day(-1)}
+  ];
+  // which hub a class takes place in, guests of the hub the prototype plays, and what masters offer it
+  var at=function(pl){return /Дом у моря/.test(pl)?'sea':/Сад на холме/.test(pl)?'hill':/Убуд Лофт/.test(pl)?'ubud':/Ганга Хаус/.test(pl)?'ganga':''};
+  S0.classes.forEach(function(c){c.hub=at(c.place)});S0.pub.forEach(function(c){c.hub=at(c.place)});
+  S0.stays=[
+    {id:'s1',hub:'sea',name:'Ирина Полякова',contact:'@irina_pol',from:day(-2),nights:5,guests:2,note:'Приехали на женский круг и ретрит.',st:'ok'},
+    {id:'s2',hub:'sea',name:'Команда Сергея',contact:'@sergey_team',from:day(3),nights:3,guests:6,note:'Выезд команды, нужна терраса по утрам.',st:'ok'},
+    {id:'s3',hub:'sea',name:'Марк Левин',contact:'@mark_lev',from:day(1),nights:4,guests:1,note:'Работает удалённо, нужен тихий угол.',st:'new'},
+    {id:'s4',hub:'sea',name:'Лейла Ахмедова',contact:'+995 555 20 31 44',from:day(0),nights:2,guests:3,note:'',st:'new'}
+  ];
+  S0.offers=[
+    {id:'o1',hub:'sea',master:'timur',title:'Утренний цигун для гостей',date:day(2),time:'08:00',cap:15,price:12,terms:'70% мастеру, 30% хабу',note:'Могу приезжать из Тбилиси раз в неделю.',st:'new'},
+    {id:'o2',hub:'sea',master:'lena',title:'Вечер поющих чаш',date:day(4),time:'20:00',cap:20,price:20,terms:'70% мастеру, 30% хабу',note:'Буду в Батуми проездом три дня.',st:'new'}
+  ];
+  S0.hubPending=null;
+  seedEco(S0);
+  return S0;
+}
+
+function seedBase(){
+  return {
+    role:'guest', kind:'masters', f:{dir:'',city:'',fmt:''}, sel:day(0), branch:'online',
+    masters:[
+      {id:'anna',name:'Анна Светлова',h:158,dir:'Тело и дыхание',city:'Батуми',res:true,online:true,offline:true,
+       tags:['Телесные практики','Ретриты'],mf:'Возвращаю в тело через дыхание и воду. Не лечу, а провожаю через инициацию.',
+       about:'Двенадцать лет веду телесные практики и женские круги. Работаю с дыханием, водой и голосом. Училась в Индии и на Бали, сейчас живу у моря и собираю выездные ретриты.',
+       geo:'Живу в Батуми. Готова к выездам в хабы сети: Тбилиси, Бали, Ришикеш.',
+       formats:[{n:'Индивидуальная сессия, онлайн или офлайн',p:'$80'},{n:'Женский круг, до 15 человек',p:'$25 с человека'},{n:'Ретрит-выезд, 3 дня',p:'от $400'}],
+       give:'Провожу утренние практики для гостей хабов, делюсь 30% с хабом.',partner:'За клиента на мой ретрит: 15% от чека.',collab:'Ищу ремесленников для ретритов: керамика, травяные чаи, текстиль.',tg:'anna_svetlova'},
+      {id:'timur',name:'Тимур Алиев',h:28,dir:'Цигун и тай-чи',city:'Тбилиси',res:true,online:true,offline:true,
+       tags:['Цигун','Тай-чи','Группы'],mf:'Учу стоять, дышать и двигаться так, чтобы сил хватало на весь день.',
+       about:'Преподаю цигун девять лет. Утренние группы в парке, курс для начинающих онлайн, выездные интенсивы.',geo:'Тбилиси. Выезжаю в Батуми и Ришикеш.',
+       formats:[{n:'Утренняя группа, офлайн',p:'$12 занятие'},{n:'Курс для начинающих, 8 занятий онлайн',p:'$90'},{n:'Интенсив выходного дня',p:'от $150'}],
+       give:'Веду утреннюю практику для гостей хаба, условия 70/30.',partner:'За участника курса: 10% от чека.',collab:'Ищу чайного мастера для совместных утренних встреч.',tg:'timur_qigong'},
+      {id:'lena',name:'Лена Орлова',h:262,dir:'Звук',city:'Бали',res:false,online:false,offline:true,
+       tags:['Гонги','Поющие чаши'],mf:'Звук делает то, на что словам нужны годы.',
+       about:'Провожу звуковые медитации с гонгами и чашами. Сопровождаю ретриты и церемонии открытия.',geo:'Убуд, Бали. Летаю на ретриты по Азии.',
+       formats:[{n:'Звуковая медитация для группы',p:'$20 с человека'},{n:'Сопровождение ретрита, день',p:'$250'}],
+       give:'Вечерняя звуковая сессия для гостей хаба раз в неделю.',partner:'За приглашение на ретрит: 10% от чека.',collab:'Ищу мастеров дыхания для совместных сессий.',tg:'lena_gong'},
+      {id:'david',name:'Давид Квирикашвили',h:92,dir:'Чай',city:'Батуми',res:true,online:false,offline:true,
+       tags:['Чайные церемонии','Аджарский чай'],mf:'Чай собирает людей за одним столом лучше любой программы.',
+       about:'Выращиваю и готовлю чай в Аджарии, провожу церемонии и дегустации. Поставляю чай для ретритов.',geo:'Батуми и горная Аджария.',
+       formats:[{n:'Чайная церемония, до 10 человек',p:'$15 с человека'},{n:'Чай для ретрита, набор на группу',p:'от $60'}],
+       give:'Чайная пауза в программе хаба, набор чая для гостей.',partner:'За заказ для ретрита: 10% от чека.',collab:'Открыт к совместным утренним практикам с мастерами тела.',tg:'david_tea'},
+      {id:'mira',name:'Мира Шанти',h:318,dir:'Йога и медитация',city:'Ришикеш',res:true,online:true,offline:true,
+       tags:['Хатха-йога','Медитация'],mf:'Практика начинается там, где заканчивается коврик.',
+       about:'Преподаю хатха-йогу и медитацию пятнадцать лет. Веду курсы у Ганги и онлайн-группы на русском и английском.',geo:'Ришикеш. Онлайн из любой точки.',
+       formats:[{n:'Онлайн-группа, месяц',p:'$60'},{n:'Личная практика, час',p:'$50'},{n:'Курс у Ганги, 7 дней',p:'от $350'}],
+       give:'Принимаю группы хабов на недельный курс.',partner:'За участника курса: 12% от чека.',collab:'Ищу организаторов групп из Грузии.',tg:'mira_shanti'},
+      {id:'oleg',name:'Олег Берестов',h:12,dir:'Ремесло',city:'Тбилиси',res:false,online:false,offline:true,
+       tags:['Керамика','Мастер-классы'],mf:'Глина честная: что вложил руками, то и получил.',
+       about:'Керамист, веду мастер-классы для взрослых и детей. Делаю посуду для чайных церемоний и ретритов.',geo:'Тбилиси, своя мастерская.',
+       formats:[{n:'Мастер-класс, 2 часа',p:'$30 с человека'},{n:'Посуда под заказ',p:'по запросу'}],
+       give:'Выездной мастер-класс в хабе, посуда для программ.',partner:'За заказ посуды: 10% от чека.',collab:'Ищу чайных мастеров и организаторов ретритов.',tg:'oleg_clay'},
+      {id:'sofia',name:'София Лин',h:200,dir:'Массаж',city:'Чиангмай',res:false,online:false,offline:true,
+       tags:['Тайский массаж','Телесная терапия'],mf:'Тело помнит всё. Моя работа в том, чтобы ему стало легче это нести.',
+       about:'Практикую тайский массаж и телесную терапию. Принимаю в Чиангмае и на выездных программах.',geo:'Чиангмай. Выезжаю на ретриты.',
+       formats:[{n:'Сеанс массажа, 90 минут',p:'$45'},{n:'Работа на ретрите, день',p:'$200'}],
+       give:'Сеансы для гостей хаба со скидкой 20%.',partner:'За клиента: 10% от чека.',collab:'Ищу мастеров йоги для совместных программ.',tg:'sofia_lin'}
+    ],
+    hubs:[
+      {id:'sea',name:'Дом у моря',h:190,city:'Батуми',beds:14,night:35,has:'Зал на 25 человек, терраса, кухня, 300 метров до моря',cond:'Мастер ведёт практики для гостей, доход делится 70/30.'},
+      {id:'hill',name:'Сад на холме',h:110,city:'Тбилиси',beds:9,night:40,has:'Зал на 15 человек, сад, мастерская керамики',cond:'Аренда зала или доля 30% с программ.'},
+      {id:'ganga',name:'Ганга Хаус',h:30,city:'Ришикеш',beds:20,night:22,has:'Два зала, вегетарианская кухня, выход к реке',cond:'Принимает группы от 8 человек на неделю.'},
+      {id:'ubud',name:'Убуд Лофт',h:285,city:'Бали',beds:10,night:55,has:'Шала под крышей, бассейн, коворкинг',cond:'Резидентам сети приоритет в календаре.'}
+    ],
+    classes:[
+      {id:'c1',title:'Утреннее дыхание у моря',fmt:'offline',date:day(0),time:'08:00',place:'Дом у моря, терраса',cap:15,price:10,booked:['k1','k3']},
+      {id:'c2',title:'Индивидуальная сессия',fmt:'online',date:day(0),time:'17:30',place:'Zoom',cap:1,price:80,booked:['k2']},
+      {id:'c3',title:'Женский круг',fmt:'offline',date:day(1),time:'19:00',place:'Дом у моря, зал',cap:15,price:25,booked:['k1','k3','k4']},
+      {id:'c4',title:'Дыхательная практика онлайн',fmt:'online',date:day(3),time:'10:00',place:'Эфир в Telegram',cap:40,price:0,booked:[]},
+      {id:'c5',title:'Ретрит «Вода и голос», день 1',fmt:'offline',date:day(5),time:'09:00',place:'Дом у моря',cap:12,price:400,booked:['k4']}
+    ],
+    clients:[
+      {id:'k1',name:'Марина Котова',contact:'@marina_kot',src:'self',note:'Ходит на круги с сентября. Просила напомнить про ретрит.',visits:3},
+      {id:'k2',name:'Игорь Савин',contact:'@igor_savin',src:'catalog',note:'Нашёл через каталог, работает с дыханием после болезни.',visits:1},
+      {id:'k3',name:'Нино Беридзе',contact:'+995 555 01 22 13',src:'self',note:'',visits:5},
+      {id:'k4',name:'Ольга Вернер',contact:'@olga_werner',src:'agent',agent:'Мария К.',note:'Пришла по рекомендации участницы сети.',visits:1}
+    ],
+    channels:{online:[{n:'Telegram-канал «Дыхание с Анной»',on:true},{n:'YouTube',on:true},{n:'Instagram',on:false}],offline:[{n:'Чат «Практики в Батуми»',on:true},{n:'Чат хаба «Дом у моря»',on:true},{n:'Instagram',on:true}]},
+    sent:[{branch:'offline',text:'Женский круг завтра в 19:00, «Дом у моря». Осталось 12 мест.',to:3,at:day(-1)}],
+    requests:[{id:'r0',master:'anna',kind:'book',name:'Давид М.',contact:'@david_m',what:'Индивидуальная сессия, онлайн или офлайн',date:day(2),st:'new'}],
+    pending:null, app:null
+  };
+}
+var S;
+function load(){try{var j=JSON.parse(localStorage.getItem(KEY)||'null');if(j&&j.masters&&j.leads&&j.tabs&&j.stays&&j.w&&j.eco)return j}catch(e){}return seed()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+S=load();if(!S.tz)S.tz=browserTz();
+var myHub=function(){return S.hubs.find(function(h){return h.id===HUB})};
+var me=function(){return S.masters.find(function(m){return m.id===ME})};
+
+/* ---------- small ui ---------- */
+var tt;
+function toast(t){$('toast').innerHTML='<div class="toast">'+esc(t)+'</div>';clearTimeout(tt);tt=setTimeout(function(){$('toast').innerHTML=''},4200)}
+function dialog(title,body){$('dlg').innerHTML='<div class="dlg" data-act="close-bg"><div class="dlg-in" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="spread"><h2>'+esc(title)+'</h2><button class="btn sm ghost" data-act="close">Закрыть</button></div>'+body+'</div></div>';enhance($('dlg'));var f=$('dlg').querySelector('input,textarea,button.sel');if(f)f.focus()}
+function closeDlg(){closePop();$('dlg').innerHTML=''}
+function ava(m,cls){return '<span class="ava '+(cls||'')+'" style="--h:'+m.h+'" aria-hidden="true">'+esc(initials(m.name))+'</span>'}
+function field(id,label,html,hint){return '<div class="field"><label for="'+id+'">'+label+'</label>'+html+(hint?'<span class="hint">'+hint+'</span>':'')+'</div>'}
+function val(id){var e=$(id);return e?String(e.value||'').trim():''}
+var SRC={self:['Сам пришёл',''],catalog:['Из каталога','acc'],agent:['От агента','res']};
+
+/* ---------- guest: catalog ---------- */
+function vMaster(id){
+  var m=S.masters.find(function(x){return x.id===id});if(!m)return vCatalog();
+  return '<div class="narrow"><a class="link small" href="#'+backTab()+'">← Назад</a>'+
+    '<div class="hero">'+ava(m)+'<div class="grow"><h1>'+esc(m.name)+'</h1><p class="lead">'+esc(m.dir)+' · '+esc(m.city)+'</p><div class="chips" style="margin-top:8px">'+(m.res?'<span class="tag res">Резидент EcoChakra</span>':'')+m.tags.map(function(t){return '<span class="tag">'+esc(t)+'</span>'}).join('')+(m.online?'<span class="tag">Онлайн</span>':'')+'</div></div></div>'+
+    '<p class="quote">'+esc(m.mf)+'</p><p>'+esc(m.about)+'</p>'+
+    '<section class="card"><h2>Форматы и условия</h2><div class="list">'+m.formats.map(function(f){return '<div><span>'+esc(f.n)+'</span><span class="price">'+esc(f.p)+'</span></div>'}).join('')+'</div><p class="small">'+esc(m.geo)+'</p></section>'+
+    '<section class="card"><h2>Взаимодействие с сетью</h2><dl><div><dt>Что даю хабам</dt><dd>'+esc(m.give)+'</dd></div><div><dt>Партнёрам сети</dt><dd>'+esc(m.partner)+'</dd></div><div><dt>С кем хочу объединиться</dt><dd>'+esc(m.collab)+'</dd></div></dl></section>'+
+    '<div class="cta"><button class="btn pri" data-act="book" data-id="'+m.id+'">Забронировать</button><button class="btn" data-act="write" data-id="'+m.id+'">Написать в Telegram</button><button class="btn" data-act="invite" data-id="'+m.id+'">Пригласить в проект</button></div></div>';
+}
+
+/* ---------- master: cabinet ---------- */
+function clientName(id){var c=S.clients.find(function(x){return x.id===id});return c?c.name:''}
+function evRow(c,withDay){
+  return '<div class="ev"><div><div class="t num">'+esc(c.time)+'</div>'+(withDay?'<div class="small">'+esc(dfmt(c.date))+'</div>':'')+'</div><div class="grow"><h3>'+esc(c.title)+'</h3><div class="small">'+esc(c.place)+'</div><div class="chips" style="margin-top:6px"><span class="tag '+(c.fmt==='online'?'acc':'')+'">'+(c.fmt==='online'?'Онлайн':'Офлайн')+'</span><span class="tag">'+c.booked.length+' из '+c.cap+'</span><span class="tag">'+(c.price?money(c.price):'Бесплатно')+'</span></div>'+
+    (c.booked.length?'<div class="small" style="margin-top:6px">'+esc(c.booked.map(clientName).join(', '))+'</div>':'')+'</div><button class="btn sm ghost" data-act="cls-open" data-id="'+c.id+'">Изменить</button></div>';
+}
+function myReqs(){return S.requests.filter(function(r){return r.master===ME&&r.st==='new'})}
+function vClients(){
+  return '<div class="narrow"><div class="spread"><h1>Клиенты</h1><button class="btn sm pri" data-act="cl-open" data-id="">+ Клиент</button></div><p class="lead">У каждого клиента видно, откуда он пришёл. Сделки с клиентами от агентов лежат в разделе «Сделки».</p>'+
+    '<section class="card"><div class="list">'+S.clients.map(function(c){var s=SRC[c.src];return '<button data-act="cl-open" data-id="'+c.id+'" style="align-items:center;width:100%"><span class="grow"><b>'+esc(c.name)+'</b><br><span class="small">'+esc(c.contact)+' · визитов: '+c.visits+'</span></span><span class="tag '+s[1]+'">'+s[0]+(c.agent?': '+esc(c.agent):'')+'</span></button>'}).join('')+'</div></section></div>';
+}
+function vMail(){
+  var b=S.branch,ch=S.channels[b],on=ch.filter(function(c){return c.on}).length,hist=S.sent.filter(function(x){return x.branch===b});
+  var up=S.classes.filter(function(c){return c.fmt===b&&c.date>=day(0)}).sort(function(a,x){return (a.date+a.time).localeCompare(x.date+x.time)});
+  return '<div class="narrow"><h1>Рассылки</h1><p class="lead">Анонсы онлайн-практик и живых встреч уходят в разные каналы. У каждой ветки свой список.</p>'+
+    '<div class="seg" role="group" aria-label="Ветка"><button data-act="branch" data-v="online" aria-pressed="'+(b==='online')+'">Онлайн</button><button data-act="branch" data-v="offline" aria-pressed="'+(b==='offline')+'">Офлайн</button></div>'+
+    '<section class="card"><h2>Каналы ветки</h2><div>'+ch.map(function(c,i){return '<label class="sw"><span>'+esc(c.n)+'</span><input type="checkbox" data-act="ch" data-i="'+i+'"'+(c.on?' checked':'')+'></label>'}).join('')+'</div><div class="row"><input type="text" id="ch-new" placeholder="Название чата или канала" class="grow" style="flex:1 1 200px" aria-label="Новый канал"><button class="btn sm" data-act="ch-add">Добавить</button></div></section>'+
+    '<section class="card"><h2>Новая рассылка</h2>'+(up.length?field('ml-cls','Взять текст из занятия','<select id="ml-cls" data-act="ml-pick"><option value="">Написать самому</option>'+up.map(function(c){return '<option value="'+c.id+'">'+esc(dfmt(c.date)+', '+c.time+' · '+c.title)+'</option>'}).join('')+'</select>'):'')+
+      field('ml-text','Текст','<textarea id="ml-text" maxlength="800"></textarea>')+'<p class="err" id="ml-err" hidden></p><div class="spread"><span class="small">Уйдёт в каналов: '+on+'</span><button class="btn pri" data-act="ml-send">Отправить</button></div><p class="small">В прототипе сообщения никуда не уходят: рассылка только попадает в историю.</p></section>'+
+    '<section class="card"><h2>История</h2>'+(hist.length?'<div class="list">'+hist.map(function(x){return '<div style="flex-direction:column;gap:2px"><span>'+esc(x.text)+'</span><span class="small">'+esc(dfmt(x.at))+' · каналов: '+x.to+'</span></div>'}).join('')+'</div>':'<p class="lead">В этой ветке рассылок ещё не было.</p>')+'</section></div>';
+}
+
+/* ---------- dialogs ---------- */
+function dInvite(id){
+  var m=S.masters.find(function(x){return x.id===id});
+  dialog('Пригласить в проект','<p class="lead">'+esc(m.name)+'</p><form id="f-inv" data-id="'+id+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+
+    field('i-what','Что за проект и чем мастер может участвовать','<textarea id="i-what" maxlength="400"></textarea>')+field('i-name','Ваше имя или название проекта','<input type="text" id="i-name">')+field('i-tg','Telegram для ответа','<input type="text" id="i-tg">')+'<p class="err" id="i-err" hidden></p><button class="btn pri" type="submit">Отправить приглашение</button></form>');
+}
+function dClass(id){
+  var c=S.classes.find(function(x){return x.id===id})||{id:'',title:'',fmt:'offline',date:S.sel,time:'10:00',place:'',cap:10,price:0,booked:[]};
+  dialog(id?'Занятие':'Новое занятие','<form id="f-cls" data-id="'+esc(c.id)+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('s-title','Название','<input type="text" id="s-title" value="'+esc(c.title)+'">')+
+    '<div class="two">'+field('s-date','Дата','<input type="date" id="s-date" value="'+c.date+'">')+field('s-time','Время','<input type="time" id="s-time" value="'+c.time+'">')+'</div>'+
+    '<div class="two">'+field('s-fmt','Формат','<select id="s-fmt"><option value="offline"'+(c.fmt==='offline'?' selected':'')+'>Офлайн</option><option value="online"'+(c.fmt==='online'?' selected':'')+'>Онлайн</option></select>')+field('s-place','Место или ссылка','<input type="text" id="s-place" value="'+esc(c.place)+'">')+'</div>'+
+    '<div class="two">'+field('s-cap','Мест','<input type="number" id="s-cap" min="1" value="'+c.cap+'">')+field('s-price','Цена, $','<input type="number" id="s-price" min="0" value="'+c.price+'">','0 = бесплатно')+'</div>'+
+    '<p class="err" id="s-err" hidden></p><div class="spread">'+(id?'<button type="button" class="btn danger" data-act="cls-del" data-id="'+id+'">Удалить</button>':'<span></span>')+'<button class="btn pri" type="submit">Сохранить</button></div></form>');
+}
+function dClient(id){
+  var c=S.clients.find(function(x){return x.id===id})||{id:'',name:'',contact:'',src:'self',note:'',visits:0};
+  dialog(id?'Клиент':'Новый клиент','<form id="f-cl" data-id="'+esc(c.id)+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+(id?'<div class="row"><span class="tag '+SRC[c.src][1]+'">'+SRC[c.src][0]+(c.agent?': '+esc(c.agent):'')+'</span><span class="small">визитов: '+c.visits+'</span></div>':'')+
+    field('k-name','Имя','<input type="text" id="k-name" value="'+esc(c.name)+'">')+field('k-contact','Telegram или телефон','<input type="text" id="k-contact" value="'+esc(c.contact)+'">')+field('k-note','Заметка','<textarea id="k-note" maxlength="500">'+esc(c.note)+'</textarea>','Видна только вам.')+
+    '<p class="err" id="k-err" hidden></p><div class="spread">'+(id?'<button type="button" class="btn danger" data-act="cl-del" data-id="'+id+'">Удалить</button>':'<span></span>')+'<button class="btn pri" type="submit">Сохранить</button></div></form>');
+}
+function fail(id,t){var e=$(id);e.textContent=t;e.hidden=false;return false}
+
+
+function backTab(){return S.tabs[S.role]}
+function mapSvg(){
+  var W=552,H=336,x=function(lon){return (lon-4)*4},y=function(lat){return (62-lat)*4};
+  var off={'Батуми':[-6,26,'middle'],'Тбилиси':[10,-14,'start'],'Ришикеш':[0,-18,'middle'],'Чиангмай':[0,-18,'middle'],'Бали':[0,-20,'middle']};
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Карта: города сети"><path d="'+landPath+'" stroke="var(--land)" stroke-width="3.4" stroke-linecap="round" fill="none"/>';
+  Object.keys(CITIES).forEach(function(c){
+    var n=(S.kind==='masters'?S.masters:S.hubs).filter(function(m){return m.city===c}).length,cx=x(CITIES[c][0]),cy=y(CITIES[c][1]),o=off[c],on=S.f.city===c;
+    s+='<g class="dot'+(on?' on':'')+'" data-act="city" data-v="'+esc(c)+'" tabindex="0" role="button" aria-label="'+esc(c)+': '+n+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+(11+n*3)+'" fill="var(--accent)" opacity="'+(on?.34:.18)+'"/><circle cx="'+cx+'" cy="'+cy+'" r="7" fill="'+(on?'var(--sun)':'var(--accent)')+'" stroke="var(--surface)" stroke-width="2"/><text x="'+(cx+o[0])+'" y="'+(cy+o[1])+'" text-anchor="'+o[2]+'">'+esc(c)+' · '+n+'</text></g>';
+  });
+  return s+'</svg>';
+}
+/* the shared calendar: classes of every master; classes that start at the same time stand side by side */
+function allEvents(){
+  var raw=S.classes.map(function(c){return {id:c.id,master:ME,title:c.title,fmt:c.fmt,date:c.date,time:c.time,place:c.place,cap:c.cap,n:c.booked.length,price:c.price,hub:c.hub}}).concat(S.pub);
+  // every class is kept in the local time of its master's city; the calendar shows it in the chosen zone
+  return raw.map(function(e){var m=S.masters.find(function(x){return x.id===e.master}),z=m&&TZ[m.city]||S.tz,c=conv(e.date,e.time,z,S.tz);return Object.assign({},e,{date:c.date,time:c.time,ld:e.date,lt:e.time,moved:c.date!==e.date||c.time!==e.time})});
+}
+function evCard(e){
+  var m=S.masters.find(function(x){return x.id===e.master}),left=e.cap-e.n;
+  return '<article class="ecard"><a class="row" href="#m-'+m.id+'" style="flex-wrap:nowrap;text-decoration:none;color:inherit">'+ava(m,'sm')+'<span class="grow"><b>'+esc(m.name)+'</b><br><span class="small">'+esc(m.dir)+'</span></span></a><h3>'+esc(e.title)+'</h3><div class="small">'+esc(e.fmt==='online'?'Онлайн · '+e.place:m.city+' · '+e.place)+(e.moved?' · на месте '+esc(e.lt):'')+'</div>'+
+    '<div class="chips"><span class="tag '+(e.fmt==='online'?'acc':'')+'">'+(e.fmt==='online'?'Онлайн':'Офлайн')+'</span><span class="tag">'+(e.price?money(e.price):'Бесплатно')+'</span><span class="tag '+(left<=2?'warn':'')+'">'+(left>0?'мест: '+left:'мест нет')+'</span></div>'+
+    '<button class="btn sm '+(left>0?'pri':'')+'" data-act="book" data-id="'+m.id+'" data-cls="'+e.id+'"'+(left>0?'':' disabled')+'>'+(left>0?'Записаться':'Мест нет')+'</button></article>';
+}
+function vCalendar(){
+  var f=S.cf,all=allEvents().filter(function(e){var m=S.masters.find(function(x){return x.id===e.master});return m&&(!f.fmt||e.fmt===f.fmt)&&(!f.city||(e.fmt==='offline'&&m.city===f.city))});
+  var days='';for(var i=0;i<7;i++){var d=day(i),dt=dparse(d),k=all.filter(function(e){return e.date===d}).length;days+='<button class="'+(k?'has':'')+'" data-act="cday" data-v="'+d+'" aria-pressed="'+(S.cday===d)+'" aria-label="'+esc(dlong(d))+', занятий: '+k+'"><small>'+WD[dt.getDay()]+'</small><b class="num">'+dt.getDate()+'</b><i></i></button>'}
+  var list=all.filter(function(e){return e.date===S.cday}).sort(function(a,b){return a.time.localeCompare(b.time)}),slots=[];
+  list.forEach(function(e){var s=slots[slots.length-1];if(s&&s.t===e.time)s.items.push(e);else slots.push({t:e.time,items:[e]})});
+  var chip=function(k,v,label){return '<button class="chip" data-act="cfilter" data-k="'+k+'" data-v="'+esc(v)+'" aria-pressed="'+(f[k]===v)+'">'+esc(label||v)+'</button>'};
+  return '<div><h1>Календарь сети</h1><p class="lead">Занятия всех мастеров по дням. Время показано в поясе «'+esc(tzName(S.tz))+'», '+offText(tzOffset(S.tz,Date.now()))+'. <button class="link" data-act="tz-open">Изменить</button></p></div>'+
+    '<div class="days" role="group" aria-label="Дни недели">'+days+'</div>'+
+    '<div class="chips" role="group" aria-label="Формат и город">'+chip('fmt','online','Онлайн')+chip('fmt','offline','Офлайн')+Object.keys(CITIES).map(function(c){return chip('city',c)}).join('')+'</div>'+
+    '<h2>'+esc(dlong(S.cday))+'</h2>'+
+    (slots.length?slots.map(function(s){var n=s.items.length;return '<section class="slot"><div class="slot-h"><span class="t num">'+esc(s.t)+'</span>'+(n>1?'<span class="tag res">'+n+' '+(n<5?'занятия':'занятий')+' одновременно</span><span class="small swipe-hint">листайте вбок</span>':'')+'</div><div class="simul'+(n>1?' many':'')+'">'+s.items.map(evCard).join('')+'</div></section>'}).join('')
+      :'<div class="empty">В этот день занятий по выбранным фильтрам нет.</div>');
+}
+function vJoinMaster(){
+  var a=S.app;
+  if(a&&a.st==='ok')return '<div class="narrow"><h1>Профиль опубликован</h1><div class="card"><div class="row"><span class="tag ok">Одобрено Центром</span></div><h2>'+esc(a.name)+'</h2><p>Карточка собрана из анкеты и стоит в каталоге. Теперь у мастера открывается свой кабинет.</p><div class="row"><a class="btn sm pri" href="#m-'+a.mid+'">Открыть карточку</a><button class="btn sm" data-act="app-reset">Заполнить новую анкету</button></div></div></div>';
+  if(a)return '<div class="narrow"><h1>Заявка отправлена</h1><div class="card"><div class="row"><span class="tag warn">На проверке у Центра</span><span class="small">'+esc(dfmt(a.at))+'</span></div><h2>'+esc(a.name)+'</h2><p class="lead">'+esc(a.dir)+' · '+esc(a.city)+'</p><p>Команда проверит анкету и напишет вам в Telegram. После одобрения профиль появится в каталоге, а у вас откроется кабинет мастера.</p><p class="small">Чтобы одобрить анкету в прототипе, переключитесь на роль «Центр», раздел «Проверка».</p><div><button class="btn sm" data-act="app-reset">Заполнить заново</button></div></div></div>';
+  var opt=function(x){return x.map(function(v){return '<option>'+esc(v)+'</option>'}).join('')};
+  return '<form class="narrow" id="join" novalidate><div><h1>Стать мастером сети</h1><p class="lead">Заполните анкету. После проверки командой из неё соберётся ваша карточка в каталоге.</p></div>'+
+    '<div class="card"><h2>О вас</h2>'+field('j-name','Имя и фамилия','<input type="text" id="j-name" autocomplete="name">')+
+    '<div class="two">'+field('j-dir','Направление','<select id="j-dir">'+opt(['Тело и дыхание','Цигун и тай-чи','Звук','Чай','Йога и медитация','Ремесло','Массаж'])+'</select>')+field('j-city','Город','<select id="j-city">'+opt(Object.keys(CITIES))+'</select>')+'</div>'+
+    field('j-mf','Коротко о сути вашей работы','<textarea id="j-mf" maxlength="200"></textarea>','Одна или две фразы. Они встанут в начало карточки.')+
+    field('j-tg','Telegram для связи','<input type="text" id="j-tg" placeholder="@имя">')+'</div>'+
+    '<div class="card"><h2>Форматы и условия</h2>'+field('j-fmt','Что вы проводите и сколько это стоит','<textarea id="j-fmt" placeholder="Например: личная сессия, $60; группа до 10 человек, $15 с человека"></textarea>')+
+    field('j-give','Что вы готовы дать сети','<textarea id="j-give" placeholder="Например: практики для гостей хабов на условиях 70/30"></textarea>','Этот блок увидят хабы и другие мастера.')+'</div>'+
+    '<div class="card"><h2>Согласие на публикацию</h2><p class="small">В каталог попадает только то, что вы разрешили. Профиль можно скрыть или удалить в любой момент.</p>'+
+    '<label class="check"><input type="checkbox" id="j-c1"><span>Показывать мой профиль в каталоге сети</span></label>'+
+    '<label class="check"><input type="checkbox" id="j-c2"><span>Показывать мой город точкой на карте</span></label>'+
+    '<label class="check"><input type="checkbox" id="j-c3"><span>Показывать мой Telegram в карточке</span></label></div>'+
+    '<p class="err" id="j-err" hidden></p><div><button class="btn pri" type="submit">Отправить на проверку</button></div></form>';
+}
+/* ---------- deals: a request from an agent, a master, shares ---------- */
+function shares(l){var a=l.reward==='free'?0:l.reward==='fix'?(+l.fix||0):Math.round(l.sum*S.rates.agent/100),c=Math.round(l.sum*S.rates.center/100);return {agent:a,center:c,master:l.sum-a-c}}
+var LST={new:['Новая','warn'],assigned:['У мастера','acc'],won:['Сделка закрыта','ok'],lost:['Не состоялась','']};
+function rewardText(l){return l.reward==='free'?'без вознаграждения':l.reward==='fix'?'фиксированно '+money(l.fix):S.rates.agent+'% от сделки'}
+function mName(id){var m=S.masters.find(function(x){return x.id===id});return m?m.name:''}
+function leadHead(l){return '<div class="row"><span class="tag '+LST[l.st][1]+'">'+LST[l.st][0]+'</span><span class="small">'+esc(dfmt(l.at))+' · '+esc(l.city)+'</span></div><h3>'+esc(l.task)+'</h3>'}
+function netLeads(){return S.leads.filter(function(l){return l.master===ME&&l.st==='assigned'&&!l.taken})}
+function vToday(){
+  var m=me(),today=S.classes.filter(function(c){return c.date===day(0)}).sort(function(a,b){return a.time.localeCompare(b.time)});
+  var next=S.classes.filter(function(c){return c.date>day(0)}).sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time)}).slice(0,3),rq=myReqs(),nl=netLeads();
+  var week=S.classes.filter(function(c){return c.date>=day(0)&&c.date<=day(6)}),total=rq.length+nl.length;
+  return '<div class="narrow"><div class="row" style="flex-wrap:nowrap">'+ava(m)+'<div class="grow"><p class="kick">Кабинет мастера</p><h1>'+esc(dlong(day(0)))+'</h1></div></div>'+
+    '<div class="stat"><div><b class="num">'+today.length+'</b><span>занятий сегодня</span></div><div><b class="num">'+total+'</b><span>новых заявок</span></div><div><b class="num">'+week.reduce(function(a,c){return a+c.booked.length},0)+'</b><span>записей на неделю</span></div></div>'+
+    (S.pending?'<div class="banner"><span>Новые условия в карточке ждут проверки Центра.</span><a class="link" href="#card">Открыть</a></div>':'')+
+    '<section class="card"><div class="spread"><h2>Новые заявки</h2>'+(total?'<span class="tag warn">'+total+'</span>':'')+'</div>'+
+      (total?'<div class="list">'+nl.map(function(l){return '<div style="align-items:flex-start;flex-wrap:wrap"><div class="grow"><h3>'+esc(l.task)+' <span class="tag res">От сети</span></h3><div class="small">Привёл агент: '+esc(l.agent)+' · '+esc(l.city)+', '+esc(l.when)+'</div><div class="small">Бюджет клиента: '+money(l.budget)+'</div></div><div class="row"><button class="btn sm pri" data-act="lead-take" data-id="'+l.id+'">Взять в работу</button></div></div>'}).join('')+
+        rq.map(function(r){return '<div style="align-items:flex-start;flex-wrap:wrap"><div class="grow"><h3>'+esc(r.name)+' <span class="tag '+(r.kind==='book'?'acc':'')+'">'+(r.kind==='book'?'Запись из каталога':'Приглашение в проект')+'</span></h3><div class="small">'+esc(r.what)+(r.date?' · '+esc(dfmt(r.date)):'')+'</div><div class="small">'+esc(r.contact)+'</div></div><div class="row"><button class="btn sm pri" data-act="req-ok" data-id="'+r.id+'">'+(r.kind==='book'?'В расписание':'Принять')+'</button><button class="btn sm" data-act="req-no" data-id="'+r.id+'">Отклонить</button></div></div>'}).join('')+'</div>'
+      :'<p class="lead">Новых заявок нет. Они приходят из каталога, из календаря сети и от агентов через Центр.</p>')+'</section>'+
+    '<section class="card"><div class="spread"><h2>Сегодня</h2><a class="link small" href="#schedule">Всё расписание</a></div>'+(today.length?today.map(function(c){return evRow(c)}).join(''):'<p class="lead">Сегодня занятий нет.</p>')+'</section>'+
+    (next.length?'<section class="card"><h2>Дальше</h2>'+next.map(function(c){return evRow(c,true)}).join('')+'</section>':'')+'</div>';
+}
+function dealRow(l,who){
+  var s=shares(l);
+  return '<div class="card">'+leadHead(l)+'<div class="small">Агент: '+esc(l.agent)+' · '+rewardText(l)+(who==='center'&&l.master?' · мастер: '+esc(mName(l.master)):'')+'</div>'+
+    (l.st==='won'?'<div class="split"><div><span>Сумма сделки</span><b class="num">'+money(l.sum)+'</b></div><div><span>Мастеру</span><b class="num">'+money(s.master)+'</b></div><div><span>Агенту</span><b class="num">'+money(s.agent)+'</b></div><div><span>Центру</span><b class="num">'+money(s.center)+'</b></div></div>':'')+
+    (l.st==='assigned'&&(who==='center'||l.taken)?'<div class="row"><button class="btn sm pri" data-act="lead-close" data-id="'+l.id+'">Закрыть сделку</button><button class="btn sm" data-act="lead-lost" data-id="'+l.id+'">Не состоялась</button></div>':'')+'</div>';
+}
+function vDeals(){
+  var mine=S.leads.filter(function(l){return l.master===ME&&l.taken}),open=mine.filter(function(l){return l.st==='assigned'}),done=mine.filter(function(l){return l.st==='won'||l.st==='lost'});
+  var earned=done.reduce(function(a,l){return a+(l.st==='won'?shares(l).master:0)},0);
+  return '<div class="narrow"><h1>Сделки от сети</h1><p class="lead">Клиенты, которых привели агенты. Когда вы закрываете сделку и вводите сумму, доли агента и Центра считаются сами.</p>'+
+    '<div class="stat"><div><b class="num">'+open.length+'</b><span>в работе</span></div><div><b class="num">'+done.filter(function(l){return l.st==='won'}).length+'</b><span>закрыто</span></div><div><b class="num">'+money(earned)+'</b><span>ваша часть</span></div></div>'+
+    '<h2>В работе</h2>'+(open.length?open.map(function(l){return dealRow(l,'master')}).join(''):'<div class="empty">Открытых сделок нет. Новые заявки от сети появляются на экране «Сегодня».</div>')+
+    (done.length?'<h2>Завершённые</h2>'+done.map(function(l){return dealRow(l,'master')}).join(''):'')+'</div>';
+}
+function vCard(){
+  var m=me(),p=S.pending,fm=function(a){return a.map(function(f){return f.n+' | '+f.p}).join('\n')};
+  return '<form class="narrow" id="card" novalidate><div class="spread" style="flex-wrap:wrap"><div><h1>Моя карточка</h1><p class="lead">Так вас видит сеть.</p></div><a class="btn sm" href="#m-'+m.id+'">Посмотреть как гость</a></div>'+
+    (p?'<div class="banner"><span>Новые условия отправлены '+esc(dfmt(p.at))+' и ждут проверки. В каталоге пока прежние. Одобрить их можно в роли «Центр», раздел «Проверка».</span></div>':'')+
+    '<div class="card"><div class="spread"><h2>О себе</h2><span class="tag ok">Меняется сразу</span></div>'+
+      field('c-mf','Суть в одной или двух фразах','<textarea id="c-mf" maxlength="200">'+esc(m.mf)+'</textarea>')+field('c-about','О себе','<textarea id="c-about" maxlength="600" style="min-height:120px">'+esc(m.about)+'</textarea>')+
+      field('c-geo','География','<input type="text" id="c-geo" value="'+esc(m.geo)+'">')+field('c-tags','Теги через запятую','<input type="text" id="c-tags" value="'+esc(m.tags.join(', '))+'">')+
+      field('c-collab','С кем хочу объединиться','<textarea id="c-collab" maxlength="300">'+esc(m.collab)+'</textarea>')+'</div>'+
+    '<div class="card"><div class="spread"><h2>Условия</h2><span class="tag warn">Через проверку Центра</span></div><p class="small">Цены и условия для сети видят клиенты и партнёры, поэтому их изменение сначала проверяет команда.</p>'+
+      field('c-fmt','Форматы и цены','<textarea id="c-fmt" style="min-height:110px">'+esc(fm(p?p.formats:m.formats))+'</textarea>','Одна строка на формат: название | цена')+
+      field('c-give','Что даю хабам','<textarea id="c-give" maxlength="300">'+esc(p?p.give:m.give)+'</textarea>')+field('c-partner','Партнёрам сети','<textarea id="c-partner" maxlength="300">'+esc(p?p.partner:m.partner)+'</textarea>')+'</div>'+
+    '<p class="err" id="c-err" hidden></p><div><button class="btn pri" type="submit">Сохранить</button></div></form>';
+}
+/* ---------- agent ---------- */
+function vRequest(){
+  var a=S.agent,radio=function(name,v,label,on){return '<label class="check"><input type="radio" name="'+name+'" value="'+v+'"'+(on?' checked':'')+'><span>'+label+'</span></label>'};
+  return '<form class="narrow" id="lead" novalidate><div><p class="kick">Внешний запрос</p><h1>Приведи клиента</h1><p class="lead">Вы встретили человека, которому нужна помощь мастеров сети. Опишите его задачу: Центр подберёт исполнителя, а вы получите вознаграждение с закрытой сделки.</p></div>'+
+    '<div class="card"><h2>1. Кто вы</h2><div class="two">'+field('l-agent','Имя','<input type="text" id="l-agent" value="'+esc(a.name)+'">')+field('l-atg','Telegram','<input type="text" id="l-atg" value="'+esc(a.tg)+'">')+'</div>'+
+      field('l-as','Вы действуете как','<select id="l-as"><option>Резидент клуба</option><option>Частное лицо</option><option>Партнёр</option></select>')+'</div>'+
+    '<div class="card"><h2>2. Задача клиента</h2>'+field('l-task','Суть запроса одним предложением','<textarea id="l-task" maxlength="300" placeholder="Например: нужен ретрит на выходные для команды из 10 человек"></textarea>')+
+      '<div class="two">'+field('l-city','Город','<select id="l-city">'+Object.keys(CITIES).map(function(c){return '<option>'+esc(c)+'</option>'}).join('')+'</select>')+field('l-when','Когда нужно','<input type="text" id="l-when" placeholder="например, в январе">')+'</div>'+
+      field('l-budget','Бюджет клиента, $','<input type="number" id="l-budget" min="0" placeholder="если известен">')+'</div>'+
+    '<div class="card"><h2>3. Ваша роль и вознаграждение</h2><div class="field"><span class="lab">Готовы ли вы вести общение с клиентом?</span>'+radio('l-guide','1','Да, я сам представлю мастера клиенту',true)+radio('l-guide','0','Нет, пусть мастер свяжется с ним напрямую')+'</div>'+
+      '<div class="field"><span class="lab">Формат вознаграждения</span>'+radio('l-rew','pct','Процент от сделки: стандарт сети '+S.rates.agent+'%',true)+radio('l-rew','fix','Фиксированная сумма: $50')+radio('l-rew','free','Мне не нужно вознаграждение, делаю ради помощи')+'</div>'+
+      field('l-contact','Контакт клиента: Telegram или телефон','<input type="text" id="l-contact">')+
+      '<label class="check"><input type="checkbox" id="l-ok"><span>Клиент знает, что я передаю его контакт сети, и не против</span></label></div>'+
+    '<div class="card"><h2>4. Что нужно от сети</h2>'+field('l-need','Кого ищем','<select id="l-need"><option>Мастер практик</option><option>Организатор под ключ</option><option>Ремесленник</option><option>Хаб для проживания</option></select>')+'</div>'+
+    '<p class="err" id="l-err" hidden></p><div><button class="btn pri" type="submit">Отправить в Центр</button></div></form>';
+}
+function vMine(){
+  var mine=S.leads.filter(function(l){return l.agent===S.agent.name}),got=mine.reduce(function(a,l){return a+(l.st==='won'?shares(l).agent:0)},0);
+  return '<div class="narrow"><h1>Мои заявки</h1><div class="stat"><div><b class="num">'+mine.length+'</b><span>заявок</span></div><div><b class="num">'+mine.filter(function(l){return l.st==='won'}).length+'</b><span>сделок закрыто</span></div><div><b class="num">'+money(got)+'</b><span>вознаграждение</span></div></div>'+
+    (mine.length?mine.map(function(l){var s=shares(l);return '<div class="card">'+leadHead(l)+'<div class="small">'+(l.master?'Мастер: '+esc(mName(l.master)):'Центр подбирает мастера')+' · '+rewardText(l)+'</div>'+(l.st==='won'?'<div class="split"><div><span>Сумма сделки</span><b class="num">'+money(l.sum)+'</b></div><div><span>Вам</span><b class="num">'+money(s.agent)+'</b></div></div>':'')+'</div>'}).join(''):'<div class="empty">Вы ещё не отправляли запросов.</div>')+'</div>';
+}
+/* ---------- center ---------- */
+function vInbox(){
+  var fresh=S.leads.filter(function(l){return l.st==='new'}),work=S.leads.filter(function(l){return l.st==='assigned'});
+  var opts=S.masters.map(function(m){return '<option value="'+m.id+'">'+esc(m.name+' · '+m.dir+', '+m.city)+'</option>'}).join('');
+  return '<div class="narrow"><div><p class="kick">Панель Центра</p><h1>Заявки агентов</h1><p class="lead">Центр проверяет запрос и назначает мастера из сети.</p></div>'+
+    '<h2>Новые</h2>'+(fresh.length?fresh.map(function(l){return '<div class="card">'+leadHead(l)+'<div class="small">Агент: '+esc(l.agent)+' ('+esc(l.agentTg)+') · '+rewardText(l)+'</div><div class="small">Ищем: '+esc(l.need)+' · срок: '+esc(l.when||'не указан')+' · бюджет: '+(l.budget?money(l.budget):'не указан')+'</div><div class="small">Клиент: '+esc(l.contact)+' · '+(l.guide?'агент сам представит мастера':'мастер связывается напрямую')+'</div>'+
+        '<div class="row"><select id="as-'+l.id+'" class="grow" style="flex:1 1 220px" aria-label="Мастер">'+opts+'</select><button class="btn sm pri" data-act="lead-assign" data-id="'+l.id+'">Назначить</button><button class="btn sm" data-act="lead-lost" data-id="'+l.id+'">Отклонить</button></div></div>'}).join(''):'<div class="empty">Новых заявок нет. Отправьте запрос в роли «Агент».</div>')+
+    '<h2>У мастеров</h2>'+(work.length?work.map(function(l){return dealRow(l,'center')}).join(''):'<div class="empty">Нет заявок в работе.</div>')+'</div>';
+}
+function reviewCount(){return (S.app&&S.app.st!=='ok'?1:0)+(S.pending?1:0)+(S.hubPending?1:0)+review2n()}
+function vReview(){
+  var a=S.app,p=S.pending,m=me(),h='';
+  if(a&&a.st!=='ok')h+='<div class="card"><div class="row"><span class="tag warn">Новая анкета мастера</span><span class="small">'+esc(dfmt(a.at))+'</span></div><h2>'+esc(a.name)+'</h2><div class="small">'+esc(a.dir)+' · '+esc(a.city)+' · '+esc(a.tg)+'</div><p class="quote">'+esc(a.mf)+'</p><dl><div><dt>Форматы и цены</dt><dd>'+esc(a.fmt||'не указаны')+'</dd></div><div><dt>Что даёт сети</dt><dd>'+esc(a.give||'не указано')+'</dd></div><div><dt>Согласия</dt><dd>Каталог: да · карта: '+(a.c2?'да':'нет')+' · Telegram в карточке: '+(a.c3?'да':'нет')+'</dd></div></dl><div class="row"><button class="btn sm pri" data-act="app-ok">Одобрить и опубликовать</button><button class="btn sm" data-act="app-reset">Вернуть мастеру</button></div></div>';
+  if(p)h+='<div class="card"><div class="row"><span class="tag warn">Изменение условий</span><span class="small">'+esc(dfmt(p.at))+'</span></div><h2>'+esc(m.name)+'</h2><dl><div><dt>Форматы и цены: было</dt><dd>'+m.formats.map(function(f){return esc(f.n+', '+f.p)}).join('<br>')+'</dd></div><div><dt>Стало</dt><dd>'+p.formats.map(function(f){return esc(f.n+', '+f.p)}).join('<br>')+'</dd></div>'+
+    (p.give!==m.give?'<div><dt>Хабам: стало</dt><dd>'+esc(p.give)+'</dd></div>':'')+(p.partner!==m.partner?'<div><dt>Партнёрам: стало</dt><dd>'+esc(p.partner)+'</dd></div>':'')+'</dl><div class="row"><button class="btn sm pri" data-act="approve">Одобрить</button><button class="btn sm" data-act="reject">Отклонить</button></div></div>';
+  if(S.hubPending){var hb=myHub();h+='<div class="card"><div class="row"><span class="tag warn">Изменение условий хаба</span><span class="small">'+esc(dfmt(S.hubPending.at))+'</span></div><h2>'+esc(hb.name)+'</h2><dl><div><dt>Условия для мастеров: было</dt><dd>'+esc(hb.cond)+'</dd></div><div><dt>Стало</dt><dd>'+esc(S.hubPending.cond)+'</dd></div></dl><div class="row"><button class="btn sm pri" data-act="hub-approve">Одобрить</button><button class="btn sm" data-act="hub-reject">Отклонить</button></div></div>'}
+  h+=review2();
+  return '<div class="narrow"><h1>Проверка</h1><p class="lead">Новые анкеты, сборы и изменения условий в карточках. Пока Центр не одобрил, в каталоге ничего не меняется.</p>'+(h||'<div class="empty">Проверять нечего. Отправьте анкету в роли «Гость» или измените условия в карточке мастера или хаба.</div>')+'</div>';
+}
+function vLedger(){
+  var won=S.leads.filter(function(l){return l.st==='won'}),t={sum:0,m:0,a:0,c:0};
+  var rows=won.map(function(l){var s=shares(l);t.sum+=l.sum;t.m+=s.master;t.a+=s.agent;t.c+=s.center;return '<tr><td>'+esc(dfmt(l.at))+'</td><td>'+esc(l.task)+'</td><td>'+esc(mName(l.master))+'</td><td>'+esc(l.agent)+'</td><td class="r num">'+money(l.sum)+'</td><td class="r num">'+money(s.master)+'</td><td class="r num">'+money(s.agent)+'</td><td class="r num">'+money(s.center)+'</td></tr>'}).join('');
+  return '<div><h1>Журнал сделок</h1><p class="lead">Каждая закрытая сделка: кто привёл, кто исполнил и как разделилась сумма.</p></div>'+
+    '<div class="stat"><div><b class="num">'+money(t.sum)+'</b><span>оборот сети</span></div><div><b class="num">'+money(t.a)+'</b><span>агентам</span></div><div><b class="num">'+money(t.c)+'</b><span>сбор Центра</span></div></div>'+
+    '<div class="card"><h2>Ставки</h2><div class="two">'+field('rt-a','Вознаграждение агента, %','<input type="number" id="rt-a" min="0" max="50" value="'+S.rates.agent+'" data-act="rate" data-k="agent">')+field('rt-c','Сбор Центра, %','<input type="number" id="rt-c" min="0" max="50" value="'+S.rates.center+'" data-act="rate" data-k="center">')+'</div><p class="small">Измените ставку, и все доли пересчитаются.</p></div>'+
+    (won.length?'<div class="tw"><table><thead><tr><th>Дата</th><th>Задача</th><th>Мастер</th><th>Агент</th><th class="r">Сумма</th><th class="r">Мастеру</th><th class="r">Агенту</th><th class="r">Центру</th></tr></thead><tbody>'+rows+'</tbody><tfoot><tr><td colspan="4">Итого</td><td class="r num">'+money(t.sum)+'</td><td class="r num">'+money(t.m)+'</td><td class="r num">'+money(t.a)+'</td><td class="r num">'+money(t.c)+'</td></tr></tfoot></table></div>':'<div class="empty">Закрытых сделок пока нет.</div>');
+}
+function coinCheck(id,full){var c=priceFor(full),ok=S.w.guest.bal>=c;return '<label class="check"><input type="checkbox" id="'+id+'"'+(ok?' checked':'')+'><span>Оплатить Эко-Коинами: '+coin(c)+(c<full?' со скидкой Крио-Пасса':'')+'<br><span class="small">На кошельке '+coin(S.w.guest.bal)+'. Без отметки вы платите мастеру напрямую.</span></span></label>'}
+function stayPre(){var f=$('f-stay'),p=$('y-pre');if(!f||!p)return;var h=S.hubs.find(function(x){return x.id===f.getAttribute('data-id')}),full=toCoin(Math.max(1,+val('y-nights')||0)*Math.max(1,+val('y-guests')||0)*h.night),c=priceFor(full);p.textContent='К оплате '+coin(c)+(c<full?' со скидкой Крио-Пасса':'')+'. На кошельке '+coin(S.w.guest.bal)+'. Без отметки вы платите хабу напрямую.'}
+function dBook(id,cls){
+  var m=S.masters.find(function(x){return x.id===id}),e=cls?allEvents().find(function(x){return x.id===cls}):null;
+  dialog('Запись к мастеру','<p class="lead">'+esc(m.name)+(e?' · '+esc(e.title)+', '+esc(dfmt(e.date))+' в '+esc(e.time):'')+'</p><form id="f-book" data-id="'+id+'" data-cls="'+esc(cls||'')+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+
+    (e?'':field('b-fmt','Формат','<select id="b-fmt">'+m.formats.map(function(f){return '<option>'+esc(f.n)+'</option>'}).join('')+'</select>')+field('b-date','Желаемая дата','<input type="date" id="b-date" value="'+day(2)+'" min="'+day(0)+'">'))+
+    field('b-name','Ваше имя','<input type="text" id="b-name" autocomplete="name">')+field('b-tg','Telegram или телефон','<input type="text" id="b-tg">')+(e&&e.price?coinCheck('b-coin',toCoin(e.price)):'')+'<p class="err" id="b-err" hidden></p><button class="btn pri" type="submit">Отправить заявку</button></form>');
+}
+function dCloseLead(id){
+  var l=S.leads.find(function(x){return x.id===id});
+  dialog('Закрыть сделку','<p class="lead">'+esc(l.task)+'</p><form id="f-deal" data-id="'+id+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('d-sum','Сумма сделки, $','<input type="number" id="d-sum" min="1" value="'+(l.budget||'')+'">','Сколько клиент заплатил мастеру.')+
+    '<div class="split" id="d-prev"></div><p class="err" id="d-err" hidden></p><button class="btn pri" type="submit">Закрыть и посчитать доли</button></form>');
+  prevDeal();
+}
+function prevDeal(){
+  var f=$('f-deal');if(!f)return;var l=S.leads.find(function(x){return x.id===f.getAttribute('data-id')}),sum=Math.max(0,+val('d-sum')||0),s=shares(Object.assign({},l,{sum:sum}));
+  $('d-prev').innerHTML='<div><span>Мастеру</span><b class="num">'+money(s.master)+'</b></div><div><span>Агенту</span><b class="num">'+money(s.agent)+'</b></div><div><span>Центру</span><b class="num">'+money(s.center)+'</b></div>';
+}
+
+
+/* ---------- hub: guests, programs of masters, the card ---------- */
+function addDays(d,n){var t=dparse(d);t.setDate(t.getDate()+n);return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0')}
+function staying(hid,d){return S.stays.filter(function(x){return x.hub===hid&&x.st==='ok'&&x.from<=d&&d<addDays(x.from,x.nights)})}
+function occ(hid,d){return staying(hid,d).reduce(function(a,x){return a+x.guests},0)}
+function freeFor(st){var h=S.hubs.find(function(x){return x.id===st.hub}),m=h.beds;for(var i=0;i<st.nights;i++)m=Math.min(m,h.beds-occ(st.hub,addDays(st.from,i)));return m}
+function hubEvents(hid){
+  return S.classes.filter(function(c){return c.hub===hid}).map(function(c){return {id:c.id,master:ME,title:c.title,date:c.date,time:c.time,cap:c.cap,n:c.booked.length,price:c.price}})
+    .concat(S.pub.filter(function(c){return c.hub===hid})).sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time)});
+}
+function hubNew(){return S.stays.filter(function(x){return x.hub===HUB&&x.st==='new'}).length+S.offers.filter(function(x){return x.hub===HUB&&x.st==='new'}).length}
+function nightsText(n){return n+' '+(n===1?'ночь':n<5?'ночи':'ночей')}
+function guestsText(n){return n+' '+(n===1?'гость':n<5?'гостя':'гостей')}
+function stayRow(x){return '<div style="align-items:flex-start;flex-wrap:wrap"><div class="grow"><h3>'+esc(x.name)+'</h3><div class="small">'+esc(dfmt(x.from))+' → '+esc(dfmt(addDays(x.from,x.nights)))+' · '+nightsText(x.nights)+' · '+guestsText(x.guests)+'</div><div class="small">'+esc(x.contact)+(x.note?' · '+esc(x.note):'')+'</div>'+(x.coins?'<div class="small">Оплата Эко-Коинами: '+coin(x.coins)+(x.paid?', получено':', в резерве до вашего ответа')+'</div>':'')+'</div></div>'}
+function progRow(e,withDay){var m=S.masters.find(function(x){return x.id===e.master});return '<div class="ev"><div><div class="t num">'+esc(e.time)+'</div>'+(withDay?'<div class="small">'+esc(dfmt(e.date))+'</div>':'')+'</div><div class="grow"><h3>'+esc(e.title)+'</h3><div class="small">'+esc(m?m.name:'')+'</div><div class="chips" style="margin-top:6px"><span class="tag">'+e.n+' из '+e.cap+'</span><span class="tag">'+(e.price?money(e.price):'Бесплатно')+'</span></div></div><span></span></div>'}
+function vHubToday(){
+  var h=myHub(),d=day(0),live=staying(HUB,d),busy=occ(HUB,d),progs=hubEvents(HUB).filter(function(e){return e.date===d}),nw=hubNew();
+  var arr=S.stays.filter(function(x){return x.hub===HUB&&x.st==='ok'&&x.from>d}).sort(function(a,b){return a.from.localeCompare(b.from)}).slice(0,3);
+  return '<div class="narrow"><div class="row" style="flex-wrap:nowrap">'+ava(h)+'<div class="grow"><p class="kick">Кабинет хаба · '+esc(h.name)+'</p><h1>'+esc(dlong(d))+'</h1></div></div>'+
+    '<div class="stat"><div><b class="num">'+busy+'</b><span>гостей живёт</span></div><div><b class="num">'+(h.beds-busy)+'</b><span>мест свободно</span></div><div><b class="num">'+nw+'</b><span>новых заявок</span></div></div>'+
+    (S.hubPending?'<div class="banner"><span>Новые условия для мастеров ждут проверки Центра.</span><a class="link" href="#hub-card">Открыть</a></div>':'')+
+    (nw?'<div class="banner"><span>Есть заявки на проживание и предложения мастеров.</span><a class="link" href="#hub-inbox">Разобрать</a></div>':'')+
+    '<section class="card"><h2>Живут сейчас</h2>'+(live.length?'<div class="list">'+live.map(stayRow).join('')+'</div>':'<p class="lead">Сегодня гостей нет.</p>')+'</section>'+
+    '<section class="card"><div class="spread"><h2>Программы сегодня</h2><a class="link small" href="#hub-cal">Календарь</a></div>'+(progs.length?progs.map(function(e){return progRow(e)}).join(''):'<p class="lead">Сегодня программ нет.</p>')+'</section>'+
+    (arr.length?'<section class="card"><h2>Скоро заезжают</h2><div class="list">'+arr.map(stayRow).join('')+'</div></section>':'')+'</div>';
+}
+function vHubInbox(){
+  var st=S.stays.filter(function(x){return x.hub===HUB&&x.st==='new'}),of=S.offers.filter(function(x){return x.hub===HUB&&x.st==='new'}),h=myHub();
+  return '<div class="narrow"><h1>Заявки</h1><p class="lead">Гости просят проживание, мастера предлагают программы. После вашего ответа заезд встаёт в календарь, а программа появляется и у мастера, и в календаре сети.</p>'+
+    '<h2>Проживание</h2>'+(st.length?st.map(function(x){var fr=freeFor(x),ok=fr>=x.guests;return '<div class="card"><div class="row"><span class="tag '+(ok?'ok':'warn')+'">'+(ok?'Места есть':'Мест не хватает: свободно '+Math.max(0,fr))+'</span><span class="small">'+money(x.nights*x.guests*h.night)+' за всё</span></div><div class="list">'+stayRow(x)+'</div><div class="row"><button class="btn sm pri" data-act="stay-ok" data-id="'+x.id+'"'+(ok?'':' disabled')+'>Подтвердить</button><button class="btn sm" data-act="stay-no" data-id="'+x.id+'">Отклонить</button></div></div>'}).join(''):'<div class="empty">Новых заявок на проживание нет. Гость отправляет их из карточки хаба в каталоге.</div>')+
+    '<h2>Предложения мастеров</h2>'+(of.length?of.map(function(o){var m=S.masters.find(function(x){return x.id===o.master});return '<div class="card"><a class="row" href="#m-'+m.id+'" style="flex-wrap:nowrap;text-decoration:none;color:inherit">'+ava(m,'sm')+'<span class="grow"><b>'+esc(m.name)+'</b><br><span class="small">'+esc(m.dir)+' · '+esc(m.city)+'</span></span><span class="link small">Карточка</span></a><h3>'+esc(o.title)+'</h3><div class="small">'+esc(dlong(o.date))+' в '+esc(o.time)+' · до '+o.cap+' человек · '+(o.price?money(o.price)+' с человека':'бесплатно')+'</div><div class="small">Условия: '+esc(o.terms)+(o.note?' · '+esc(o.note):'')+'</div><div class="row"><button class="btn sm pri" data-act="offer-ok" data-id="'+o.id+'">Принять</button><button class="btn sm" data-act="offer-no" data-id="'+o.id+'">Отклонить</button></div></div>'}).join(''):'<div class="empty">Новых предложений нет. Мастер отправляет их из раздела «Расписание».</div>')+'</div>';
+}
+function vHubCal(){
+  var h=myHub(),days='';
+  for(var i=0;i<7;i++){var d=day(i),dt=dparse(d),o=occ(HUB,d),pc=Math.round(o/h.beds*100),pr=hubEvents(HUB).some(function(e){return e.date===d});
+    days+='<button class="'+(pr?'has':'')+'" data-act="hday" data-v="'+d+'" aria-pressed="'+(S.hday===d)+'" aria-label="'+esc(dlong(d))+', занято '+o+' из '+h.beds+'"><small>'+WD[dt.getDay()]+'</small><b class="num">'+dt.getDate()+'</b><span class="occ"><span style="height:'+pc+'%"></span></span><small class="num">'+o+'/'+h.beds+'</small></button>'}
+  var live=staying(HUB,S.hday),progs=hubEvents(HUB).filter(function(e){return e.date===S.hday}),o2=occ(HUB,S.hday);
+  return '<div class="narrow"><h1>Календарь хаба</h1><p class="lead">Столбик показывает, сколько мест занято в этот день. Время программ местное.</p><div class="days hd" role="group" aria-label="Дни">'+days+'</div>'+
+    '<h2>'+esc(dlong(S.hday))+'</h2><div class="stat"><div><b class="num">'+o2+'</b><span>гостей</span></div><div><b class="num">'+(h.beds-o2)+'</b><span>свободно</span></div><div><b class="num">'+progs.length+'</b><span>'+(progs.length===1?'программа':progs.length>1&&progs.length<5?'программы':'программ')+'</span></div></div>'+
+    '<section class="card"><h2>Гости</h2>'+(live.length?'<div class="list">'+live.map(stayRow).join('')+'</div>':'<p class="lead">В этот день никто не живёт.</p>')+'</section>'+
+    '<section class="card"><h2>Программы мастеров</h2>'+(progs.length?progs.map(function(e){return progRow(e)}).join(''):'<p class="lead">Программ нет. Их предлагают мастера, ответить можно в разделе «Заявки».</p>')+'</section></div>';
+}
+function vHubCard(){
+  var h=myHub(),p=S.hubPending;
+  return '<form class="narrow" id="hcard" novalidate><div class="spread" style="flex-wrap:wrap"><div><h1>Карточка хаба</h1><p class="lead">Так место видят гости и мастера.</p></div><a class="btn sm" href="#h-'+h.id+'">Посмотреть как гость</a></div>'+
+    (p?'<div class="banner"><span>Новые условия для мастеров отправлены '+esc(dfmt(p.at))+' и ждут проверки. В каталоге пока прежние. Одобрить их можно в роли «Центр», раздел «Проверка».</span></div>':'')+
+    '<div class="card"><div class="spread"><h2>Место</h2><span class="tag ok">Меняется сразу</span></div>'+field('h-has','Что есть в хабе','<textarea id="h-has" maxlength="300">'+esc(h.has)+'</textarea>')+
+      '<div class="two">'+field('h-beds','Мест для гостей','<input type="number" id="h-beds" min="1" value="'+h.beds+'">')+field('h-night','Цена за ночь с человека, $','<input type="number" id="h-night" min="0" value="'+h.night+'">')+'</div></div>'+
+    '<div class="card"><div class="spread"><h2>Условия для мастеров</h2><span class="tag warn">Через проверку Центра</span></div>'+field('h-cond','На каких условиях мастера ведут программы','<textarea id="h-cond" maxlength="300">'+esc(p?p.cond:h.cond)+'</textarea>','Эти условия видит вся сеть, поэтому их изменение сначала проверяет команда.')+'</div>'+
+    '<p class="err" id="h-err" hidden></p><div><button class="btn pri" type="submit">Сохранить</button></div></form>';
+}
+function vHub(id){
+  var h=S.hubs.find(function(x){return x.id===id});if(!h)return vCatalog();
+  var ms=S.masters.filter(function(m){return m.city===h.city}),pr=allEvents().filter(function(e){return e.hub===id&&e.ld>=day(0)}).sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time)}).slice(0,5),free=h.beds-occ(id,day(0));
+  return '<div class="narrow"><a class="link small" href="#'+backTab()+'">← Назад</a><div class="hero">'+ava(h)+'<div class="grow"><h1>'+esc(h.name)+'</h1><p class="lead">Хаб · '+esc(h.city)+'</p><div class="chips" style="margin-top:8px"><span class="tag res">Хаб сети EcoChakra</span><span class="tag '+(free>0?'ok':'warn')+'">Сегодня свободно: '+free+'</span></div></div></div>'+
+    '<section class="card"><h2>Место</h2><div class="list"><div><span>Мест для гостей</span><span class="price">'+h.beds+'</span></div><div><span>Проживание</span><span class="price">'+money(h.night)+' за ночь</span></div></div><p>'+esc(h.has)+'</p></section>'+
+    '<section class="card"><h2>Программы в хабе</h2>'+(pr.length?pr.map(function(e){var m=S.masters.find(function(x){return x.id===e.master});return '<div class="ev"><div><div class="t num">'+esc(e.time)+'</div><div class="small">'+esc(dfmt(e.date))+'</div></div><div class="grow"><h3>'+esc(e.title)+'</h3><div class="small">'+esc(m.name)+' · '+(e.price?money(e.price):'бесплатно')+'</div></div><button class="btn sm" data-act="book" data-id="'+m.id+'" data-cls="'+e.id+'">Записаться</button></div>'}).join(''):'<p class="lead">Ближайших программ пока нет.</p>')+'</section>'+
+    '<section class="card"><h2>Условия для мастеров</h2><p>'+esc(h.cond)+'</p></section>'+
+    (ms.length?'<section class="card"><h2>Мастера в этом городе</h2><div class="list">'+ms.map(function(m){return '<a href="#m-'+m.id+'" style="text-decoration:none;color:inherit;align-items:center"><span class="row" style="flex-wrap:nowrap">'+ava(m,'sm')+'<span>'+esc(m.name)+'<br><span class="small">'+esc(m.dir)+'</span></span></span><span class="link small">Открыть</span></a>'}).join('')+'</div></section>':'')+
+    '<div class="cta"><button class="btn pri" data-act="stay" data-id="'+h.id+'">Забронировать проживание</button></div></div>';
+}
+var OST={new:['Ждёт ответа хаба','warn'],ok:['Принято','ok'],no:['Отклонено','']};
+function vSchedule(){
+  var days='';for(var i=0;i<7;i++){var d=day(i),dt=dparse(d),has=S.classes.some(function(c){return c.date===d});days+='<button class="'+(has?'has':'')+'" data-act="day" data-v="'+d+'" aria-pressed="'+(S.sel===d)+'" aria-label="'+esc(dlong(d))+'"><small>'+WD[dt.getDay()]+'</small><b class="num">'+dt.getDate()+'</b><i></i></button>'}
+  var list=S.classes.filter(function(c){return c.date===S.sel}).sort(function(a,b){return a.time.localeCompare(b.time)});
+  var later=S.classes.filter(function(c){return c.date>day(6)}).sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time)}),mine=S.offers.filter(function(o){return o.master===ME});
+  return '<div class="narrow"><div class="spread" style="flex-wrap:wrap"><h1>Расписание</h1><div class="row"><button class="btn sm" data-act="offer-open">Предложить хабу</button><button class="btn sm pri" data-act="cls-open" data-id="">+ Занятие</button></div></div><div class="days" role="group" aria-label="Дни недели">'+days+'</div>'+
+    '<section class="card"><h2>'+esc(dlong(S.sel))+'</h2>'+(list.length?list.map(function(c){return evRow(c)}).join(''):'<p class="lead">На этот день занятий нет.</p>')+'</section>'+
+    (later.length?'<section class="card"><h2>Позже</h2>'+later.map(function(c){return evRow(c,true)}).join('')+'</section>':'')+
+    '<section class="card"><h2>Предложения хабам</h2>'+(mine.length?'<div class="list">'+mine.map(function(o){var h=S.hubs.find(function(x){return x.id===o.hub});return '<div style="align-items:flex-start"><span class="grow"><b>'+esc(o.title)+'</b><br><span class="small">'+esc(h.name)+' · '+esc(dfmt(o.date))+' в '+esc(o.time)+' · '+esc(o.terms)+'</span></span><span class="tag '+OST[o.st][1]+'">'+OST[o.st][0]+'</span></div>'}).join('')+'</div>':'<p class="lead">Вы ещё ничего не предлагали. Предложите хабу практику для его гостей: после согласия она встанет в ваше расписание и в календарь хаба.</p>')+'</section></div>';
+}
+function dStay(id){
+  var h=S.hubs.find(function(x){return x.id===id});
+  dialog('Проживание в хабе','<p class="lead">'+esc(h.name)+' · '+money(h.night)+' за ночь с человека</p><form id="f-stay" data-id="'+id+'" novalidate style="display:flex;flex-direction:column;gap:12px"><div class="two">'+field('y-from','Заезд','<input type="date" id="y-from" value="'+day(1)+'" min="'+day(0)+'">')+field('y-nights','Ночей','<input type="number" id="y-nights" min="1" max="60" value="3">')+'</div>'+
+    field('y-guests','Гостей','<input type="number" id="y-guests" min="1" max="'+h.beds+'" value="1">')+field('y-name','Ваше имя','<input type="text" id="y-name" autocomplete="name">')+field('y-tg','Telegram или телефон','<input type="text" id="y-tg">')+field('y-note','Пожелания','<textarea id="y-note" maxlength="300"></textarea>')+'<label class="check"><input type="checkbox" id="y-coin"><span>Оплатить Эко-Коинами<br><span class="small" id="y-pre"></span></span></label>'+
+    '<p class="err" id="y-err" hidden></p><button class="btn pri" type="submit">Отправить заявку</button></form>');stayPre();
+}
+function dOffer(){
+  var m=me();
+  dialog('Предложить практику хабу','<form id="f-offer" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('o-hub','Хаб','<select id="o-hub">'+S.hubs.map(function(h){return '<option value="'+h.id+'">'+esc(h.name+' · '+h.city)+'</option>'}).join('')+'</select>')+
+    field('o-title','Что вы проведёте','<input type="text" id="o-title" placeholder="Например: утреннее дыхание для гостей">')+'<div class="two">'+field('o-date','Дата','<input type="date" id="o-date" value="'+day(3)+'" min="'+day(0)+'">')+field('o-time','Время','<input type="time" id="o-time" value="08:00">')+'</div>'+
+    '<div class="two">'+field('o-cap','Мест','<input type="number" id="o-cap" min="1" value="12">')+field('o-price','Цена с человека, $','<input type="number" id="o-price" min="0" value="10">')+'</div>'+
+    field('o-terms','Условия для хаба','<input type="text" id="o-terms" value="70% мастеру, 30% хабу">','Из вашей карточки: '+esc(m.give))+
+    '<p class="err" id="o-err" hidden></p><button class="btn pri" type="submit">Отправить хабу</button></form>');
+}
+/* ---------- tokens: Eco-Coins, the pass, staking; the rest of the network ---------- */
+function coin(n){return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' ЭК'}
+function toCoin(usd){return Math.round(usd/(S.eco.rate||1))}
+function op(who,n,t){if(!n)return;var w=S.w[who];w.bal+=n;w.hist.unshift({n:n,t:t,at:day(0)});if(w.hist.length>30)w.hist.length=30}
+function passOn(){return !!(S.pass&&S.pass.until>=day(0))}
+function priceFor(full){return passOn()?Math.round(full*(100-S.eco.disc)/100):full}
+// the receiver gets the full price minus the Center fee; a pass discount is covered by the Center fund
+function settle(to,paid,full,t){var fee=Math.round(full*S.eco.fee/100);op(to,full-fee,t);op('center',paid-(full-fee),paid<full?'Сбор и скидка Крио-Пасса: '+t:'Сбор Центра: '+t)}
+function stakeDue(s){return addDays(s.from,s.months*30)}
+function stakeRew(s){return Math.round(s.n*s.pct/100*s.months/12)}
+function held(){return S.requests.concat(S.stays).reduce(function(a,x){return a+(x.st==='new'&&x.coins&&!x.paid?x.coins:0)},0)}
+function wdNew(){return S.wd.filter(function(x){return x.st==='new'})}
+function ecoParts(){
+  var st=S.stakes.reduce(function(a,s){return a+(s.st==='on'?s.n:0)},0),fu=S.funds.reduce(function(a,f){return a+f.got},0),wd=wdNew().reduce(function(a,x){return a+x.n},0);
+  var p=[['Гости',S.w.guest.bal],['В стейкинге',st],['В резерве до ответа мастера или хаба',held()],['Мастера с кабинетом',S.w.master.bal],['Хабы с кабинетом',S.w.hub.bal],['Агенты',S.w.agent.bal],['Остальные участники сети',S.w.net.bal],['В сборах',fu],['Ждут вывода',wd],['Фонд Центра',S.w.center.bal]];
+  return {rows:p,total:p.reduce(function(a,x){return a+x[1]},0)};
+}
+function seedEco(S0){
+  S0.eco={rate:1,pass:900,disc:10,stake:20,fee:3,sub:15,reserve:0};
+  var h=function(n,t,d){return {n:n,t:t,at:day(d)}};
+  S0.w={guest:{bal:160,hist:[h(-25,'Запись: Женский круг',-3),h(-200,'Стейкинг на 3 месяца',-95),h(400,'Пополнение на $400',-96)]},
+    master:{bal:310,hist:[h(24,'Оплата: Женский круг, Марина Котова',-3),h(286,'Оплаты за ноябрь',-8)]},
+    hub:{bal:540,hist:[h(340,'Проживание: Ирина Полякова',-2),h(200,'Проживание и программы за ноябрь',-9)]},
+    agent:{bal:140,hist:[h(140,'Вознаграждение: выезд команды на 12 человек',-6)]},
+    center:{bal:1240,hist:[h(900,'Крио-Пасс: Ирина Полякова',-12),h(340,'Сборы и подписки за ноябрь',-8)]},
+    net:{bal:2150,hist:[]}};
+  S0.pass=null;S0.subs={master:day(12),hub:''};S0.wd=[{id:'w1',who:'hub',n:200,at:day(-1),st:'new'}];
+  S0.stakes=[{id:'t1',n:200,months:3,pct:20,from:day(-95),st:'on'},{id:'t2',n:100,months:12,pct:20,from:day(-40),st:'on'}];
+  S0.crafts=[
+    {id:'nana',name:'Нана Гогуа',h:340,city:'Батуми',craft:'Текстиль',mf:'Тку пледы и коврики для практик из аджарской шерсти.',about:'Работаю на ручном станке, крашу шерсть растениями. Делаю партии для ретритов и хабов.',items:[{n:'Коврик для медитации',p:45},{n:'Плед из шерсти',p:120},{n:'Набор для ретрита на 10 человек',p:380}],tg:'nana_weave'},
+    {id:'arsen',name:'Арсен Мелконян',h:75,city:'Тбилиси',craft:'Травяные чаи',mf:'Собираю травы в горах Кавказа и составляю сборы под практику.',about:'Сборы для утра, вечера и церемоний. Поставляю чай хабам и мастерам.',items:[{n:'Сбор «Утро в горах», 100 г',p:9},{n:'Набор из пяти сборов',p:40}],tg:'arsen_herbs'},
+    {id:'iya',name:'Ия Цулая',h:22,city:'Тбилиси',craft:'Керамика',mf:'Делаю чашки и чайники, из которых хочется пить медленно.',about:'Посуда для чайных церемоний, партии под заказ для кафе и ретритов.',items:[{n:'Пиала',p:14},{n:'Чайник',p:60},{n:'Набор для церемонии на шесть человек',p:130}],tg:'iya_clay'},
+    {id:'ketut',name:'Кетут Сари',h:150,city:'Бали',craft:'Благовония',mf:'Скручиваю благовония вручную по рецептам своей деревни.',about:'Натуральные благовония и масла без отдушек. Отправляю по Азии.',items:[{n:'Благовония, 30 палочек',p:8},{n:'Набор масел',p:35}],tg:'ketut_sari'}
+  ];
+  S0.fests=[
+    {id:'water',name:'Фестиваль воды и звука',h:205,city:'Батуми',fmt:'offline',date:day(9),days:3,org:'Команда EcoChakra',about:'Три дня у моря: дыхательные практики, звуковые медитации, чайные церемонии и маркет ремесленников.',price:90,cap:120,sold:74,needs:[{n:'Площадка',who:'Дом у моря',ok:true},{n:'Мастер дыхания',who:'Анна Светлова',ok:true},{n:'Мастер звука',who:'',ok:false},{n:'Чай для гостей',who:'Давид Квирикашвили',ok:true},{n:'Ремесленники на маркет',who:'',ok:false}]},
+    {id:'market',name:'Эко-маркет ремесленников',h:48,city:'Тбилиси',fmt:'offline',date:day(16),days:1,org:'Сад на холме',about:'Керамика, текстиль, травы и мастер-классы в саду. Вход свободный, мастер-классы по записи.',price:0,cap:300,sold:112,needs:[{n:'Площадка',who:'Сад на холме',ok:true},{n:'Ремесленники',who:'Ия Цулая, Арсен Мелконян',ok:true},{n:'Ведущий мастер-классов',who:'',ok:false}]},
+    {id:'breath',name:'Неделя дыхания онлайн',h:300,city:'',fmt:'online',date:day(21),days:7,org:'Мира Шанти и Тимур Алиев',about:'Семь утренних эфиров с разными мастерами сети. Записи остаются у участников.',price:35,cap:500,sold:186,needs:[{n:'Ведущие эфиров',who:'5 из 7',ok:false},{n:'Платформа',who:'Zoom',ok:true}]}
+  ];
+  S0.tickets=[];S0.orders=[];
+  S0.feed=[
+    {id:'f1',chat:'Практики в Батуми',city:'Батуми',type:'Практика',title:'Утреннее дыхание у моря',date:day(0),time:'08:00',place:'Дом у моря, терраса',n:9,go:false},
+    {id:'f2',chat:'Команда EcoChakra',city:'',type:'Встреча команды',title:'Созвон команды: прототип приложения',date:day(0),time:'20:00',place:'Google Meet',n:6,go:false},
+    {id:'f3',chat:'Тбилиси: движение',city:'Тбилиси',type:'Практика',title:'Тай-чи для начинающих',date:day(1),time:'19:00',place:'Сад на холме, зал',n:9,go:false},
+    {id:'f4',chat:'Практики в Батуми',city:'Батуми',type:'Встреча',title:'Чаепитие участников сети',date:day(2),time:'18:00',place:'Чайная на Горгиладзе',n:14,go:false},
+    {id:'f5',chat:'Ubud Community',city:'Бали',type:'Практика',title:'Гонг-ночь',date:day(4),time:'21:00',place:'Убуд Лофт',n:8,go:false},
+    {id:'f6',chat:'Команда EcoChakra',city:'Батуми',type:'Встреча команды',title:'Живая встреча: планы на зиму',date:day(5),time:'16:00',place:'Дом у моря',n:11,go:false},
+    {id:'f7',chat:'Rishikesh Yoga RU',city:'Ришикеш',type:'Практика',title:'Курс у Ганги, день 1',date:day(5),time:'09:00',place:'Ганга Хаус',n:10,go:false},
+    {id:'f8',chat:'Тбилиси: движение',city:'Тбилиси',type:'Маркет',title:'Эко-маркет ремесленников: сбор заявок',date:day(6),time:'12:00',place:'Сад на холме',n:23,go:false}
+  ];
+  S0.ff={city:'',type:''};
+  S0.chats=[
+    {id:'b1',name:'Бизнес-чат: Батуми',city:'Батуми',price:20,members:86,about:'Аренда залов, совместные программы, заказы для мастеров и ремесленников.',until:''},
+    {id:'b2',name:'Бизнес-чат: Тбилиси',city:'Тбилиси',price:20,members:124,about:'Площадки, организаторы, корпоративные заказы.',until:''},
+    {id:'b3',name:'Бизнес-чат: Бали',city:'Бали',price:30,members:210,about:'Ретрит-центры, группы из Европы и СНГ, подрядчики.',until:''},
+    {id:'b4',name:'Бизнес-чат: Ришикеш',city:'Ришикеш',price:15,members:58,about:'Ашрамы, учителя, групповые заезды.',until:''}
+  ];
+  S0.funds=[
+    {id:'g1',title:'Мастерская керамики для детей',by:'Сад на холме',city:'Тбилиси',goal:1500,got:940,about:'Печь и два гончарных круга, чтобы вести бесплатные занятия по субботам.',st:'ok'},
+    {id:'g2',title:'Уборка пляжа и посадка деревьев',by:'Команда EcoChakra',city:'Батуми',goal:600,got:215,about:'Инвентарь, саженцы и обед для волонтёров.',st:'ok'},
+    {id:'g3',title:'Стипендия на курс у Ганги',by:'Мира Шанти',city:'Ришикеш',goal:700,got:700,about:'Два бесплатных места на недельный курс для тех, кто не может оплатить.',st:'ok'}
+  ];
+  S0.apps=[];S0.jkind='master';
+  var t=S0.stakes.reduce(function(a,s){return a+s.n},0)+S0.funds.reduce(function(a,f){return a+f.got},0)+200;for(var k in S0.w)t+=S0.w[k].bal;
+  S0.eco.reserve=t-60;
+}
+function histHtml(w){return w.hist.length?'<div class="list">'+w.hist.slice(0,12).map(function(x){return '<div><span>'+esc(x.t)+'<br><span class="small">'+esc(dfmt(x.at))+'</span></span><span class="price num'+(x.n>0?' plus':'')+'">'+(x.n>0?'+':'−')+coin(Math.abs(x.n))+'</span></div>'}).join('')+'</div>':'<p class="lead">Операций пока нет.</p>'}
+function balCard(who,extra){var w=S.w[who];return '<div class="card bal"><span class="small">Баланс</span><b class="num big">'+coin(w.bal)+'</b><span class="small">≈ '+money(Math.round(w.bal*S.eco.rate))+' по курсу Центра: 1 ЭК = '+money(S.eco.rate)+'</span>'+(extra||'')+'</div>'}
+function vWallet(){
+  var on=S.stakes.filter(function(s){return s.st==='on'}),hl=held();
+  var pass=passOn()?'<div class="row"><span class="tag ok">Действует до '+esc(dfmt(S.pass.until))+'</span></div><p>Скидка '+S.eco.disc+'% на всё, что вы оплачиваете Эко-Коинами: занятия, проживание, билеты, изделия и чаты.</p>'
+    :'<p>Годовое членство в сети. Даёт скидку '+S.eco.disc+'% на всё, что оплачено Эко-Коинами.</p><div class="list"><div><span>Стоимость на год</span><span class="price">'+coin(S.eco.pass)+'</span></div></div><div><button class="btn sm pri" data-act="pass-buy">Оформить Крио-Пасс</button></div>';
+  var st=on.map(function(s){var due=stakeDue(s),ripe=due<=day(0),rw=stakeRew(s);return '<div style="align-items:center;flex-wrap:wrap"><span><b class="num">'+coin(s.n)+'</b> на '+s.months+' мес.<br><span class="small">'+(ripe?'Срок вышел '+esc(dfmt(due)):'До '+esc(dfmt(due)))+' · награда +'+coin(rw)+'</span></span>'+(ripe?'<button class="btn sm pri" data-act="stake-take" data-id="'+s.id+'">Забрать '+coin(s.n+rw)+'</button>':'<button class="btn sm" data-act="stake-break" data-id="'+s.id+'">Вернуть без награды</button>')+'</div>'}).join('');
+  return '<div class="narrow"><div><h1>Кошелёк</h1><p class="lead">Эко-Коины (ЭК): внутренняя единица сети. Ими платят за занятия, проживание, события, изделия и чаты, поддерживают сборы.</p></div>'+
+    balCard('guest',(hl?'<span class="small">Ещё '+coin(hl)+' в резерве: вернутся, если мастер или хаб отклонит заявку.</span>':'')+'<div><button class="btn sm pri" data-act="buy-open">Пополнить</button></div>')+
+    '<section class="card"><h2>Крио-Пасс</h2>'+pass+'</section>'+
+    '<section class="card"><h2>Стейкинг</h2><p>Заморозьте Эко-Коины на срок и получите +'+S.eco.stake+'% годовых. Досрочно вернуть можно, но без награды.</p>'+(st?'<div class="list">'+st+'</div>':'')+
+    '<div class="two">'+field('st-n','Сколько ЭК','<input type="number" id="st-n" min="10" value="100">')+field('st-m','Срок','<select id="st-m"><option value="3">3 месяца</option><option value="6">6 месяцев</option><option value="12" selected>12 месяцев</option></select>')+'</div><p class="small" id="st-pre"></p><p class="err" id="st-err" hidden></p><div><button class="btn sm" data-act="stake-add">Заморозить</button></div></section>'+
+    '<section class="card"><h2>История</h2>'+histHtml(S.w.guest)+'</section></div>';
+}
+var WHO={master:['Анна Светлова','Оплаты клиентов Эко-Коинами приходят сюда после того, как вы подтвердили заявку.'],hub:['Дом у моря','Оплаты проживания Эко-Коинами приходят сюда после подтверждения заезда.'],agent:['Агент','Вознаграждение за закрытые сделки начисляется Эко-Коинами.']};
+function vWalletOf(who){
+  var mine=S.wd.filter(function(x){return x.who===who}),sub=who!=='agent'?S.subs[who]:'',onSub=sub&&sub>=day(0);
+  return '<div class="narrow"><div><h1>Кошелёк</h1><p class="lead">'+WHO[who][1]+' Сбор Центра: '+S.eco.fee+'%.</p></div>'+
+    balCard(who,'<div><button class="btn sm pri" data-act="wd-open" data-v="'+who+'">Вывести</button></div>')+
+    (mine.length?'<section class="card"><h2>Заявки на вывод</h2><div class="list">'+mine.map(function(x){return '<div><span>'+coin(x.n)+' ≈ '+money(Math.round(x.n*S.eco.rate))+'<br><span class="small">'+esc(dfmt(x.at))+'</span></span><span class="tag '+(x.st==='new'?'warn':x.st==='ok'?'ok':'')+'">'+(x.st==='new'?'Ждёт Центр':x.st==='ok'?'Выплачено':'Отклонено')+'</span></div>'}).join('')+'</div></section>':'')+
+    (who==='agent'?'':'<section class="card"><h2>Подписка участника</h2><div class="row"><span class="tag '+(onSub?'ok':'')+'">'+(onSub?'Оплачена до '+esc(dfmt(sub)):'Бесплатный доступ')+'</span></div><dl><div><dt>Бесплатно</dt><dd>Карточка в каталоге, расписание, заявки, клиенты.</dd></div><div><dt>По подписке, '+coin(S.eco.sub)+' в месяц</dt><dd>Рассылки по каналам, заявки от агентов, предложения '+(who==='hub'?'мастеров':'хабам')+', место выше в каталоге.</dd></div></dl><p class="small">В прототипе разделы не закрываются: здесь видно только оплату.</p><div><button class="btn sm" data-act="sub-pay" data-v="'+who+'">'+(onSub?'Продлить на месяц':'Оплатить месяц')+'</button></div></section>')+
+    '<section class="card"><h2>История</h2>'+histHtml(S.w[who])+'</section></div>';
+}
+function vWalletM(){return vWalletOf('master')}
+function vWalletH(){return vWalletOf('hub')}
+function vWalletA(){return vWalletOf('agent')}
+function vEco(){
+  var p=ecoParts(),cover=p.total?Math.round(S.eco.reserve/(p.total*S.eco.rate)*100):100,owe=S.stakes.reduce(function(a,s){return a+(s.st==='on'?stakeRew(s):0)},0),wd=wdNew();
+  var fld=function(k,label,hint){return field('ec-'+k,label,'<input type="number" id="ec-'+k+'" min="0" step="'+(k==='rate'?'0.1':'1')+'" value="'+S.eco[k]+'" data-act="eco" data-k="'+k+'">',hint)};
+  return '<div><h1>Экономика</h1><p class="lead">Сколько Эко-Коинов выпущено, у кого они и чем обеспечены.</p></div>'+
+    '<div class="stat"><div><b class="num">'+coin(p.total)+'</b><span>выпущено</span></div><div><b class="num">'+money(Math.round(S.eco.reserve))+'</b><span>резерв в деньгах</span></div><div><b class="num">'+cover+'%</b><span>покрытие</span></div></div>'+
+    '<div class="card"><h2>Заявки на вывод</h2>'+(wd.length?'<div class="list">'+wd.map(function(x){return '<div style="align-items:center;flex-wrap:wrap"><span><b>'+esc(WHO[x.who][0])+'</b><br><span class="small">'+coin(x.n)+' ≈ '+money(Math.round(x.n*S.eco.rate))+' · '+esc(dfmt(x.at))+'</span></span><span class="row"><button class="btn sm pri" data-act="wd-ok" data-id="'+x.id+'">Выплатить</button><button class="btn sm" data-act="wd-no" data-id="'+x.id+'">Отклонить</button></span></div>'}).join('')+'</div>':'<p class="lead">Новых заявок нет.</p>')+'</div>'+
+    '<div class="tw"><table><thead><tr><th>Где находятся Эко-Коины</th><th class="r">ЭК</th><th class="r">Доля</th></tr></thead><tbody>'+p.rows.map(function(r){return '<tr><td>'+r[0]+'</td><td class="r num">'+coin(r[1]).replace(' ЭК','')+'</td><td class="r num">'+(p.total?Math.round(r[1]/p.total*100):0)+'%</td></tr>'}).join('')+'</tbody><tfoot><tr><td>Итого</td><td class="r num">'+coin(p.total).replace(' ЭК','')+'</td><td class="r">100%</td></tr></tfoot></table></div>'+
+    '<div class="card"><h2>Обязательства</h2><div class="list"><div><span>Награды по действующему стейкингу</span><span class="price num">'+coin(owe)+'</span></div><div><span>Действующие Крио-Пассы</span><span class="price num">'+(1+(passOn()?1:0))+'</span></div></div><p class="small">Награда стейкинга выпускается новыми Эко-Коинами. Деньгами она не обеспечена, поэтому после выплат покрытие падает.</p></div>'+
+    '<div class="card"><h2>Правила</h2><div class="two">'+fld('rate','Курс: 1 ЭК в долларах')+fld('pass','Крио-Пасс на год, ЭК')+'</div><div class="two">'+fld('disc','Скидка по Крио-Пассу, %')+fld('stake','Стейкинг, % годовых')+'</div><div class="two">'+fld('fee','Сбор Центра с оплат, %')+fld('sub','Подписка участника, ЭК в месяц')+'</div><p class="small">Измените правило, и цены в кошельках пересчитаются.</p></div>'+
+    '<div class="card"><h2>До запуска</h2><p class="small">Внутренняя единица с курсом, вывод в деньги и стейкинг с процентом в большинстве стран подпадают под правила о платёжных услугах или инвестициях. Перед запуском с настоящими деньгами схему должен проверить юрист. В прототипе всё это только расчёт.</p></div>';
+}
+function dBuy(){dialog('Пополнить кошелёк','<form id="f-buy" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('bu-usd','Сумма, $','<input type="number" id="bu-usd" min="1" value="100">')+'<p class="small" id="bu-pre">Вы получите '+coin(toCoin(100))+'.</p><p class="small">В прототипе оплаты нет: Эко-Коины начисляются сразу.</p><p class="err" id="bu-err" hidden></p><button class="btn pri" type="submit">Пополнить</button></form>')}
+function dWd(who){dialog('Вывод Эко-Коинов','<p class="lead">На кошельке '+coin(S.w[who].bal)+'. Центр выплачивает по курсу 1 ЭК = '+money(S.eco.rate)+'.</p><form id="f-wd" data-id="'+who+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('wd-n','Сколько ЭК вывести','<input type="number" id="wd-n" min="1" max="'+S.w[who].bal+'" value="'+Math.min(100,S.w[who].bal)+'">')+'<p class="err" id="wd-err" hidden></p><button class="btn pri" type="submit">Отправить заявку Центру</button></form>')}
+function payInfo(kind,id,i){
+  if(kind==='craft'){var c=S.crafts.find(function(x){return x.id===id}),it=c.items[+i];return {title:it.n,sub:'Заказ у ремесленника: '+c.name,full:toCoin(it.p)}}
+  if(kind==='fest'){var e=S.fests.find(function(x){return x.id===id});return {title:'Билет: '+e.name,sub:festWhen(e),full:toCoin(e.price)}}
+  var ch=S.chats.find(function(x){return x.id===id});return {title:ch.name+', 30 дней',sub:'Доступ к закрытому чату',full:ch.price};
+}
+function dPay(kind,id,i){
+  var p=payInfo(kind,id,i),cost=priceFor(p.full),bal=S.w.guest.bal;
+  dialog('Оплата Эко-Коинами','<p class="lead">'+esc(p.sub)+'</p><div class="list"><div><span>'+esc(p.title)+'</span><span class="price num">'+coin(p.full)+'</span></div>'+(cost<p.full?'<div><span>Скидка Крио-Пасса, '+S.eco.disc+'%</span><span class="price num">−'+coin(p.full-cost)+'</span></div>':'')+'<div><span><b>К оплате</b></span><span class="price num">'+coin(cost)+'</span></div><div><span>На кошельке</span><span class="num">'+coin(bal)+'</span></div></div>'+
+    (bal>=cost?'<button class="btn pri" data-act="pay-do" data-k="'+kind+'" data-id="'+id+'" data-i="'+(i||0)+'">Оплатить '+coin(cost)+'</button>':'<p class="err">Не хватает '+coin(cost-bal)+'.</p><button class="btn pri" data-act="buy-open">Пополнить кошелёк</button>'));
+}
+/* ---------- catalog: masters, hubs, craftsmen, events ---------- */
+function festWhen(e){return dfmt(e.date)+(e.days>1?' – '+dfmt(addDays(e.date,e.days-1)):'')+' · '+(e.fmt==='online'?'онлайн':e.city)}
+function vCatalog(){
+  var f=S.f,k=S.kind,dirs=[],cities=Object.keys(CITIES);
+  S.masters.forEach(function(m){if(dirs.indexOf(m.dir)<0)dirs.push(m.dir)});
+  var chip=function(kk,v,label){return '<button class="chip" data-act="filter" data-k="'+kk+'" data-v="'+esc(v)+'" aria-pressed="'+(f[kk]===v)+'">'+esc(label||v)+'</button>'};
+  var by=function(x){return !f.city||x.city===f.city};
+  var list=k==='masters'?S.masters.filter(function(m){return (!f.dir||m.dir===f.dir)&&by(m)&&(!f.fmt||m[f.fmt])}):k==='hubs'?S.hubs.filter(by):k==='crafts'?S.crafts.filter(by):S.fests.filter(function(e){return (!f.city||e.city===f.city)&&(!f.fmt||e.fmt===f.fmt)});
+  var head=function(x,sub){return '<div class="row" style="flex-wrap:nowrap">'+ava(x)+'<div class="grow"><h3>'+esc(x.name)+'</h3><div class="small">'+esc(sub)+'</div></div></div>'};
+  var cards=list.map(function(x){
+    if(k==='masters')return '<a class="mcard" href="#m-'+x.id+'">'+head(x,x.dir+' · '+x.city)+'<p class="mf">'+esc(x.mf)+'</p><div class="chips">'+(x.res?'<span class="tag res">Резидент</span>':'')+(x.online?'<span class="tag">Онлайн</span>':'')+(x.offline?'<span class="tag">Офлайн</span>':'')+'</div><div class="foot"><span class="small">'+esc(x.formats[0].n)+'</span><span class="price">'+esc(x.formats[0].p)+'</span></div></a>';
+    if(k==='hubs')return '<a class="mcard" href="#h-'+x.id+'">'+head(x,'Хаб · '+x.city)+'<p class="mf">'+esc(x.has)+'</p><div class="foot"><span class="small">'+x.beds+' мест</span><span class="price">'+money(x.night)+' за ночь</span></div></a>';
+    if(k==='crafts')return '<a class="mcard" href="#c-'+x.id+'">'+head(x,x.craft+' · '+x.city)+'<p class="mf">'+esc(x.mf)+'</p><div class="foot"><span class="small">'+esc(x.items[0].n)+'</span><span class="price">'+(x.items[0].p?money(x.items[0].p):'по запросу')+'</span></div></a>';
+    return '<a class="mcard" href="#e-'+x.id+'">'+head(x,festWhen(x))+'<p class="mf">'+esc(x.about)+'</p><div class="chips"><span class="tag '+(x.fmt==='online'?'acc':'')+'">'+(x.fmt==='online'?'Онлайн':'Офлайн')+'</span><span class="tag">'+(x.days>1?x.days+' дней':'1 день')+'</span></div><div class="foot"><span class="small">Осталось мест: '+(x.cap-x.sold)+'</span><span class="price">'+(x.price?money(x.price):'Бесплатно')+'</span></div></a>';
+  }).join('');
+  var K=[['masters','Мастера'],['hubs','Хабы'],['crafts','Ремесло'],['fests','События']];
+  var lead={masters:'Мастера, проверенные командой EcoChakra.',hubs:'Места сети: где жить и проводить программы.',crafts:'Ремесленники сети и их изделия.',fests:'Фестивали, маркеты и онлайн-события сети.'}[k];
+  return '<div class="map"><div class="spread"><h3>Города сети</h3><span class="small">Нажмите на город, чтобы оставить только его</span></div>'+mapSvg()+'</div>'+
+    '<div class="spread" style="flex-wrap:wrap"><div><h1>Каталог сети</h1><p class="lead">'+lead+'</p></div>'+
+    '<div class="seg four" role="group" aria-label="Что показать">'+K.map(function(x){return '<button data-act="kind" data-v="'+x[0]+'" aria-pressed="'+(k===x[0])+'">'+x[1]+'</button>'}).join('')+'</div></div>'+
+    (k==='masters'?'<div class="chips" role="group" aria-label="Направление">'+dirs.map(function(d){return chip('dir',d)}).join('')+'</div>':'')+
+    '<div class="chips" role="group" aria-label="Город и формат">'+cities.map(function(c){return chip('city',c)}).join('')+(k==='masters'||k==='fests'?chip('fmt','online','Онлайн')+chip('fmt','offline','Офлайн'):'')+'</div>'+
+    '<div class="spread"><span class="small">Найдено: '+list.length+'</span>'+(f.dir||f.city||f.fmt?'<button class="link small" data-act="clear">Сбросить фильтры</button>':'')+'</div>'+
+    (list.length?'<div class="grid">'+cards+'</div>':'<div class="empty">По этим фильтрам ничего нет. Снимите один из них.</div>');
+}
+function vCraft(id){
+  var c=S.crafts.find(function(x){return x.id===id});if(!c)return vCatalog();
+  return '<div class="narrow"><a class="link small" href="#'+backTab()+'">← Назад</a><div class="hero">'+ava(c)+'<div class="grow"><h1>'+esc(c.name)+'</h1><p class="lead">'+esc(c.craft)+' · '+esc(c.city)+'</p><div class="chips" style="margin-top:8px"><span class="tag res">Ремесленник сети</span></div></div></div>'+
+    '<p class="quote">'+esc(c.mf)+'</p><p>'+esc(c.about)+'</p>'+
+    '<section class="card"><h2>Витрина</h2><div class="list">'+c.items.map(function(it,i){return '<div style="align-items:center"><span>'+esc(it.n)+'<br><span class="small">'+(it.p?money(it.p)+' · '+coin(priceFor(toCoin(it.p))):'цена по запросу')+'</span></span>'+(it.p?'<button class="btn sm" data-act="pay" data-k="craft" data-id="'+c.id+'" data-i="'+i+'">Заказать</button>':'')+'</div>'}).join('')+'</div></section>'+
+    '<div class="cta"><button class="btn" data-act="write-c" data-id="'+c.id+'">Написать в Telegram</button></div></div>';
+}
+function vFest(id){
+  var e=S.fests.find(function(x){return x.id===id});if(!e)return vCatalog();
+  var left=e.cap-e.sold,mine=S.tickets.filter(function(x){return x===id}).length;
+  return '<div class="narrow"><a class="link small" href="#'+backTab()+'">← Назад</a><div class="hero">'+ava(e)+'<div class="grow"><h1>'+esc(e.name)+'</h1><p class="lead">'+esc(festWhen(e))+'</p><div class="chips" style="margin-top:8px"><span class="tag res">Событие сети</span><span class="tag">Организатор: '+esc(e.org)+'</span>'+(mine?'<span class="tag ok">Ваших билетов: '+mine+'</span>':'')+'</div></div></div>'+
+    '<p>'+esc(e.about)+'</p>'+
+    '<section class="card"><h2>Участие</h2><div class="list"><div><span>Билет</span><span class="price">'+(e.price?money(e.price)+' · '+coin(priceFor(toCoin(e.price))):'Бесплатно')+'</span></div><div><span>Осталось мест</span><span class="price num">'+left+' из '+e.cap+'</span></div></div></section>'+
+    '<section class="card"><h2>Из чего собирается событие</h2><p class="small">Организатор отмечает, что уже есть, а что ещё нужно. Мастера, хабы и ремесленники сети могут откликнуться.</p><div class="list">'+e.needs.map(function(n,i){return '<div style="align-items:center"><span>'+esc(n.n)+'<br><span class="small">'+esc(n.who||'пока никого')+'</span></span>'+(n.ok?'<span class="tag ok">Есть</span>':'<button class="btn sm" data-act="need-go" data-id="'+e.id+'" data-i="'+i+'">Откликнуться</button>')+'</div>'}).join('')+'</div></section>'+
+    '<div class="cta"><button class="btn pri" data-act="'+(e.price?'pay':'fest-free')+'" data-k="fest" data-id="'+e.id+'"'+(left>0?'':' disabled')+'>'+(left>0?(e.price?'Купить билет':'Записаться'):'Мест нет')+'</button></div></div>';
+}
+/* ---------- feed from chats, paid chats, fundraising ---------- */
+function vFeed(){
+  var f=S.ff,types=[],chats=[];S.feed.forEach(function(x){if(types.indexOf(x.type)<0)types.push(x.type);if(chats.indexOf(x.chat)<0)chats.push(x.chat)});
+  var chip=function(k,v){return '<button class="chip" data-act="ffilter" data-k="'+k+'" data-v="'+esc(v)+'" aria-pressed="'+(f[k]===v)+'">'+esc(v)+'</button>'};
+  var list=S.feed.filter(function(x){return (!f.city||x.city===f.city)&&(!f.type||x.type===f.type)}).sort(function(a,b){return (a.date+a.time).localeCompare(b.date+b.time)}),last='';
+  return '<div class="narrow"><div><h1>Лента встреч</h1><p class="lead">Бот собирает анонсы из '+chats.length+' чатов сети в одну ленту. Состоять в каждом чате не нужно.</p></div>'+
+    '<div class="chips" role="group" aria-label="Тип">'+types.map(function(t){return chip('type',t)}).join('')+'</div><div class="chips" role="group" aria-label="Город">'+Object.keys(CITIES).map(function(c){return chip('city',c)}).join('')+'</div>'+
+    (list.length?list.map(function(x){var h=x.date!==last?'<h2>'+esc(dlong(x.date))+'</h2>':'';last=x.date;return h+'<article class="card"><div class="ev" style="border:0;padding:0"><div><div class="t num">'+esc(x.time)+'</div></div><div class="grow"><h3>'+esc(x.title)+'</h3><div class="small">'+esc((x.city?x.city+' · ':'')+x.place)+'</div><div class="chips" style="margin-top:6px"><span class="tag acc">'+esc(x.type)+'</span><span class="tag">из чата «'+esc(x.chat)+'»</span><span class="tag">идут: '+(x.n+(x.go?1:0))+'</span></div></div><button class="btn sm'+(x.go?' pri':'')+'" data-act="feed-go" data-id="'+x.id+'" aria-pressed="'+x.go+'">'+(x.go?'Иду':'Пойду')+'</button></div></article>'}).join(''):'<div class="empty">По этим фильтрам встреч нет.</div>')+'</div>';
+}
+function vChats(){
+  return '<div class="narrow"><div><h1>Бизнес-чаты</h1><p class="lead">Закрытые чаты по городам для тех, кто ведёт дела в сети. Доступ на 30 дней оплачивается Эко-Коинами.</p></div>'+
+    S.chats.map(function(c){var on=c.until&&c.until>=day(0);return '<article class="card"><div class="spread" style="align-items:flex-start"><div><h2>'+esc(c.name)+'</h2><div class="small">'+c.members+' участников</div></div><span class="price">'+coin(priceFor(c.price))+'</span></div><p>'+esc(c.about)+'</p><div class="row">'+(on?'<span class="tag ok">Доступ до '+esc(dfmt(c.until))+'</span><button class="btn sm pri" data-act="chat-open" data-id="'+c.id+'">Открыть чат</button><button class="btn sm" data-act="pay" data-k="chat" data-id="'+c.id+'">Продлить</button>':'<button class="btn sm pri" data-act="pay" data-k="chat" data-id="'+c.id+'">Купить доступ</button>')+'</div></article>'}).join('')+'</div>';
+}
+function vFunds(){
+  var list=S.funds.filter(function(f){return f.st==='ok'||f.mine});
+  return '<div class="narrow"><div class="spread" style="flex-wrap:wrap"><div><h1>Сборы</h1><p class="lead">Проекты участников сети, которые можно поддержать Эко-Коинами.</p></div><button class="btn sm" data-act="fund-open">Создать сбор</button></div>'+
+    list.map(function(f){var pc=Math.min(100,Math.round(f.got/f.goal*100)),done=f.got>=f.goal;return '<article class="card"><div class="row">'+(f.st==='new'?'<span class="tag warn">На проверке у Центра</span>':done?'<span class="tag ok">Собрано</span>':'<span class="tag acc">Идёт сбор</span>')+'<span class="small">'+esc(f.by+' · '+f.city)+'</span></div><h2>'+esc(f.title)+'</h2><p>'+esc(f.about)+'</p><div class="bar" role="progressbar" aria-valuenow="'+pc+'" aria-valuemin="0" aria-valuemax="100"><span style="width:'+pc+'%"></span></div><div class="spread"><span class="num"><b>'+coin(f.got)+'</b> из '+coin(f.goal)+'</span><span class="small num">'+pc+'%</span></div>'+(f.st==='ok'&&!done?'<div><button class="btn sm pri" data-act="don-open" data-id="'+f.id+'">Поддержать</button></div>':'')+'</article>'}).join('')+'</div>';
+}
+function dDonate(id){var f=S.funds.find(function(x){return x.id===id});dialog('Поддержать сбор','<p class="lead">'+esc(f.title)+'. На кошельке '+coin(S.w.guest.bal)+'.</p><form id="f-don" data-id="'+id+'" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('dn-n','Сколько ЭК','<input type="number" id="dn-n" min="1" value="'+Math.min(20,Math.max(1,S.w.guest.bal))+'">','Пожертвование идёт в сбор целиком, без сбора Центра.')+'<p class="err" id="dn-err" hidden></p><button class="btn pri" type="submit">Поддержать</button></form>')}
+function dFund(){dialog('Новый сбор','<form id="f-fund" novalidate style="display:flex;flex-direction:column;gap:12px">'+field('fu-title','На что собираете','<input type="text" id="fu-title" maxlength="80">')+'<div class="two">'+field('fu-goal','Цель, ЭК','<input type="number" id="fu-goal" min="10" value="500">')+field('fu-city','Город','<select id="fu-city">'+Object.keys(CITIES).map(function(c){return '<option>'+esc(c)+'</option>'}).join('')+'</select>')+'</div>'+field('fu-by','От чьего имени','<input type="text" id="fu-by" autocomplete="name">')+field('fu-about','Что будет сделано на эти средства','<textarea id="fu-about" maxlength="300"></textarea>')+'<p class="small">Сбор появится в списке после проверки Центром.</p><p class="err" id="fu-err" hidden></p><button class="btn pri" type="submit">Отправить на проверку</button></form>')}
+/* ---------- join: a master, a craftsman, a hub, an event ---------- */
+var JK={master:['Мастер','Стать мастером сети'],craft:['Ремесло','Стать ремесленником сети','ремесленник'],hub:['Хаб','Добавить хаб в сеть'],event:['Событие','Организовать событие']};
+function vJoin(){
+  var k=S.jkind||'master';
+  return '<div class="narrow"><div class="seg four" role="group" aria-label="Кем вы хотите стать">'+Object.keys(JK).map(function(x){return '<button data-act="jkind" data-v="'+x+'" aria-pressed="'+(k===x)+'">'+JK[x][0]+'</button>'}).join('')+'</div></div>'+(k==='master'?vJoinMaster():vJoin2(k));
+}
+function vJoin2(k){
+  var mine=S.apps.filter(function(a){return a.kind===k}),opt=Object.keys(CITIES).map(function(c){return '<option>'+esc(c)+'</option>'}).join('');
+  var gives={craft:'Витрина изделий в каталоге, заказы за Эко-Коины, заявки от агентов и приглашения на события.',hub:'Карточка места в каталоге и на карте, кабинет с заявками на проживание, календарь загрузки и предложения мастеров.',event:'Страница события в каталоге, продажа билетов за Эко-Коины и список того, что нужно: на него откликаются мастера, хабы и ремесленники.'}[k];
+  return '<form class="narrow" id="join2" data-id="'+k+'" novalidate><div><h1>'+JK[k][1]+'</h1><p class="lead">'+gives+'</p></div>'+
+    (mine.length?'<div class="card"><h2>Ваши заявки</h2><div class="list">'+mine.map(function(a){return '<div style="align-items:center"><span>'+esc(a.name)+'<br><span class="small">'+esc(dfmt(a.at))+'</span></span>'+(a.st==='ok'?'<a class="btn sm" href="#'+a.ref+'">Открыть профиль</a>':'<span class="tag '+(a.st==='new'?'warn':'')+'">'+(a.st==='new'?'На проверке у Центра':'Отклонено')+'</span>')+'</div>'}).join('')+'</div></div>':'')+
+    '<div class="card"><h2>Анкета</h2>'+field('q-name',k==='craft'?'Имя и фамилия':k==='hub'?'Название места':'Название события','<input type="text" id="q-name">')+
+    '<div class="two">'+field('q-city','Город','<select id="q-city">'+opt+'</select>')+(k==='craft'?field('q-what','Ремесло','<input type="text" id="q-what" placeholder="Керамика, текстиль, травы">'):k==='hub'?field('q-beds','Мест для гостей','<input type="number" id="q-beds" min="1" value="10">'):field('q-date','Дата начала','<input type="date" id="q-date" value="'+day(30)+'" min="'+day(1)+'">'))+'</div>'+
+    (k==='hub'?field('q-night','Цена за ночь с человека, $','<input type="number" id="q-night" min="0" value="30">'):k==='event'?'<div class="two">'+field('q-price','Билет, $','<input type="number" id="q-price" min="0" value="0">','0 = вход свободный')+field('q-cap','Мест','<input type="number" id="q-cap" min="1" value="50">')+'</div>':'')+
+    field('q-desc',k==='craft'?'Что вы делаете':k==='hub'?'Что есть в хабе':'О событии','<textarea id="q-desc" maxlength="300"></textarea>')+
+    (k==='event'?field('q-needs','Что нужно событию','<textarea id="q-needs" placeholder="Каждая строка: что ищете. Например: площадка, мастер звука, чай для гостей"></textarea>','Этот список увидят мастера, хабы и ремесленники сети.'):'')+
+    field('q-tg','Telegram для связи','<input type="text" id="q-tg" placeholder="@имя">')+'</div>'+
+    '<div class="card"><h2>Согласие на публикацию</h2><label class="check"><input type="checkbox" id="q-c1"><span>Показывать профиль в каталоге сети</span></label>'+(k==='hub'?'<p class="small">Хаб всегда показывается точкой на карте: так его находят гости.</p>':'<label class="check"><input type="checkbox" id="q-c2"><span>Показывать точкой на карте</span></label>')+'</div>'+
+    '<p class="err" id="q-err" hidden></p><div><button class="btn pri" type="submit">Отправить на проверку</button></div></form>';
+}
+function review2(){
+  var h='';
+  S.apps.filter(function(a){return a.st==='new'}).forEach(function(a){h+='<div class="card"><div class="row"><span class="tag warn">Новая анкета: '+(JK[a.kind][2]||JK[a.kind][0].toLowerCase())+'</span><span class="small">'+esc(dfmt(a.at))+'</span></div><h2>'+esc(a.name)+'</h2><div class="small">'+esc(a.city+' · '+a.tg)+'</div><p>'+esc(a.desc)+'</p><div class="row"><button class="btn sm pri" data-act="app2-ok" data-id="'+a.id+'">Одобрить и опубликовать</button><button class="btn sm" data-act="app2-no" data-id="'+a.id+'">Отклонить</button></div></div>'});
+  S.funds.filter(function(f){return f.st==='new'}).forEach(function(f){h+='<div class="card"><div class="row"><span class="tag warn">Новый сбор</span><span class="small">'+esc(f.by+' · '+f.city)+'</span></div><h2>'+esc(f.title)+'</h2><p>'+esc(f.about)+'</p><div class="small">Цель: '+coin(f.goal)+'</div><div class="row"><button class="btn sm pri" data-act="fund-ok" data-id="'+f.id+'">Одобрить</button><button class="btn sm" data-act="fund-no" data-id="'+f.id+'">Отклонить</button></div></div>'});
+  return h;
+}
+function review2n(){return S.apps.filter(function(a){return a.st==='new'}).length+S.funds.filter(function(f){return f.st==='new'}).length}
+function bad(id,t){fail(id,t);return true}
+function ecoClick(a,v,id,b){
+  var g=S.w.guest;
+  if(a==='buy-open'){dBuy();return true}
+  if(a==='wd-open'){if(S.w[v].bal<1){toast('На кошельке пока нет Эко-Коинов.');return true}dWd(v);return true}
+  if(a==='pass-buy'){
+    if(g.bal<S.eco.pass){toast('Не хватает '+coin(S.eco.pass-g.bal)+'. Пополните кошелёк.');return true}
+    op('guest',-S.eco.pass,'Крио-Пасс на год');op('center',S.eco.pass,'Крио-Пасс: гость');S.pass={until:addDays(day(0),365)};save();render();toast('Крио-Пасс оформлен. Скидка '+S.eco.disc+'% уже действует на оплаты Эко-Коинами.');return true}
+  if(a==='stake-add'){
+    var n=Math.floor(+val('st-n')||0),mo=+val('st-m')||12;
+    if(n<10)return bad('st-err','Минимум 10 ЭК.');
+    if(n>g.bal)return bad('st-err','На кошельке '+coin(g.bal)+'. Уменьшите сумму или пополните кошелёк.');
+    op('guest',-n,'Стейкинг на '+mo+' мес.');var s={id:'t'+uid(),n:n,months:mo,pct:S.eco.stake,from:day(0),st:'on'};S.stakes.push(s);save();render();toast('Заморожено '+coin(n)+' до '+dfmt(stakeDue(s))+'. Награда: +'+coin(stakeRew(s))+'.');return true}
+  if(a==='stake-take'||a==='stake-break'){
+    var s2=S.stakes.find(function(x){return x.id===id});if(!s2||s2.st!=='on')return true;
+    var rw=a==='stake-take'?stakeRew(s2):0;s2.st='done';op('guest',s2.n+rw,rw?'Стейкинг: возврат и награда +'+coin(rw):'Стейкинг: досрочный возврат');save();render();toast(rw?'На кошелёк вернулось '+coin(s2.n+rw)+'.':'Возвращено '+coin(s2.n)+' без награды.');return true}
+  if(a==='sub-pay'){
+    if(S.w[v].bal<S.eco.sub){toast('Не хватает '+coin(S.eco.sub-S.w[v].bal)+'.');return true}
+    var cur=S.subs[v]&&S.subs[v]>=day(0)?S.subs[v]:day(0);op(v,-S.eco.sub,'Подписка участника, месяц');op('center',S.eco.sub,'Подписка: '+WHO[v][0]);S.subs[v]=addDays(cur,30);save();render();toast('Подписка оплачена до '+dfmt(S.subs[v])+'.');return true}
+  if(a==='wd-ok'||a==='wd-no'){
+    var w=S.wd.find(function(x){return x.id===id});if(!w||w.st!=='new')return true;
+    if(a==='wd-ok'){w.st='ok';S.eco.reserve-=w.n*S.eco.rate;toast('Выплачено '+money(Math.round(w.n*S.eco.rate))+'. Эко-Коины погашены, резерв уменьшился.')}else{w.st='no';op(w.who,w.n,'Вывод отклонён: возврат');toast('Заявка отклонена, Эко-Коины вернулись на кошелёк.')}
+    save();render();return true}
+  if(a==='pay'){dPay(b.getAttribute('data-k'),id,b.getAttribute('data-i'));return true}
+  if(a==='pay-do'){
+    var k=b.getAttribute('data-k'),i=b.getAttribute('data-i'),p=payInfo(k,id,i),cost=priceFor(p.full);if(g.bal<cost)return true;
+    op('guest',-cost,p.title);
+    if(k==='chat'){var ch=S.chats.find(function(x){return x.id===id});op('center',cost,p.title);ch.until=addDays(ch.until&&ch.until>=day(0)?ch.until:day(0),30)}
+    else{settle('net',cost,p.full,p.title);if(k==='fest'){S.fests.find(function(x){return x.id===id}).sold++;S.tickets.push(id)}else S.orders.push({craft:id,i:+i,at:day(0)})}
+    save();closeDlg();render();if(!detail.hidden)showDetail(route());
+    toast(k==='chat'?'Доступ открыт на 30 дней.':k==='fest'?'Билет куплен. Он виден на странице события.':'Заказ оплачен. Ремесленник получил заявку и свяжется с вами.');return true}
+  if(a==='fest-free'){var e=S.fests.find(function(x){return x.id===id});e.sold++;S.tickets.push(id);save();showDetail(route());toast('Вы записаны на событие.');return true}
+  if(a==='need-go'){toast('Отклик отправлен организатору. В приложении мастер, хаб или ремесленник откликается из своего кабинета.');return true}
+  if(a==='write-c'){var c=S.crafts.find(function(x){return x.id===id});toast('В приложении здесь откроется чат: @'+c.tg+'. В прототипе это имитация.');return true}
+  if(a==='ffilter'){var kk=b.getAttribute('data-k');S.ff[kk]=S.ff[kk]===v?'':v;save();render();return true}
+  if(a==='feed-go'){var x=S.feed.find(function(y){return y.id===id});x.go=!x.go;save();render();toast(x.go?'Встреча отмечена. В приложении бот напомнит о ней за час.':'Отметка снята.');return true}
+  if(a==='chat-open'){toast('В приложении здесь откроется закрытый чат в Telegram. В прототипе это имитация.');return true}
+  if(a==='don-open'){if(g.bal<1){toast('На кошельке нет Эко-Коинов. Пополните его в разделе «Кошелёк».');return true}dDonate(id);return true}
+  if(a==='fund-open'){dFund();return true}
+  if(a==='fund-ok'||a==='fund-no'){var fd=S.funds.find(function(y){return y.id===id});if(a==='fund-ok')fd.st='ok';else S.funds=S.funds.filter(function(y){return y.id!==id});save();render();toast(a==='fund-ok'?'Сбор одобрен и открыт для пожертвований.':'Сбор отклонён.');return true}
+  if(a==='jkind'){S.jkind=v;save();render();return true}
+  if(a==='app2-ok'||a==='app2-no'){
+    var ap=S.apps.find(function(y){return y.id===id});if(!ap)return true;
+    if(a==='app2-no'){ap.st='no';save();render();toast('Анкета отклонена.');return true}
+    var nid='u'+uid(),hh=Math.floor(Math.random()*360);
+    if(ap.kind==='craft'){S.crafts.push({id:nid,name:ap.name,h:hh,city:ap.city,craft:ap.what||'Ремесло',mf:ap.desc,about:'Профиль собран из анкеты. Витрину ремесленник заполнит в своём кабинете.',items:[{n:'Изделия под заказ',p:0}],tg:String(ap.tg).replace(/^@/,'')});ap.ref='c-'+nid}
+    if(ap.kind==='hub'){S.hubs.push({id:nid,name:ap.name,h:hh,city:ap.city,beds:ap.beds,night:ap.night,has:ap.desc,cond:'Условия для мастеров уточняются.'});ap.ref='h-'+nid}
+    if(ap.kind==='event'){S.fests.push({id:nid,name:ap.name,h:hh,city:ap.city,fmt:'offline',date:ap.date,days:1,org:ap.tg,about:ap.desc,price:ap.price,cap:ap.cap,sold:0,needs:ap.needs.map(function(n){return {n:n,who:'',ok:false}})});ap.ref='e-'+nid}
+    ap.st='ok';save();render();toast('Анкета одобрена: «'+ap.name+'» теперь в каталоге.');return true}
+  return false;
+}
+function ecoSubmit(f,id){
+  var g=S.w.guest;
+  if(f.id==='f-buy'){var usd=Math.floor(+val('bu-usd')||0);if(usd<1)return bad('bu-err','Введите сумму.');var c=toCoin(usd);op('guest',c,'Пополнение на '+money(usd));S.eco.reserve+=usd;save();closeDlg();render();toast('Начислено '+coin(c)+'.');return true}
+  if(f.id==='f-wd'){var n=Math.floor(+val('wd-n')||0);if(n<1)return bad('wd-err','Введите сумму.');if(n>S.w[id].bal)return bad('wd-err','На кошельке '+coin(S.w[id].bal)+'.');op(id,-n,'Заявка на вывод');S.wd.unshift({id:'w'+uid(),who:id,n:n,at:day(0),st:'new'});save();closeDlg();render();toast('Заявка на вывод отправлена Центру. Ответить на неё можно в роли «Центр», раздел «Экономика».');return true}
+  if(f.id==='f-don'){var d=Math.floor(+val('dn-n')||0),fd=S.funds.find(function(x){return x.id===id});if(d<1)return bad('dn-err','Введите сумму.');if(d>g.bal)return bad('dn-err','На кошельке '+coin(g.bal)+'.');op('guest',-d,'Пожертвование: '+fd.title);fd.got+=d;save();closeDlg();render();toast(fd.got>=fd.goal?'Спасибо! Сбор закрыт: цель достигнута.':'Спасибо! В сборе теперь '+coin(fd.got)+'.');return true}
+  if(f.id==='f-fund'){
+    if(val('fu-title').length<5)return bad('fu-err','Напишите, на что вы собираете.');
+    if(!val('fu-by'))return bad('fu-err','Укажите, от чьего имени сбор.');
+    if(val('fu-about').length<10)return bad('fu-err','Расскажите, что будет сделано на эти средства.');
+    S.funds.push({id:'g'+uid(),title:val('fu-title'),by:val('fu-by'),city:val('fu-city'),goal:Math.max(10,+val('fu-goal')||10),got:0,about:val('fu-about'),st:'new',mine:true});save();closeDlg();render();toast('Сбор отправлен на проверку. Одобрить его можно в роли «Центр».');return true}
+  if(f.id==='join2'){
+    if(!val('q-name'))return bad('q-err',id==='craft'?'Напишите имя и фамилию.':'Напишите название.');
+    if(val('q-desc').length<10)return bad('q-err','Добавьте описание хотя бы одной фразой.');
+    if(!val('q-tg'))return bad('q-err','Оставьте Telegram для связи.');
+    if(!$('q-c1').checked)return bad('q-err','Без согласия на показ в каталоге профиль не публикуется.');
+    S.apps.push({id:'a'+uid(),kind:id,name:val('q-name'),city:val('q-city'),desc:val('q-desc'),tg:val('q-tg'),what:val('q-what'),beds:Math.max(1,+val('q-beds')||1),night:Math.max(0,+val('q-night')||0),date:val('q-date')||day(30),price:Math.max(0,+val('q-price')||0),cap:Math.max(1,+val('q-cap')||1),needs:val('q-needs').split('\n').map(function(x){return x.trim()}).filter(Boolean),at:day(0),st:'new'});
+    save();render(true);toast('Анкета ушла на проверку. Одобрить её можно в роли «Центр».');return true}
+  return false;
+}
+function ecoInput(t){
+  if(t.id==='bu-usd'&&$('bu-pre'))$('bu-pre').textContent='Вы получите '+coin(toCoin(Math.max(0,+t.value||0)))+'.';
+  if(t.id==='st-n'||t.id==='st-m')stakePre();
+  if(t.id==='y-nights'||t.id==='y-guests')stayPre();
+}
+function stakePre(){var p=$('st-pre');if(!p)return;var n=Math.max(0,Math.floor(+val('st-n')||0)),mo=+val('st-m')||12;p.textContent='Через '+mo+' мес. вернётся '+coin(n+Math.round(n*S.eco.stake/100*mo/12))+': награда +'+coin(Math.round(n*S.eco.stake/100*mo/12))+'.'}
+
+/* ---------- own drop-down list instead of the system one ---------- */
+var pop=null;
+function selLabel(s){var o=s.options[s.selectedIndex];return o?o.textContent:''}
+function enhance(root){
+  root.querySelectorAll('select:not([data-own])').forEach(function(s){
+    var css=s.getAttribute('style')||'',lab=s.id&&root.querySelector('label[for="'+s.id+'"]'),b=document.createElement('button');
+    s.setAttribute('data-own','1');s.style.display='none';
+    b.type='button';b.className=('sel '+s.className).trim();if(css)b.style.cssText=css;
+    b.setAttribute('aria-haspopup','listbox');b.setAttribute('aria-expanded','false');
+    b._name=lab?lab.textContent:s.getAttribute('aria-label')||'Выбор';b.setAttribute('aria-label',b._name+': '+selLabel(s));
+    b.appendChild(document.createElement('span')).textContent=selLabel(s);
+    b._s=s;s.parentNode.insertBefore(b,s.nextSibling);
+  });
+}
+function closePop(){if(!pop)return;pop.b.setAttribute('aria-expanded','false');pop.el.remove();pop=null}
+function openPop(b){
+  closePop();var s=b._s,el=document.createElement('div'),r=b.getBoundingClientRect();
+  el.className='sel-pop';el.setAttribute('role','listbox');el.setAttribute('aria-label',b._name);
+  el.innerHTML=Array.prototype.map.call(s.options,function(o,i){return '<button type="button" role="option" data-i="'+i+'" aria-selected="'+(i===s.selectedIndex)+'"><span>'+esc(o.textContent)+'</span></button>'}).join('');
+  document.body.appendChild(el);
+  var need=Math.min(el.scrollHeight+2,300),below=innerHeight-r.bottom-14,above=r.top-14,up=below<need&&above>below;
+  el.style.left=Math.max(8,Math.min(r.left,innerWidth-r.width-8))+'px';el.style.width=r.width+'px';el.style.maxHeight=Math.max(96,Math.min(300,up?above:below))+'px';
+  if(up){el.style.bottom=(innerHeight-r.top+6)+'px';el.classList.add('up')}else el.style.top=(r.bottom+6)+'px';
+  b.setAttribute('aria-expanded','true');pop={el:el,b:b,t:Date.now()};
+  var cur=el.querySelector('[aria-selected="true"]')||el.firstChild;if(cur){cur.focus({preventScroll:true});el.scrollTop=Math.max(0,cur.offsetTop-el.clientHeight/2+cur.offsetHeight/2)}
+}
+function pick(i){
+  var b=pop.b,s=b._s;closePop();
+  if(s.selectedIndex!==i){s.selectedIndex=i;b.firstChild.textContent=selLabel(s);b.setAttribute('aria-label',b._name+': '+selLabel(s));s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new Event('change',{bubbles:true}))}
+  if(b.isConnected)b.focus();
+}
+document.addEventListener('click',function(ev){
+  var o=ev.target.closest('.sel-pop [role=option]');if(o){ev.stopPropagation();return pick(+o.getAttribute('data-i'))}
+  if(ev.target.closest('.sel-pop')){ev.stopPropagation();return}
+  var b=ev.target.closest('button.sel');if(b){ev.stopPropagation();ev.preventDefault();return pop&&pop.b===b?closePop():openPop(b)}
+  closePop();
+},true);
+document.addEventListener('keydown',function(ev){
+  var k=ev.key,b=ev.target.closest&&ev.target.closest('button.sel');
+  if(!pop){if(b&&(k==='ArrowDown'||k==='ArrowUp')){ev.preventDefault();ev.stopPropagation();openPop(b)}return}
+  var items=Array.prototype.slice.call(pop.el.children),i=items.indexOf(document.activeElement);
+  if(k==='Escape'||k==='Tab'){var pb=pop.b;closePop();pb.focus();if(k==='Escape'){ev.preventDefault();ev.stopPropagation()}return}
+  if(k==='ArrowDown'||k==='ArrowUp'||k==='Home'||k==='End'){ev.preventDefault();ev.stopPropagation();var n=k==='Home'?0:k==='End'?items.length-1:Math.max(0,Math.min(items.length-1,i+(k==='ArrowDown'?1:-1)));items[n].focus();return}
+  if(k==='ArrowLeft'||k==='ArrowRight')ev.stopPropagation();
+  if(k.length===1&&k!==' '){var q=k.toLowerCase(),f=items.filter(function(x,j){return j>i&&x.textContent.trim().toLowerCase().indexOf(q)===0})[0]||items.filter(function(x){return x.textContent.trim().toLowerCase().indexOf(q)===0})[0];if(f)f.focus()}
+},true);
+window.addEventListener('scroll',function(ev){if(pop&&Date.now()-pop.t>250&&!(ev.target.nodeType===1&&pop.el.contains(ev.target)))closePop()},true);
+window.addEventListener('resize',closePop);
+
+/* ---------- shell: pages side by side, the role bar at the bottom ---------- */
+var TABS={
+  guest:[['catalog','Каталог',vCatalog],['calendar','Календарь',vCalendar],['feed','Лента',vFeed],['chats','Чаты',vChats],['funds','Сборы',vFunds],['wallet','Кошелёк',vWallet],['join','Вступить',vJoin]],
+  master:[['today','Сегодня',vToday],['schedule','Расписание',vSchedule],['clients','Клиенты',vClients],['deals','Сделки',vDeals],['mail','Рассылки',vMail],['card','Моя карточка',vCard],['mwallet','Кошелёк',vWalletM]],
+  hub:[['hub-today','Сегодня',vHubToday],['hub-inbox','Заявки',vHubInbox],['hub-cal','Календарь',vHubCal],['hub-card','Карточка',vHubCard],['hwallet','Кошелёк',vWalletH]],
+  agent:[['request','Новый запрос',vRequest],['mine','Мои заявки',vMine],['awallet','Кошелёк',vWalletA]],
+  center:[['inbox','Заявки',vInbox],['review','Проверка',vReview],['ledger','Журнал сделок',vLedger],['eco','Экономика',vEco]]
+};
+var ROLES=[['guest','Гость','M12 3a9 9 0 100 18 9 9 0 000-18zm3.5 5.5l-2 5-5 2 2-5z'],['master','Мастер','M12 12a4 4 0 100-8 4 4 0 000 8zm-7 8c0-3.5 3-6 7-6s7 2.500 7 6z'],['hub','Хаб','M4 11l8-7 8 7v9h-5v-6h-6v6H4z'],['agent','Агент','M7 8a3 3 0 110 6 3 3 0 010-6zm10-4a3 3 0 110 6 3 3 0 010-6zm0 10a3 3 0 110 6 3 3 0 010-6zM9.6 9.8l4.800-1.800M9.600 12.200l4.800 3.600'],['center','Центр','M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z']];
+var pager=$('pager'),detail=$('detail'),pos={};
+function route(){return (location.hash||'').replace(/^#/,'')}
+function roleOf(tab){for(var r in TABS)if(TABS[r].some(function(t){return t[0]===tab}))return r;return ''}
+function tabIndex(){return Math.max(0,TABS[S.role].findIndex(function(t){return t[0]===S.tabs[S.role]}))}
+function badge(role){var n=role==='master'?myReqs().length+netLeads().length:role==='hub'?hubNew():role==='center'?S.leads.filter(function(l){return l.st==='new'}).length+reviewCount()+wdNew().length:0;return n?'<em>'+n+'</em>':''}
+function drawChrome(){
+  var cur=S.tabs[S.role],nr=myReqs().length+netLeads().length,rv=reviewCount(),nw=S.leads.filter(function(l){return l.st==='new'}).length;
+  $('tabs').innerHTML=TABS[S.role].map(function(t){var n=t[0]==='today'?nr:t[0]==='review'?rv:t[0]==='inbox'?nw:t[0]==='hub-inbox'?hubNew():t[0]==='eco'?wdNew().length:0;return '<a href="#'+t[0]+'" data-tab="'+t[0]+'"'+(cur===t[0]?' aria-current="page"':'')+'>'+t[1]+(n?' · '+n:'')+'</a>'}).join('');
+  $('nav').innerHTML=ROLES.map(function(x){return '<button data-act="role" data-v="'+x[0]+'" aria-pressed="'+(S.role===x[0])+'"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.800" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="'+x[2]+'"/></svg>'+badge(x[0])+'</span>'+x[1]+'</button>'}).join('');
+  $('tz').innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nm">'+esc(tzName(S.tz))+' ·</span><span>'+offText(tzOffset(S.tz,Date.now()))+'</span>';
+  var a=$('tabs').querySelector('[aria-current]');if(a&&a.scrollIntoView)try{a.scrollIntoView({block:'nearest',inline:'center'})}catch(e){}
+}
+// keep what a person has typed and where they have scrolled across a redraw
+function keep(){
+  var k={v:{},y:{}};
+  pager.querySelectorAll('.page').forEach(function(p){k.y[p.getAttribute('data-tab')]=p.scrollTop});
+  pager.querySelectorAll('input[id],textarea[id],select[id]').forEach(function(e){if(e.hasAttribute('data-act')&&e.type==='checkbox')return;k.v[e.id]=e.type==='checkbox'||e.type==='radio'?e.checked:e.value});
+  return k;
+}
+function render(fresh){
+  closePop();var k=fresh?{v:{},y:{}}:keep();
+  pager.innerHTML=TABS[S.role].map(function(t){return '<section class="page" data-tab="'+t[0]+'" aria-label="'+t[1]+'"><div class="wrap">'+t[2]()+'</div></section>'}).join('');
+  pager.querySelectorAll('input[id],textarea[id],select[id]').forEach(function(e){if(!(e.id in k.v)||e.hasAttribute('data-act'))return;if(e.type==='checkbox'||e.type==='radio')e.checked=k.v[e.id];else if(e.type!=='number'||e.id.indexOf('rt-')!==0)e.value=k.v[e.id]});
+  pager.querySelectorAll('.page').forEach(function(p){var y=k.y[p.getAttribute('data-tab')];if(y)p.scrollTop=y});
+  enhance(pager);jump(false);drawChrome();stakePre();
+}
+var silent=0;
+function jump(smooth){silent=Date.now()+(smooth?600:80);pager.scrollTo({left:tabIndex()*pager.clientWidth,behavior:smooth?'smooth':'auto'})}
+function setHash(h){try{history.replaceState(null,'','#'+h)}catch(e){}}
+function showDetail(r){
+  var v=/^m-/.test(r)?vMaster(r.slice(2)):/^c-/.test(r)?vCraft(r.slice(2)):/^e-/.test(r)?vFest(r.slice(2)):vHub(r.slice(2));
+  detail.innerHTML='<div class="wrap">'+v+'</div>';detail.hidden=false;detail.scrollTop=0;
+}
+function onRoute(){
+  var r=route();closeDlg();
+  if(/^[mhce]-/.test(r))return showDetail(r);
+  detail.hidden=true;detail.innerHTML='';
+  var role=roleOf(r);
+  if(!role){jump(false);return}
+  if(role!==S.role){S.role=role;S.tabs[role]=r;save();return render(true)}
+  if(S.tabs[role]!==r){S.tabs[role]=r;save();drawChrome();jump(true)}
+}
+function go(tab){if(route()===tab)onRoute();else location.hash=tab}
+window.addEventListener('hashchange',onRoute);
+window.addEventListener('resize',function(){jump(false)});
+var raf=0;
+pager.addEventListener('scroll',function(){
+  if(raf)return;raf=requestAnimationFrame(function(){raf=0;
+    if(Date.now()<silent||!pager.clientWidth)return;
+    var i=Math.round(pager.scrollLeft/pager.clientWidth),t=TABS[S.role][i];
+    if(t&&t[0]!==S.tabs[S.role]){S.tabs[S.role]=t[0];save();setHash(t[0]);drawChrome()}
+  });
+},{passive:true});
+
+document.addEventListener('click',function(ev){
+  var b=ev.target.closest('[data-act]');if(!b)return;
+  var a=b.getAttribute('data-act'),v=b.getAttribute('data-v'),id=b.getAttribute('data-id');
+  if(a==='close-bg'){if(ev.target===b)closeDlg();return}
+  if(a==='close')return closeDlg();
+  if(a==='tz-open')return dTz();
+  if(ecoClick(a,v,id,b))return;
+  if(a==='tz-set'){S.tz=v;save();closeDlg();render();return toast('Часовой пояс: '+tzName(v)+', '+offText(tzOffset(v,Date.now()))+'. Время в календаре сети пересчитано.')}
+  if(a==='reset'){try{localStorage.removeItem(KEY)}catch(e){}S=seed();closeDlg();detail.hidden=true;setHash('catalog');render(true);return toast('Демо-данные возвращены в исходное состояние.')}
+  if(a==='role'){detail.hidden=true;S.role=v;save();setHash(S.tabs[v]);return render(true)}
+  if(a==='kind'){S.kind=v;S.f.dir='';S.f.fmt='';save();return render()}
+  if(a==='filter'){var k=b.getAttribute('data-k');S.f[k]=S.f[k]===v?'':v;save();return render()}
+  if(a==='cfilter'){var k2=b.getAttribute('data-k');S.cf[k2]=S.cf[k2]===v?'':v;save();return render()}
+  if(a==='city'){S.f.city=S.f.city===v?'':v;save();return render()}
+  if(a==='clear'){S.f={dir:'',city:'',fmt:''};save();return render()}
+  if(a==='cday'){S.cday=v;save();return render()}
+  if(a==='book')return dBook(id,b.getAttribute('data-cls'));
+  if(a==='invite')return dInvite(id);
+  if(a==='write'){var m=S.masters.find(function(x){return x.id===id});return toast('В приложении здесь откроется чат с мастером: @'+String(m.tg).replace(/^@/,'')+'. В прототипе это имитация.')}
+  if(a==='app-reset'){S.app=null;save();return render()}
+  if(a==='app-ok'){
+    var ap=S.app;if(!ap)return;var mid='u'+uid();
+    S.masters.push({id:mid,name:ap.name,h:Math.floor(Math.random()*360),dir:ap.dir,city:ap.city,res:false,online:true,offline:true,tags:[ap.dir],mf:ap.mf,about:'Профиль собран из анкеты мастера. Подробности появятся, когда мастер заполнит карточку в своём кабинете.',geo:ap.city,formats:[{n:ap.fmt||'Форматы уточняются',p:'по запросу'}],give:ap.give||'Условия для хабов уточняются.',partner:'Условия для партнёров уточняются.',collab:'',tg:ap.tg});
+    ap.st='ok';ap.mid=mid;save();render();return toast('Анкета одобрена: '+ap.name+' теперь в каталоге.');
+  }
+  if(a==='day'){S.sel=v;save();return render()}
+  if(a==='cls-open')return dClass(id);
+  if(a==='cls-del'){S.classes=S.classes.filter(function(c){return c.id!==id});save();closeDlg();toast('Занятие удалено.');return render()}
+  if(a==='cl-open')return dClient(id);
+  if(a==='cl-del'){S.clients=S.clients.filter(function(c){return c.id!==id});S.classes.forEach(function(c){c.booked=c.booked.filter(function(x){return x!==id})});save();closeDlg();toast('Клиент удалён.');return render()}
+  if(a==='branch'){S.branch=v;save();return render()}
+  if(a==='ch-add'){var n=val('ch-new');if(!n)return toast('Напишите название чата или канала.');S.channels[S.branch].push({n:n,on:true});$('ch-new').value='';save();return render()}
+  if(a==='ml-send'){
+    var t=val('ml-text'),on=S.channels[S.branch].filter(function(c){return c.on}).length;
+    if(t.length<5)return fail('ml-err','Напишите текст рассылки.');
+    if(!on)return fail('ml-err','Включите хотя бы один канал этой ветки.');
+    S.sent.unshift({branch:S.branch,text:t,to:on,at:day(0)});$('ml-text').value='';save();render();return toast('Рассылка записана в историю. В прототипе сообщения не уходят.');
+  }
+  if(a==='approve'||a==='reject'){var m2=me(),p=S.pending;if(p){if(a==='approve'){m2.formats=p.formats;m2.give=p.give;m2.partner=p.partner}S.pending=null;save();render();toast(a==='approve'?'Условия одобрены и видны в каталоге.':'Изменение отклонено, в каталоге прежние условия.')}return}
+  if(a==='req-no'){var r0=S.requests.find(function(x){return x.id===id});if(r0){r0.st='no';if(r0.coins&&!r0.paid)op('guest',r0.coins,'Возврат: '+r0.what);save();render();toast('Заявка отклонена.')}return}
+  if(a==='req-ok'){
+    var r=S.requests.find(function(x){return x.id===id});if(!r)return;
+    r.st='ok';if(r.coins&&!r.paid){settle('master',r.coins,r.full,'Оплата: '+r.what+', '+r.name);r.paid=true}
+    var c=S.clients.find(function(x){return x.name===r.name&&x.contact===r.contact});
+    if(!c){c={id:'k'+uid(),name:r.name,contact:r.contact,src:'catalog',note:r.kind==='invite'?'Приглашение в проект: '+r.what:'',visits:0};S.clients.push(c)}
+    if(r.kind==='book'){
+      var own=r.cls&&S.classes.find(function(x){return x.id===r.cls});
+      if(own){if(own.booked.indexOf(c.id)<0)own.booked.push(c.id)}else S.classes.push({id:'c'+uid(),title:r.what.split(',')[0],fmt:'offline',date:r.date,time:'12:00',place:'Уточнить с клиентом',cap:1,price:0,booked:[c.id]});
+      if(r.date>=day(0)&&r.date<=day(6))S.sel=r.date;
+      save();render();toast((own?'Клиент записан на «'+own.title+'»':'Запись добавлена в расписание на '+dfmt(r.date))+', карточка клиента сохранена.');return go('schedule');
+    }
+    save();render();return toast('Приглашение принято, контакт сохранён в клиентах.');
+  }
+  if(a==='lead-assign'){var l=S.leads.find(function(x){return x.id===id}),mm=val('as-'+id);if(!l||!mm)return;l.master=mm;l.st='assigned';l.taken=mm!==ME;save();render();return toast('Заявка назначена: '+mName(mm)+'.'+(mm===ME?' Она появилась в кабинете мастера на экране «Сегодня».':''))}
+  if(a==='lead-take'){var l2=S.leads.find(function(x){return x.id===id});if(!l2)return;l2.taken=true;S.clients.push({id:'k'+uid(),name:'Клиент: '+l2.task.slice(0,40),contact:l2.contact,src:'agent',agent:l2.agent,note:l2.task+'. Срок: '+(l2.when||'не указан')+'.',visits:0});save();render();toast('Заявка в работе: клиент добавлен с пометкой «От агента».');return go('deals')}
+  if(a==='lead-lost'){var l3=S.leads.find(function(x){return x.id===id});if(l3){l3.st='lost';save();render();toast('Заявка закрыта без сделки.')}return}
+  if(a==='lead-close')return dCloseLead(id);
+  if(a==='stay')return dStay(id);
+  if(a==='offer-open')return dOffer();
+  if(a==='hday'){S.hday=v;save();return render()}
+  if(a==='stay-ok'||a==='stay-no'){var st=S.stays.find(function(x){return x.id===id});if(!st)return;if(a==='stay-ok'&&freeFor(st)<st.guests)return toast('На эти даты мест не хватает.');st.st=a==='stay-ok'?'ok':'no';if(st.coins&&!st.paid){if(a==='stay-ok'){settle('hub',st.coins,st.full,'Проживание: '+st.name);st.paid=true}else op('guest',st.coins,'Возврат: проживание')}if(a==='stay-ok'&&st.from>=day(0)&&st.from<=day(6))S.hday=st.from;save();render();return toast(a==='stay-ok'?'Заезд подтверждён: '+st.name+', '+dfmt(st.from)+'. Он встал в календарь хаба.':'Заявка отклонена.')}
+  if(a==='offer-ok'||a==='offer-no'){
+    var of=S.offers.find(function(x){return x.id===id});if(!of)return;of.st=a==='offer-ok'?'ok':'no';
+    if(a==='offer-ok'){var hh=S.hubs.find(function(x){return x.id===of.hub}),cid='c'+uid();
+      if(of.master===ME)S.classes.push({id:cid,title:of.title,fmt:'offline',date:of.date,time:of.time,place:hh.name,cap:of.cap,price:of.price,booked:[],hub:of.hub});
+      else S.pub.push({id:cid,master:of.master,title:of.title,fmt:'offline',date:of.date,time:of.time,place:hh.name,cap:of.cap,n:0,price:of.price,hub:of.hub});
+      if(of.date>=day(0)&&of.date<=day(6))S.hday=of.date}
+    save();render();return toast(a==='offer-ok'?'Программа принята: «'+of.title+'», '+dfmt(of.date)+'. Она появилась у мастера и в календаре сети.':'Предложение отклонено.');
+  }
+  if(a==='hub-approve'||a==='hub-reject'){if(S.hubPending){if(a==='hub-approve')myHub().cond=S.hubPending.cond;S.hubPending=null;save();render();toast(a==='hub-approve'?'Условия хаба одобрены и видны в каталоге.':'Изменение отклонено, в каталоге прежние условия.')}return}
+});
+document.addEventListener('change',function(ev){
+  var b=ev.target,a=b.getAttribute('data-act');
+  if(a==='ch'){S.channels[S.branch][+b.getAttribute('data-i')].on=b.checked;save();return render()}
+  if(a==='ml-pick'){var c=S.classes.find(function(x){return x.id===b.value});if(c)$('ml-text').value=c.title+': '+dlong(c.date).toLowerCase()+' в '+c.time+'. '+c.place+'. '+(c.price?'Участие '+money(c.price)+'.':'Участие бесплатное.')+' Свободно мест: '+(c.cap-c.booked.length)+'.'}
+  if(a==='eco'){var ek=b.getAttribute('data-k'),ev2=Math.max(0,+b.value||0);if(ek==='rate')ev2=Math.max(0.1,ev2);if(ek==='disc'||ek==='fee')ev2=Math.min(50,ev2);S.eco[ek]=ev2;save();return render()}
+  if(b.id==='st-m')stakePre();
+  if(a==='rate'){S.rates[b.getAttribute('data-k')]=Math.min(50,Math.max(0,+b.value||0));save();render()}
+});
+document.addEventListener('input',function(ev){ecoInput(ev.target);if(ev.target.id==='d-sum')prevDeal();if(ev.target.id==='tz-q')$('tz-res').innerHTML=tzFound(ev.target.value)});
+document.addEventListener('keydown',function(ev){
+  if(ev.key==='Escape')closeDlg();
+  if((ev.key==='Enter'||ev.key===' ')&&ev.target.closest&&ev.target.closest('.dot')){ev.preventDefault();ev.target.closest('.dot').dispatchEvent(new MouseEvent('click',{bubbles:true}))}
+  if((ev.key==='ArrowLeft'||ev.key==='ArrowRight')&&!/INPUT|TEXTAREA|SELECT/.test(ev.target.tagName)&&detail.hidden&&!$('dlg').innerHTML){var i=tabIndex()+(ev.key==='ArrowRight'?1:-1),t=TABS[S.role][i];if(t)go(t[0])}
+});
+document.addEventListener('submit',function(ev){
+  ev.preventDefault();
+  var f=ev.target,id=f.getAttribute('data-id');
+  if(ecoSubmit(f,id))return;
+  if(f.id==='f-book'||f.id==='f-inv'){
+    var bk=f.id==='f-book',e=bk?'b-err':'i-err',name=val(bk?'b-name':'i-name'),tg=val(bk?'b-tg':'i-tg'),cls=bk?f.getAttribute('data-cls'):'',evt=cls?allEvents().find(function(x){return x.id===cls}):null,what=evt?evt.title:bk?val('b-fmt'):val('i-what');
+    if(!bk&&what.length<5)return fail(e,'Опишите проект в двух словах.');
+    if(!name)return fail(e,'Напишите имя.');
+    if(!tg)return fail(e,'Оставьте контакт, чтобы мастер мог ответить.');
+    var pf=0,pc=0;if(bk&&evt&&$('b-coin')&&$('b-coin').checked){pf=toCoin(evt.price);pc=priceFor(pf);if(S.w.guest.bal<pc)return fail(e,'На кошельке не хватает '+coin(pc-S.w.guest.bal)+'. Пополните кошелёк или снимите отметку.')}
+    S.requests.push({id:'r'+uid(),master:id,kind:bk?'book':'invite',name:name,contact:tg,what:what,date:evt?evt.ld:bk?val('b-date'):'',cls:cls||'',st:'new',coins:pc,full:pf,paid:!!pc&&id!==ME});
+    if(pc){op('guest',-pc,'Запись: '+what);if(id!==ME)settle('net',pc,pf,'Запись: '+what)}
+    if(evt&&id!==ME){var pe=S.pub.find(function(x){return x.id===cls});if(pe)pe.n=Math.min(pe.cap,pe.n+1)}
+    save();closeDlg();render();
+    return toast(id===ME?'Заявка отправлена. Переключитесь на роль «Мастер»: она уже в кабинете Анны.':'Заявка отправлена мастеру. В прототипе кабинет открыт только у Анны Светловой.');
+  }
+  if(f.id==='join'){
+    var n=val('j-name');
+    if(!n)return fail('j-err','Напишите имя и фамилию.');
+    if(val('j-mf').length<10)return fail('j-err','Расскажите о сути вашей работы хотя бы одной фразой.');
+    if(!val('j-tg'))return fail('j-err','Оставьте Telegram для связи.');
+    if(!$('j-c1').checked)return fail('j-err','Без согласия на показ в каталоге профиль не публикуется. Отметьте первый пункт или вернитесь к анкете позже.');
+    S.app={name:n,dir:val('j-dir'),city:val('j-city'),mf:val('j-mf'),tg:val('j-tg'),fmt:val('j-fmt'),give:val('j-give'),c2:$('j-c2').checked,c3:$('j-c3').checked,at:day(0),st:'new'};save();render(true);return toast('Анкета ушла на проверку. Одобрить её можно в роли «Центр».');
+  }
+  if(f.id==='lead'){
+    var task=val('l-task');
+    if(!val('l-agent'))return fail('l-err','Напишите своё имя.');
+    if(task.length<10)return fail('l-err','Опишите задачу клиента одним предложением.');
+    if(!val('l-contact'))return fail('l-err','Оставьте контакт клиента.');
+    if(!$('l-ok').checked)return fail('l-err','Передавать контакт можно только с согласия клиента. Спросите его и отметьте последний пункт.');
+    var g=f.querySelector('input[name="l-guide"]:checked'),rw=f.querySelector('input[name="l-rew"]:checked');
+    S.agent={name:val('l-agent'),tg:val('l-atg')};
+    S.leads.unshift({id:'l'+uid(),agent:S.agent.name,agentTg:S.agent.tg,task:task,city:val('l-city'),when:val('l-when'),budget:Math.max(0,+val('l-budget')||0),need:val('l-need'),reward:rw?rw.value:'pct',fix:50,guide:!g||g.value==='1',contact:val('l-contact'),st:'new',master:'',taken:false,sum:0,at:day(0)});
+    save();render(true);toast('Запрос отправлен в Центр. Статус виден в разделе «Мои заявки».');return go('mine');
+  }
+  if(f.id==='f-stay'){
+    var hs=S.hubs.find(function(x){return x.id===id}),ng=Math.max(1,+val('y-nights')||0),gs=Math.max(1,+val('y-guests')||0);
+    if(!val('y-from'))return fail('y-err','Выберите дату заезда.');
+    if(gs>hs.beds)return fail('y-err','В хабе всего '+hs.beds+' мест. Уменьшите число гостей.');
+    if(!val('y-name'))return fail('y-err','Напишите имя.');
+    if(!val('y-tg'))return fail('y-err','Оставьте контакт, чтобы хаб мог ответить.');
+    var sf=0,sc=0;if($('y-coin').checked){sf=toCoin(ng*gs*hs.night);sc=priceFor(sf);if(S.w.guest.bal<sc)return fail('y-err','На кошельке не хватает '+coin(sc-S.w.guest.bal)+'. Пополните кошелёк или снимите отметку.')}
+    S.stays.push({id:'s'+uid(),hub:id,name:val('y-name'),contact:val('y-tg'),from:val('y-from'),nights:ng,guests:gs,note:val('y-note'),st:'new',coins:sc,full:sf,paid:!!sc&&id!==HUB});if(sc){op('guest',-sc,'Проживание: '+hs.name);if(id!==HUB)settle('net',sc,sf,'Проживание: '+hs.name)}save();closeDlg();render();
+    return toast(id===HUB?'Заявка отправлена. Переключитесь на роль «Хаб»: она уже в заявках «Дома у моря».':'Заявка отправлена хабу. В прототипе кабинет открыт только у «Дома у моря».');
+  }
+  if(f.id==='f-offer'){
+    if(val('o-title').length<3)return fail('o-err','Напишите, что вы проведёте.');
+    if(!val('o-date')||!val('o-time'))return fail('o-err','Укажите дату и время.');
+    var oh=val('o-hub');
+    S.offers.push({id:'o'+uid(),hub:oh,master:ME,title:val('o-title'),date:val('o-date'),time:val('o-time'),cap:Math.max(1,+val('o-cap')||1),price:Math.max(0,+val('o-price')||0),terms:val('o-terms')||'по договорённости',note:'',st:'new'});save();closeDlg();render();
+    return toast(oh===HUB?'Предложение отправлено. Переключитесь на роль «Хаб», чтобы ответить на него.':'Предложение отправлено хабу. В прототипе отвечает только «Дом у моря».');
+  }
+  if(f.id==='hcard'){
+    var hc=myHub(),cond=val('h-cond');
+    if(val('h-has').length<5)return fail('h-err','Опишите, что есть в хабе.');
+    if(!cond)return fail('h-err','Напишите условия для мастеров.');
+    var nb=Math.max(1,+val('h-beds')||1),mx=0;for(var di=0;di<60;di++)mx=Math.max(mx,occ(HUB,day(di)));
+    if(nb<mx)return fail('h-err','В ближайшие дни уже подтверждено '+mx+' гостей. Число мест не может быть меньше.');
+    hc.has=val('h-has');hc.beds=nb;hc.night=Math.max(0,+val('h-night')||0);
+    S.hubPending=cond===hc.cond?null:{cond:cond,at:day(0)};save();render(true);
+    return toast(S.hubPending?'Карточка сохранена. Новые условия для мастеров отправлены на проверку Центра.':'Карточка сохранена.');
+  }
+  if(f.id==='f-deal'){
+    var sum=+val('d-sum')||0,l=S.leads.find(function(x){return x.id===id});
+    if(sum<1)return fail('d-err','Введите сумму сделки.');
+    l.sum=sum;l.st='won';l.taken=true;var s=shares(l);if(l.agent===S.agent.name&&s.agent){op('agent',toCoin(s.agent),'Вознаграждение: '+l.task.slice(0,40));S.eco.reserve+=s.agent}save();closeDlg();render();
+    return toast('Сделка закрыта: мастеру '+money(s.master)+', агенту '+money(s.agent)+', Центру '+money(s.center)+'.');
+  }
+  if(f.id==='f-cls'){
+    var t=val('s-title');if(!t)return fail('s-err','Дайте занятию название.');
+    if(!val('s-date')||!val('s-time'))return fail('s-err','Укажите дату и время.');
+    var o={title:t,fmt:val('s-fmt'),date:val('s-date'),time:val('s-time'),place:val('s-place'),cap:Math.max(1,+val('s-cap')||1),price:Math.max(0,+val('s-price')||0)};
+    var c=S.classes.find(function(x){return x.id===id});
+    if(c)Object.assign(c,o);else{o.id='c'+uid();o.booked=[];S.classes.push(o)}
+    if(o.date>=day(0)&&o.date<=day(6))S.sel=o.date;
+    save();closeDlg();render();return toast(c?'Занятие обновлено.':'Занятие добавлено в расписание и в календарь сети.');
+  }
+  if(f.id==='f-cl'){
+    var nm=val('k-name');if(!nm)return fail('k-err','Напишите имя клиента.');
+    var k=S.clients.find(function(x){return x.id===id});
+    if(k){k.name=nm;k.contact=val('k-contact');k.note=val('k-note')}else S.clients.push({id:'k'+uid(),name:nm,contact:val('k-contact'),src:'self',note:val('k-note'),visits:0});
+    save();closeDlg();render();return toast('Клиент сохранён.');
+  }
+  if(f.id==='card'){
+    var m=me(),fm=val('c-fmt').split('\n').map(function(x){var p=x.split('|');return {n:(p[0]||'').trim(),p:(p[1]||'').trim()}}).filter(function(x){return x.n});
+    if(!fm.length)return fail('c-err','Оставьте хотя бы один формат: название | цена.');
+    if(fm.some(function(x){return !x.p}))return fail('c-err','У каждого формата после черты | должна стоять цена.');
+    m.mf=val('c-mf')||m.mf;m.about=val('c-about')||m.about;m.geo=val('c-geo');m.collab=val('c-collab');m.tags=val('c-tags').split(',').map(function(x){return x.trim()}).filter(Boolean).slice(0,5);
+    var give=val('c-give'),partner=val('c-partner'),same=JSON.stringify(fm)===JSON.stringify(m.formats)&&give===m.give&&partner===m.partner;
+    S.pending=same?null:{formats:fm,give:give,partner:partner,at:day(0)};
+    save();render(true);return toast(same?'Карточка сохранена.':'Карточка сохранена. Новые условия отправлены на проверку Центра.');
+  }
+});
+(function(){var r=route(),role=roleOf(r);if(role){S.role=role;S.tabs[role]=r}render(true);if(/^[mh]-/.test(r))showDetail(r)})();
+})();
+</script>
+</body>
+</html>

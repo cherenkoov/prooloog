@@ -89,6 +89,14 @@ function build() {
   app.get('/c/:event/:tg/:sig', limiter(120, 60000), (req, res, next) => attend.handle(req, res).catch(next));
   // A notetaker outside sends the transcript of a call here: the breakdown lands on the meeting (src/notes.js).
   app.post('/hooks/notes/:key', limiter(60, 60000), express.json({ limit: '4mb' }), (req, res) => notes.hook(req, res));
+  // A clickable demo of a product, shown to a team before the product has a server of its own: public/demo/<name>.html.
+  // It keeps nothing on the server: every viewer plays with a copy of the demo data in their own browser.
+  app.get('/demo/:name', (req, res, next) => {
+    const name = String(req.params.name);
+    if (!/^[a-z0-9-]{1,40}$/.test(name)) return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(PUBLIC, 'demo', name + '.html'), (e) => { if (e) next(); });
+  });
   app.get('/robots.txt', (req, res) => res.type('text').send('User-agent: *\nDisallow: /\n'));
 
   /* ---------- Telegram webhook ---------- */
