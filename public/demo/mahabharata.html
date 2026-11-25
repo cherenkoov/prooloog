@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="theme-color" content="#0F0E0D">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mahabharata: Gods &amp; Heroes — offer for Ganga Books Emporium</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600;700&display=swap">
 <style>
-:root{--ink:#1E1B4B;--accent:#B45309;--soft:#2E2B55;--mute:#5A5670;--gold:#F7C873;--line:#C9C6DC}
+:root{--bg:#0F0E0D;--panel:#1A1814;--ink:#EFE7D6;--accent:#D4AF6A;--soft:#CFC7B6;--mute:#A39B8B;--gold:#D4AF6A;--line:#3A352C}
 *{box-sizing:border-box}
-body{margin:0;background:#fff;color:var(--ink);font-family:Inter,system-ui,sans-serif;line-height:1.55}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;line-height:1.55}
 main{max-width:760px;margin:0 auto;padding:32px 20px 120px;display:flex;flex-direction:column;gap:32px}
 .kicker{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0}
 h1{font-family:Cinzel,Georgia,serif;font-size:clamp(30px,8vw,44px);line-height:1.12;margin:10px 0 6px;text-wrap:balance}
@@ -16,9 +17,9 @@ h1{font-family:Cinzel,Georgia,serif;font-size:clamp(30px,8vw,44px);line-height:1
 .rule{width:64px;height:3px;background:var(--accent);margin:16px 0}
 .tag{font-size:18px;font-style:italic;font-weight:500;margin:0 0 10px}
 .story{font-size:15px;color:var(--soft);margin:0}
-.offer{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));background:var(--ink);color:#fff;margin-top:12px}
-.cell{padding:20px 16px;border-top:1px solid #4A4680;border-left:1px solid #4A4680}
-.cell .l{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#D9D6F2}
+.offer{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));background:var(--panel);color:var(--ink);border:1px solid var(--line);margin-top:12px}
+.cell{padding:20px 16px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.cell .l{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .cell .n{font-family:Cinzel,Georgia,serif;font-weight:700;font-size:32px;line-height:1.15;color:var(--gold);margin:4px 0}
 .cell .s{font-size:13px}
 .note{font-size:13px;color:var(--soft);margin:12px 0 0}
@@ -31,12 +32,12 @@ td{font-weight:600}
 ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;font-size:14px}
 li{display:flex;gap:10px}
 li::before{content:"";flex:0 0 8px;height:8px;margin-top:7px;background:var(--accent)}
-.actions{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:3px solid var(--ink);padding:12px 20px calc(12px + env(safe-area-inset-bottom))}
+.actions{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--accent);padding:12px 20px calc(12px + env(safe-area-inset-bottom))}
 .actions div{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .btn{display:flex;align-items:center;justify-content:center;min-height:52px;padding:0 12px;font-weight:700;font-size:15px;text-decoration:none;text-align:center}
-.btn.primary{background:var(--ink);color:#fff}
-.btn.second{border:2px solid var(--ink);color:var(--ink)}
-.btn:hover,.btn:focus-visible{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary{background:var(--accent);color:var(--bg)}
+.btn.second{border:2px solid var(--accent);color:var(--accent)}
+.btn:hover,.btn:focus-visible{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 footer{font-size:13px;color:var(--soft);border-top:1px solid var(--line);padding-top:16px}
 @media(min-width:640px){.offer{grid-template-columns:repeat(4,minmax(0,1fr))}.cols{grid-template-columns:repeat(2,minmax(0,1fr));gap:40px}}
 </style>
