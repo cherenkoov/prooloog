@@ -135,6 +135,12 @@ let ownerToken, bobToken;
 /* ---------- tests ---------- */
 test('page, health and the webhook lock', async () => {
   assert.equal((await call('GET', '/healthz')).text, 'ok');
+  // a demo page is a file in public/demo, opened without a login; a name outside the pattern or without a file is not found
+  const demo = await call('GET', '/demo/ecochakra');
+  assert.equal(demo.status, 200);
+  assert.match(demo.text, /EcoChakra/);
+  assert.equal((await call('GET', '/demo/nothing-here')).status, 404);
+  assert.equal((await call('GET', '/demo/..%2Fserver')).status, 404);
   const p = await call('GET', '/');
   assert.match(p.text, /<title>Prooloog<\/title>/);
   assert.match(p.text, /telegram-web-app\.js[\s\S]*\/shim\.js[\s\S]*<\/head>/);
