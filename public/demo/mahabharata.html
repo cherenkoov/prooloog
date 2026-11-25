@@ -10,7 +10,7 @@
 :root{--bg:#0F0E0D;--panel:#1A1814;--ink:#EFE7D6;--accent:#D4AF6A;--soft:#CFC7B6;--mute:#A39B8B;--gold:#D4AF6A;--line:#3A352C}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;line-height:1.55}
-main{max-width:760px;margin:0 auto;padding:32px 20px 120px;display:flex;flex-direction:column;gap:32px}
+main{max-width:760px;margin:0 auto;padding:32px 20px 190px;display:flex;flex-direction:column;gap:32px}
 .kicker{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0}
 h1{font-family:Cinzel,Georgia,serif;font-size:clamp(30px,8vw,44px);line-height:1.12;margin:10px 0 6px;text-wrap:balance}
 .sub{font-family:Cinzel,Georgia,serif;font-size:22px;color:var(--accent);margin:0}
@@ -35,6 +35,7 @@ li::before{content:"";flex:0 0 8px;height:8px;margin-top:7px;background:var(--ac
 .actions{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--accent);padding:12px 20px calc(12px + env(safe-area-inset-bottom))}
 .actions div{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .btn{display:flex;align-items:center;justify-content:center;min-height:52px;padding:0 12px;font-weight:700;font-size:15px;text-decoration:none;text-align:center}
+.btn.wide{grid-column:1 / -1}
 .btn.primary{background:var(--accent);color:var(--bg)}
 .btn.second{border:2px solid var(--accent);color:var(--accent)}
 .btn:hover,.btn:focus-visible{background:var(--ink);border-color:var(--ink);color:var(--bg)}
@@ -91,7 +92,8 @@ footer{font-size:13px;color:var(--soft);border-top:1px solid var(--line);padding
 <!-- CONTACTS: interim links are the publisher contacts from mahabharata.pro; replace with the purchase and support contacts when known -->
 <nav class="actions" aria-label="Contact">
 <div>
-<a class="btn primary" href="tel:+919668303401">Order copies</a>
+<a class="btn primary wide" href="https://wa.me/919668303401?text=Hello%2C%20I%20am%20writing%20from%20Ganga%20Books%20Emporium%20about%20ordering%20Mahabharata%3A%20Gods%20%26%20Heroes.">Order on WhatsApp</a>
+<a class="btn second" href="tel:+919668303401">Call</a>
 <a class="btn second" href="mailto:info@mahabharata.pro">Support</a>
 </div>
 </nav>
