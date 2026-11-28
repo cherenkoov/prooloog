@@ -3045,3 +3045,129 @@ test('a document the team answers: a file to the bot, a message to the work chat
   assert.equal((await db.listDocs('messages')).filter((d) => d.data.src === 'offer').length, 3);
   await db.removeMember(String(VERA.id));
 });
+
+test('the map of a project: a .json file to the bot, a link for the work chat, the poll with names, a new file keeps the link and the answers', async () => {
+  const db = require('../src/db');
+  const GID = -1001234500777, CH = 'g1001234500777';
+  await db.setDoc('chats', CH, { tg: GID, title: 'Команда блога', kind: 'supergroup', project: 'p-blog', on: true, collect: 'ask' });
+  const def = {
+    title: 'Блог: карта', lead: 'Что есть сейчас.', updated: '28 ноября', now: ['Запустить рубрики'],
+    streams: [{ id: 'club', name: 'Клуб', state: 'work', sum: 'Первые 20', have: ['Канал'], doing: ['Отбор'], open: ['Цена'], who: 'Нина' }, { name: 'Приложение', state: 'ok' }],
+    next: [{ when: '29 ноября', text: 'Созвон' }],
+    poll: { title: 'Куда идём', intro: 'Три вопроса', qs: [
+      { id: 'path', t: 'one', label: 'Что первым?', s: 'Первым', opts: ['Клуб', 'Приложение'], req: true },
+      { id: 'give', t: 'many', label: 'Чем помогу?', opts: ['Время', 'Контакты', 'Деньги'], max: 2 },
+      { id: 'more', t: 'text', label: 'Что добавить?' }] },
+    learn: { title: 'Как заполнять', rules: ['Только с согласия'], types: [{ id: 'master', name: 'Мастер', fields: [{ id: 'name', label: 'Имя', req: true, ex: 'Анна' }, { label: 'Город' }], mistakes: ['Нет контакта'] }] },
+  };
+  const put = (id, body) => { tgFiles['files/' + id] = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)); return id; };
+  const file = (cap, id, name) => msg(OWNER, { document: { file_id: id, file_name: name || 'map.json', mime_type: 'application/json', file_size: 900 }, caption: cap });
+  const to = (id, n) => sinceMark(n, 'sendMessage').map((c) => c.params).filter((p) => String(p.chat_id) === String(id));
+  const buttons = (p) => ((p.reply_markup && p.reply_markup.inline_keyboard) || []).flat();
+
+  // what is wrong with the file is said in plain words; nothing is kept
+  await update(file('/map блог', put('MAPBAD1', '{ not json')));
+  assert.match(lastSay().params.text, /Карту не сохранил\. Файл не читается как JSON/);
+  await update(file('/map блог', put('MAPBAD2', { title: 'Без направлений' })));
+  assert.match(lastSay().params.text, /В карте нет направлений/);
+  await update(file('/map блог', put('MAPBAD3', Object.assign({}, def, { streams: [{ name: 'Клуб', state: 'done' }] }))));
+  assert.match(lastSay().params.text, /"state" бывает ok, work, open или idea/);
+  await update(file('/map зюзюка', put('MAPOK1', def)));
+  assert.match(lastSay().params.text, /Не нашёл проект «зюзюка»/);
+  assert.equal((await db.listDocs('maps')).length, 0);
+
+  let n = tgCalls.length;
+  await update(file('/map блог', 'MAPOK1'));
+  const card = to(OWNER.id, n).pop();
+  assert.match(card.text, /^Сохранил карту <b>«Блог: карта»<\/b>, проект <b>Личный блог<\/b>\. Внутри направлений: 2, вопросов в опросе: 3, типов записей в обучении: 1\./);
+  const doc = (await db.listDocs('maps'))[0], token = doc.data.token;
+  assert.match(doc.id, /^mp[0-9a-f]{10}$/);
+  assert.deepEqual(doc.data.def.streams[1], { id: 's2', name: 'Приложение', state: 'ok', sum: '', who: '', have: [], doing: [], open: [] });
+  assert.equal(doc.data.def.learn.types[0].fields[1].id, 'f2');
+  assert.equal(buttons(card).find((b) => b.web_app).web_app.url, 'https://prooloog.test/m/' + token);
+  const sendBtn = buttons(card).find((b) => /^mp:s:/.test(b.callback_data || ''));
+  assert.equal(sendBtn.callback_data, 'mp:s:' + doc.id + ':' + CH);
+
+  // the work chat gets a message with a button that leads to the bot
+  n = tgCalls.length;
+  await update(tap(OWNER, sendBtn.callback_data));
+  const inChat = to(GID, n);
+  assert.equal(inChat.length, 1);
+  assert.match(inChat[0].text, /^<b>Блог: карта<\/b>\n\nЧто есть сейчас\.\n\nОткройте карту кнопкой ниже\. Внутри: обзор проекта, опрос, обучение\./);
+  assert.deepEqual(buttons(inChat[0]), [{ text: 'Открыть карту проекта', url: 'https://t.me/prooloog_test_bot?start=mp_' + token }]);
+  assert.equal((await db.getDoc('maps', doc.id)).data.sent.length, 1);
+
+  // anybody with the link opens it through the bot; outside Telegram the page gives away only the title
+  const NINA = { id: 777401, first_name: 'Нина', last_name: 'Ким', username: 'nina_kim' }, OLEG = { id: 777402, first_name: 'Олег' };
+  n = tgCalls.length;
+  await update(msg(NINA, { text: '/start mp_' + token }));
+  assert.equal(buttons(to(NINA.id, n).pop())[0].web_app.url, 'https://prooloog.test/m/' + token);
+  await update(msg(NINA, { text: '/start mp_AAAAAAAAAAAAAAAA' }));
+  assert.match(lastSay().params.text, /больше не доступна/);
+  assert.match((await call('GET', '/m/' + token)).text, /Карта проекта/);
+  assert.deepEqual((await call('GET', '/api/map/' + token)).json, { title: 'Блог: карта', app: 'Prooloog', bot: 'prooloog_test_bot', start: 'mp_' + token });
+  assert.equal((await call('POST', '/api/map/' + token + '/me', { json: {} })).status, 401);
+  assert.equal((await call('POST', '/api/map/AAAAAAAAAAAAAAAA/me', { json: { initData: initData(NINA) } })).status, 404);
+  const me = (await call('POST', '/api/map/' + token + '/me', { json: { initData: initData(NINA) } })).json;
+  assert.deepEqual([me.map.title, me.project, me.user.name, me.mine, me.results.n], ['Блог: карта', 'Личный блог', 'Нина Ким', null, 0]);
+
+  // the poll: what is required is asked for, what is not offered is not kept, the limit holds
+  const say = (who, a) => call('POST', '/api/map/' + token + '/answer', { json: { initData: initData(who), a } });
+  let r = await say(NINA, { give: ['Время'] });
+  assert.deepEqual([r.status, r.json.errors], [400, { path: 'Выберите вариант' }]);
+  r = await say(NINA, { path: 'Клуб', give: ['Время', 'Контакты', 'Деньги'] });
+  assert.deepEqual([r.status, r.json.errors], [400, { give: 'Можно выбрать не больше 2' }]);
+  n = tgCalls.length;
+  r = await say(NINA, { path: 'Клуб', give: ['Время', 'Чужое'], more: '  Нужен   контент-менеджер ', junk: 'x' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.mine.a, { path: 'Клуб', give: ['Время'], more: 'Нужен контент-менеджер' });
+  assert.equal(r.json.results.n, 1);
+  assert.deepEqual(r.json.results.qs[0].opts, [{ opt: 'Клуб', who: ['Нина Ким'] }, { opt: 'Приложение', who: [] }]);
+  assert.deepEqual(r.json.results.qs[2].texts, [{ name: 'Нина Ким', text: 'Нужен контент-менеджер' }]);
+  // the answer waits for review in the project's messages, the owner hears about it; the project is not touched
+  let msgs = (await db.listDocs('messages')).filter((d) => d.data.src === 'map');
+  assert.equal(msgs.length, 1);
+  assert.deepEqual([msgs[0].data.project, msgs[0].data.review, msgs[0].data.from], ['p-blog', 'pending', 'Нина Ким (@nina_kim)']);
+  assert.equal(msgs[0].data.text, 'Ответил на опрос «Куда идём».\nПервым: Клуб\nЧем помогу: Время\nЧто добавить: Нужен контент-менеджер');
+  assert.match(to(OWNER.id, n).pop().text, /<b>Нина Ким<\/b> \(@nina_kim\): ответил на опрос «Куда идём»/);
+  // the same answers twice change nothing; other answers replace the first ones
+  await say(NINA, { path: 'Клуб', give: ['Время'], more: 'Нужен контент-менеджер' });
+  assert.equal((await db.listDocs('messages')).filter((d) => d.data.src === 'map').length, 1);
+  await say(NINA, { path: 'Приложение' });
+  r = await say(OLEG, { path: 'Приложение', give: ['Деньги', 'Время'] });
+  assert.deepEqual(r.json.results.qs[0].opts[1], { opt: 'Приложение', who: ['Нина Ким', 'Олег'] });
+  assert.equal(r.json.results.n, 2);
+  msgs = (await db.listDocs('messages')).filter((d) => d.data.src === 'map');
+  assert.equal(msgs.length, 3);
+  assert.ok(msgs.some((d) => /^Изменил ответы на опрос/.test(d.data.text)));
+
+  // «Ответы опроса» for those who run the project; «/map» lists the maps
+  n = tgCalls.length;
+  await update(tap(OWNER, 'mp:a:' + doc.id));
+  assert.match(to(OWNER.id, n).pop().text, /Ответили: <b>2<\/b>\n\n<b>Первым<\/b>\n• Клуб: 0\n• Приложение: 2 \(Нина Ким, Олег\)/);
+  await update(msg(OWNER, { text: '/map' }));
+  assert.match(lastSay().params.text, /• <b>Блог: карта<\/b>, Личный блог: ответили на опрос 2/);
+
+  // a new file for the same project: the content changes, the link and the answers stay
+  const def2 = JSON.parse(JSON.stringify(def));
+  def2.title = 'Блог: карта 2'; def2.poll.qs[0].opts = ['Приложение', 'Партнёры'];
+  n = tgCalls.length;
+  await update(file('/map блог', put('MAPOK2', def2)));
+  assert.match(to(OWNER.id, n).pop().text, /^Обновил карту <b>«Блог: карта 2»<\/b>/);
+  const all = await db.listDocs('maps');
+  assert.deepEqual([all.length, all[0].id, all[0].data.token, all[0].data.def.title], [1, doc.id, token, 'Блог: карта 2']);
+  const again = (await call('POST', '/api/map/' + token + '/me', { json: { initData: initData(OLEG) } })).json;
+  assert.deepEqual(again.results.qs[0].opts, [{ opt: 'Приложение', who: ['Нина Ким', 'Олег'] }, { opt: 'Партнёры', who: [] }]);
+  assert.deepEqual(again.mine.a.give, ['Деньги', 'Время']);
+
+  // a person without a project of their own cannot make or delete a map; the owner deletes it and the link closes
+  const VERA = { id: 777403, first_name: 'Вера' };
+  await update(Object.assign(file('/map блог', 'MAPOK1'), { message: Object.assign(file('/map блог', 'MAPOK1').message, { from: VERA, chat: { id: VERA.id, type: 'private' } }) }));
+  assert.equal((await db.getDoc('maps', doc.id)).data.def.title, 'Блог: карта 2');
+  await update(tap(OWNER, 'mp:d:' + doc.id));
+  assert.match(lastSay().params.text, /Удалить карту «Блог: карта 2» вместе с ответами опроса/);
+  await update(tap(OWNER, 'mp:D:' + doc.id));
+  assert.equal(await db.getDoc('maps', doc.id), null);
+  assert.equal((await call('POST', '/api/map/' + token + '/me', { json: { initData: initData(NINA) } })).status, 404);
+  assert.equal((await db.listDocs('messages')).filter((d) => d.data.src === 'map').length, 3);
+});
