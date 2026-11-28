@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Карта проекта</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+/* The map of a project: overview, poll, lesson. Same palette and type as the dashboard, the form and the offer. */
+:root{
+  --bg:#eceef3; --surface:#ffffff; --surface2:#f3f4f8; --ink:#14161c; --mute:#5f6575; --line:#dcdfe8;
+  --accent:#1c8556; --on-accent:#ffffff; --crit:#c2362b;
+  --ok:#1c8556; --work:#2f6fd6; --open:#c2702b; --idea:#7a5bd0;
+  --display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --bg:#0e1015; --surface:#171a22; --surface2:#1e222c; --ink:#eceef4; --mute:#9aa1b2; --line:#2b303c;
+  --accent:#4fc48c; --on-accent:#06281a; --crit:#f2766a;
+  --ok:#4fc48c; --work:#7aa7f5; --open:#f0a15e; --idea:#ab94f2;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--body);-webkit-text-size-adjust:100%}
+button,textarea,input{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+h1,h2,h3,p,ul,ol{margin:0}
+ul,ol{padding:0;list-style:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+[hidden]{display:none!important}
+
+#app{max-width:760px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top)) 16px calc(104px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18px}
+.kick{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:600 28px/1.12 var(--display);letter-spacing:-.02em;text-wrap:balance}
+h2{font:600 18px/1.2 var(--display);letter-spacing:-.01em;text-wrap:balance}
+h3{font:600 16px/1.3 var(--body)}
+.lead{color:var(--mute);font-size:17px}
+.small{font-size:13px;color:var(--mute)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;padding:0 18px;border-radius:14px;border:1px solid var(--line);background:var(--surface);font-weight:600;text-align:center}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+a.btn{text-decoration:none;color:inherit}
+a.btn.pri{color:var(--on-accent)}
+.btn[disabled]{opacity:.55}
+.acts{display:flex;gap:10px;flex-wrap:wrap}
+.acts .btn{flex:1 1 180px}
+.err{color:var(--crit);font-weight:500}
+.star{color:var(--crit)}
+
+/* the tabs at the bottom */
+#tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+#tabs div{max-width:760px;margin:0 auto;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
+#tabs button{min-height:52px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px;font-weight:600;color:var(--mute);position:relative}
+#tabs button[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
+#tabs svg{width:22px;height:22px}
+#tabs .dot{position:absolute;top:8px;right:calc(50% - 20px);width:8px;height:8px;border-radius:50%;background:var(--open)}
+
+/* overview */
+.now ol{display:flex;flex-direction:column;gap:10px;counter-reset:n}
+.now li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;counter-increment:n}
+.now li::before{content:counter(n);width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-weight:700;font-size:14px}
+.legend{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 13px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:14px;font-weight:600}
+.chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.chip i,.badge i{width:9px;height:9px;border-radius:50%;background:var(--c)}
+.chip b{font-weight:700}
+.s-ok{--c:var(--ok)}.s-work{--c:var(--work)}.s-open{--c:var(--open)}.s-idea{--c:var(--idea)}
+.streams{display:grid;grid-template-columns:1fr;gap:10px}
+@media (min-width:620px){.streams{grid-template-columns:1fr 1fr;align-items:start}}
+.st{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:16px;overflow:hidden}
+.st>button{width:100%;padding:14px 14px 14px 13px;display:flex;flex-direction:column;gap:6px}
+.st .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.st .top svg{flex:none;margin-top:3px;color:var(--mute);transition:transform .15s}
+.st[data-open] .top svg{transform:rotate(180deg)}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--c)}
+.st .sum{color:var(--mute);font-size:15px}
+.st .cnt{font-size:13px;color:var(--mute)}
+.st .in{padding:0 14px 14px 13px;display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--line);padding-top:12px}
+.grp h4{margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--c)}
+.grp ul{display:flex;flex-direction:column;gap:6px}
+.grp li{display:grid;grid-template-columns:10px 1fr;gap:8px;font-size:15px}
+.grp li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c);margin-top:9px}
+.next li{display:grid;grid-template-columns:96px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.next li:last-child{border-bottom:0;padding-bottom:0}
+.next li:first-child{padding-top:0}
+.next b{font-size:14px;color:var(--accent)}
+
+/* poll */
+.q{display:flex;flex-direction:column;gap:10px}
+.q .hint{font-size:14px;color:var(--mute)}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:grid;grid-template-columns:22px 1fr;gap:12px;align-items:center;min-height:50px;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:var(--bg);width:100%}
+.opt i{width:22px;height:22px;border:2px solid var(--line);border-radius:50%;display:grid;place-items:center;color:var(--on-accent);background:var(--surface)}
+.opt.many i{border-radius:7px}
+.opt[aria-checked="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.opt[aria-checked="true"] i{background:var(--accent);border-color:var(--accent)}
+textarea,input[type=text]{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--bg);line-height:1.45}
+textarea{min-height:104px;resize:vertical}
+textarea:focus,input[type=text]:focus{outline:none;border-color:var(--accent)}
+.bar{display:flex;flex-direction:column;gap:4px}
+.bar .row{display:flex;justify-content:space-between;gap:10px;font-weight:600}
+.bar .track{height:8px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.bar .fill{height:100%;border-radius:999px;background:var(--accent);min-width:0}
+.bar.mine .row span:first-child::after{content:" · ваш выбор";color:var(--accent);font-weight:500;font-size:13px}
+.bar .who{font-size:13px;color:var(--mute)}
+.say{padding:10px 14px;border-radius:14px;background:var(--surface2);white-space:pre-wrap;overflow-wrap:anywhere}
+.say b{display:block;font-size:13px;color:var(--mute);font-weight:600;margin-bottom:2px}
+.ok{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;padding:12px 14px;border-radius:14px;background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.ok i{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--on-accent)}
+.ok b{display:block}
+
+/* lesson */
+.rules li{display:grid;grid-template-columns:22px 1fr;gap:10px}
+.rules li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);margin:8px 0 0 6px}
+.rules{display:flex;flex-direction:column;gap:8px}
+.types{display:flex;gap:8px;flex-wrap:wrap}
+.types .chip svg{color:var(--accent)}
+.types .chip[aria-pressed="true"] svg{color:inherit}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-weight:600}
+.field label em{font-style:normal;color:var(--crit);margin-left:3px}
+.field .hint{font-size:14px;color:var(--mute)}
+.field.miss input,.field.miss textarea{border-color:var(--crit)}
+.field .ex{font-size:13px;color:var(--mute)}
+.field textarea{min-height:76px}
+.warn{padding:12px 14px;border-radius:14px;background:color-mix(in srgb,var(--open) 14%,var(--surface))}
+.warn ul{margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.warn li::before{content:"— "}
+.progress{height:8px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.gate{min-height:70vh;display:flex;flex-direction:column;justify-content:center;gap:14px}
+</style>
+</head>
+<body>
+<div id="app" aria-live="polite"><p class="lead">Загружаю карту…</p></div>
+<nav id="tabs" hidden><div role="tablist"></div></nav>
+<script>
+(function(){
+'use strict';
+var tg=window.Telegram&&window.Telegram.WebApp, initData=(tg&&tg.initData)||'';
+var token=(/\/m\/([A-Za-z0-9_-]{16})(?:$|[/?#])/.exec(location.pathname)||[])[1]||'';
+var app=document.getElementById('app'), tabs=document.getElementById('tabs'), KEY='prooloog.map.'+token;
+var S=null, info=null, tab='over', busy=false, err='', errs={};
+var filter='', openSt={};                       // overview: the state shown, the streams unfolded
+var draft=null, editing=false;                  // poll: answers being given
+var typeId='', card={}, checked=null, done={}, copied=false; // lesson: the type, the card of the trainer, its check
+var CHECK='<svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6.5l2.6 2.6L10 3.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var DOWN='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+var ICON={over:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>',
+  poll:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>',
+  learn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20"/></svg>'};
+var STATE={ok:'Есть',work:'В работе',open:'Не решено',idea:'Идея'}, ORDER=['ok','work','open','idea'];
+var MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function theme(){var dark=tg&&tg.colorScheme?tg.colorScheme==='dark':window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches;document.documentElement.setAttribute('data-theme',dark?'dark':'light')}
+function haptic(k){try{if(tg&&tg.HapticFeedback)tg.HapticFeedback.notificationOccurred(k==='ok'?'success':'error')}catch(e){}}
+function when(iso){var d=new Date(iso);if(isNaN(d))return '';var m=d.getMinutes();return d.getDate()+' '+MON[d.getMonth()]+', '+d.getHours()+':'+(m<10?'0':'')+m}
+function plural(n,a,b,c){var m=n%100,k=n%10;return m>10&&m<20?c:k===1?a:k>1&&k<5?b:c}
+function api(method,path,body){
+  return fetch('/api/map/'+token+path,{method:method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}).then(function(r){
+    return r.json().catch(function(){return null}).then(function(j){if(!r.ok){var e=new Error((j&&j.error)||'http_'+r.status);e.code=(j&&j.error)||'';e.errors=(j&&j.errors)||null;throw e}return j});
+  },function(){var e=new Error('network');e.code='network';throw e});
+}
+function store(){try{localStorage.setItem(KEY,JSON.stringify({done:done,draft:draft,tab:tab}))}catch(e){}}
+
+/* ---------- overview ---------- */
+function group(title,list,cls){return list&&list.length?'<div class="grp '+cls+'"><h4>'+title+'</h4><ul>'+list.map(function(t){return '<li><span>'+esc(t)+'</span></li>'}).join('')+'</ul></div>':''}
+function over(){
+  var m=S.map, n={}, h='';
+  m.streams.forEach(function(s){n[s.state]=(n[s.state]||0)+1});
+  h+=(S.project?'<p class="kick">'+esc(S.project)+'</p>':'')+'<h1>'+esc(m.title)+'</h1>'+(m.lead?'<p class="lead">'+esc(m.lead)+'</p>':'');
+  h+='<p class="small">Обновлено: '+esc(m.updated||when(S.at))+(S.by?' · '+esc(S.by):'')+'</p>';
+  if(m.now.length)h+='<section class="card now"><h2>Сейчас главное</h2><ol>'+m.now.map(function(t){return '<li><span>'+esc(t)+'</span></li>'}).join('')+'</ol></section>';
+  h+='<section style="display:flex;flex-direction:column;gap:12px"><h2>Из чего состоит проект</h2><p class="small">Нажмите на направление, чтобы увидеть, что в нём уже есть, что в работе и что не решено.</p><div class="legend">'+
+    ORDER.filter(function(k){return n[k]}).map(function(k){return '<button class="chip s-'+k+'" data-a="filter" data-v="'+k+'" aria-pressed="'+(filter===k)+'"><i></i>'+STATE[k]+' <b>'+n[k]+'</b></button>'}).join('')+'</div><div class="streams">'+
+    m.streams.filter(function(s){return !filter||s.state===filter}).map(function(s){
+      var o=!!openSt[s.id], c=[s.have.length?'есть '+s.have.length:'',s.doing.length?'в работе '+s.doing.length:'',s.open.length?'не решено '+s.open.length:''].filter(Boolean).join(' · ');
+      return '<article class="st s-'+s.state+'"'+(o?' data-open':'')+'><button data-a="stream" data-v="'+esc(s.id)+'" aria-expanded="'+o+'"><span class="top"><h3>'+esc(s.name)+'</h3>'+DOWN+'</span><span class="badge"><i></i>'+STATE[s.state]+'</span>'+
+        (s.sum?'<span class="sum">'+esc(s.sum)+'</span>':'')+(c?'<span class="cnt">'+c+'</span>':'')+'</button>'+
+        (o?'<div class="in">'+group('Уже есть',s.have,'s-ok')+group('В работе',s.doing,'s-work')+group('Не решено',s.open,'s-open')+(s.who?'<p class="small">Кто ведёт: '+esc(s.who)+'</p>':'')+
+          (!s.have.length&&!s.doing.length&&!s.open.length&&!s.who?'<p class="small">Подробностей пока нет.</p>':'')+'</div>':'')+'</article>';
+    }).join('')+'</div></section>';
+  if(m.next.length)h+='<section class="card next"><h2>Что дальше</h2><ul>'+m.next.map(function(x){return '<li><b>'+esc(x.when)+'</b><span>'+esc(x.text)+'</span></li>'}).join('')+'</ul></section>';
+  if(m.poll&&!S.mine)h+='<section class="card"><h2>'+esc(m.poll.title)+'</h2><p class="small">'+esc(m.poll.intro||'Несколько вопросов о том, куда вести проект и что вы готовы в него вложить.')+'</p><button class="btn pri" data-a="tab" data-v="poll">Пройти опрос</button></section>';
+  return h;
+}
+
+/* ---------- poll ---------- */
+function field(q){
+  var v=draft[q.id], h='<div class="q" data-q="'+esc(q.id)+'"><h3>'+esc(q.label)+(q.req?' <span class="star">*</span>':'')+'</h3>'+(q.hint?'<p class="hint">'+esc(q.hint)+'</p>':'');
+  if(q.t==='text')h+='<textarea data-f="'+esc(q.id)+'" maxlength="1000" placeholder="'+esc(q.ph||'')+'">'+esc(v||'')+'</textarea>';
+  else{
+    if(q.t==='many'&&q.max<q.opts.length)h+='<p class="hint">Можно выбрать до '+q.max+'.</p>';
+    h+='<div class="opts" role="'+(q.t==='one'?'radiogroup':'group')+'">'+q.opts.map(function(o,i){
+      var on=q.t==='one'?v===o:(v||[]).indexOf(o)>=0;
+      return '<button class="opt'+(q.t==='many'?' many':'')+'" role="'+(q.t==='one'?'radio':'checkbox')+'" aria-checked="'+on+'" data-a="pick" data-q="'+esc(q.id)+'" data-i="'+i+'"><i>'+(on?CHECK:'')+'</i><span>'+esc(o)+'</span></button>';
+    }).join('')+'</div>';
+  }
+  return h+(errs[q.id]?'<p class="err">'+esc(errs[q.id])+'</p>':'')+'</div>';
+}
+function results(){
+  var p=S.map.poll, R=S.results, mine=(S.mine&&S.mine.a)||{}, h='';
+  p.qs.forEach(function(q,i){
+    var r=R.qs[i];if(!r)return;
+    h+='<section class="card"><h3>'+esc(q.label)+'</h3>';
+    if(r.opts)h+=r.opts.map(function(x){
+      var pct=R.n?Math.round(x.who.length*100/R.n):0, my=q.t==='one'?mine[q.id]===x.opt:(mine[q.id]||[]).indexOf(x.opt)>=0;
+      return '<div class="bar'+(my?' mine':'')+'"><div class="row"><span>'+esc(x.opt)+'</span><span>'+x.who.length+'</span></div><div class="track"><div class="fill" style="width:'+pct+'%"></div></div>'+(x.who.length?'<p class="who">'+esc(x.who.join(', '))+'</p>':'')+'</div>';
+    }).join('');
+    else h+=r.texts.length?r.texts.map(function(x){return '<div class="say"><b>'+esc(x.name)+'</b>'+esc(x.text)+'</div>'}).join(''):'<p class="small">Ответов пока нет.</p>';
+    h+='</section>';
+  });
+  return h;
+}
+function poll(){
+  var p=S.map.poll, h='<h1>'+esc(p.title)+'</h1>';
+  if(S.mine&&!editing){
+    h+='<div class="ok"><i>'+CHECK+'</i><div><b>Ваши ответы сохранены</b><span class="small">'+esc(when(S.mine.at))+' · '+esc(S.user.name)+'</span></div></div>';
+    h+='<p class="small">Ответили: '+S.results.n+' '+plural(S.results.n,'человек','человека','человек')+'. Ответы видит вся команда.</p>'+results()+'<button class="btn" data-a="edit">Изменить мои ответы</button>';
+    return h;
+  }
+  h+=(p.intro?'<p class="lead">'+esc(p.intro)+'</p>':'')+'<p class="small">Отвечаете как '+esc(S.user.name)+'. Ответы видит вся команда'+(S.project?' проекта «'+esc(S.project)+'»':'')+'; их можно изменить позже.</p>';
+  h+='<section class="card" style="gap:22px">'+p.qs.map(field).join('')+'</section>';
+  if(err)h+='<p class="err">'+esc(err)+'</p>';
+  h+='<div class="acts"><button class="btn pri" data-a="send"'+(busy?' disabled':'')+'>'+(busy?'Отправляю…':S.mine?'Сохранить изменения':'Отправить ответы')+'</button>'+(S.mine?'<button class="btn" data-a="noedit"'+(busy?' disabled':'')+'>Отмена</button>':'')+'</div>';
+  return h;
+}
+
+/* ---------- lesson ---------- */
+function typeNow(){var l=S.map.learn.types;return l.filter(function(t){return t.id===typeId})[0]||l[0]}
+function cardText(t){return t.name+'\n'+t.fields.filter(function(f){return (card[f.id]||'').trim()}).map(function(f){return f.label+': '+card[f.id].trim()}).join('\n')}
+function learn(){
+  var l=S.map.learn, t=typeNow(), n=l.types.filter(function(x){return done[x.id]}).length, h='<h1>'+esc(l.title)+'</h1>'+(l.intro?'<p class="lead">'+esc(l.intro)+'</p>':'');
+  if(l.rules.length)h+='<section class="card"><h2>Общие правила</h2><ul class="rules">'+l.rules.map(function(r){return '<li><span>'+esc(r)+'</span></li>'}).join('')+'</ul></section>';
+  h+='<section style="display:flex;flex-direction:column;gap:10px"><h2>Что вносим</h2><p class="small">Пройдено: '+n+' из '+l.types.length+'. Выберите тип записи, прочитайте поля и заполните пробную карточку.</p><div class="progress"><i style="width:'+Math.round(n*100/l.types.length)+'%"></i></div><div class="types">'+
+    l.types.map(function(x){return '<button class="chip" data-a="type" data-v="'+esc(x.id)+'" aria-pressed="'+(x.id===t.id)+'">'+(done[x.id]?CHECK:'')+esc(x.name)+'</button>'}).join('')+'</div></section>';
+  h+='<section class="card"><h2>'+esc(t.name)+'</h2>'+(t.what?'<p>'+esc(t.what)+'</p>':'')+(t.where?'<p class="small">Куда вносить: '+esc(t.where)+'</p>':'');
+  if(t.mistakes.length)h+='<div class="warn"><b>Частые ошибки</b><ul>'+t.mistakes.map(function(x){return '<li>'+esc(x)+'</li>'}).join('')+'</ul></div>';
+  h+='</section><section class="card" style="gap:18px"><div><h2>Тренажёр: пробная карточка</h2><p class="small">Заполните как для настоящей записи. Ничего не сохраняется и никуда не отправляется. Поля со звёздочкой обязательны.</p></div>';
+  h+=t.fields.map(function(f){
+    var miss=checked&&checked.miss.indexOf(f.id)>=0, v=card[f.id]||'';
+    return '<div class="field'+(miss?' miss':'')+'"><label for="c-'+esc(f.id)+'">'+esc(f.label)+(f.req?'<em>*</em>':'')+'</label>'+(f.hint?'<span class="hint">'+esc(f.hint)+'</span>':'')+
+      (f.long?'<textarea id="c-'+esc(f.id)+'" data-c="'+esc(f.id)+'" maxlength="600">'+esc(v)+'</textarea>':'<input type="text" id="c-'+esc(f.id)+'" data-c="'+esc(f.id)+'" maxlength="300" value="'+esc(v)+'" autocomplete="off">')+
+      (f.ex?'<span class="ex">Пример: '+esc(f.ex)+'</span>':'')+(miss?'<span class="err">Это поле обязательно</span>':'')+'</div>';
+  }).join('');
+  if(checked&&!checked.miss.length)h+='<div class="ok"><i>'+CHECK+'</i><div><b>Карточка заполнена верно</b><span class="small">Все обязательные поля на месте. Так же заполняйте настоящие записи.</span></div></div>';
+  if(checked&&checked.miss.length)h+='<p class="err">Не хватает обязательных полей: '+checked.miss.length+'.</p>';
+  h+='<div class="acts"><button class="btn pri" data-a="check">Проверить карточку</button>'+(checked&&!checked.miss.length?'<button class="btn" data-a="copy">'+(copied?'Скопировано':'Скопировать текстом')+'</button>':'')+'<button class="btn" data-a="example">Показать пример</button></div></section>';
+  return h;
+}
+
+/* ---------- frame ---------- */
+function render(keep){
+  if(!S)return;
+  var y=window.scrollY, m=S.map, list=[['over','Обзор']].concat(m.poll?[['poll','Опрос']]:[],m.learn?[['learn','Обучение']]:[]);
+  if(!list.some(function(x){return x[0]===tab}))tab='over';
+  document.title=m.title;
+  app.innerHTML=tab==='poll'?poll():tab==='learn'?learn():over();
+  tabs.hidden=list.length<2;
+  tabs.firstElementChild.innerHTML=list.map(function(x){return '<button role="tab" data-a="tab" data-v="'+x[0]+'" aria-selected="'+(tab===x[0])+'">'+ICON[x[0]]+x[1]+(x[0]==='poll'&&!S.mine?'<i class="dot" title="Вы ещё не ответили"></i>':'')+'</button>'}).join('');
+  window.scrollTo(0,keep?y:0);
+}
+function gate(text,link){
+  tabs.hidden=true;
+  app.innerHTML='<div class="gate">'+(info?'<p class="kick">'+esc(info.app)+'</p><h1>'+esc(info.title)+'</h1>':'')+'<p class="lead">'+esc(text)+'</p>'+(link?'<a class="btn pri" href="'+esc(link)+'">Открыть в Telegram</a>':'')+'</div>';
+}
+function words(e){return e.code==='network'?'Нет связи. Проверьте интернет и попробуйте ещё раз.':e.code==='link_closed'?'Эта карта больше не доступна.':e.code==='unauthorized'?'Сессия Telegram устарела. Закройте карту и откройте её заново.':e.code==='rate_limited'?'Слишком много запросов. Попробуйте через минуту.':e.code==='empty'?'Ответьте хотя бы на один вопрос.':e.code==='invalid'?'Проверьте отмеченные вопросы.':'Не получилось отправить. Попробуйте ещё раз.'}
+function startDraft(){
+  var a=(S.mine&&S.mine.a)||{};draft=draft&&typeof draft==='object'?draft:{};
+  S.map.poll&&S.map.poll.qs.forEach(function(q){
+    // a draft kept from an older version of the poll may not fit the question any more
+    var v=draft[q.id];if(q.t==='many'?!Array.isArray(v):typeof v!=='string')delete draft[q.id];
+    if(draft[q.id]==null&&a[q.id]!=null)draft[q.id]=q.t==='many'?[].concat(a[q.id]):String(a[q.id]);
+  });
+}
+function send(){
+  if(busy)return;busy=true;err='';errs={};render(true);
+  api('POST','/answer',{initData:initData,a:draft}).then(function(j){busy=false;S=j;editing=false;draft=null;store();startDraft();haptic('ok');render()},
+    function(e){busy=false;err=words(e);errs=e.errors||{};haptic('error');render(true);var q=app.querySelector('.q .err');if(q)q.parentNode.scrollIntoView({block:'center'})});
+}
+document.addEventListener('click',function(ev){
+  var b=ev.target.closest('[data-a]');if(!b||busy)return;
+  var a=b.getAttribute('data-a'), v=b.getAttribute('data-v');
+  if(a==='tab'){tab=v;store();return render()}
+  if(a==='filter'){filter=filter===v?'':v;return render(true)}
+  if(a==='stream'){openSt[v]=!openSt[v];return render(true)}
+  if(a==='pick'){
+    var q=S.map.poll.qs.filter(function(x){return x.id===b.getAttribute('data-q')})[0], o=q.opts[+b.getAttribute('data-i')];
+    if(q.t==='one')draft[q.id]=draft[q.id]===o&&!q.req?undefined:o;
+    else{var l=(draft[q.id]||[]).slice(), i=l.indexOf(o);if(i>=0)l.splice(i,1);else{if(l.length>=q.max)return haptic('error');l.push(o)}draft[q.id]=l}
+    delete errs[q.id];store();return render(true);
+  }
+  if(a==='send')return send();
+  if(a==='edit'){editing=true;startDraft();return render()}
+  if(a==='noedit'){editing=false;draft=null;err='';errs={};startDraft();store();return render()}
+  if(a==='type'){typeId=v;card={};checked=null;copied=false;return render(true)}
+  var t=S.map.learn&&typeNow();
+  if(a==='example'){t.fields.forEach(function(f){card[f.id]=f.ex||''});checked=null;copied=false;return render(true)}
+  if(a==='check'){
+    checked={miss:t.fields.filter(function(f){return f.req&&!(card[f.id]||'').trim()}).map(function(f){return f.id})};copied=false;
+    if(!checked.miss.length){done[t.id]=1;store();haptic('ok')}else haptic('error');
+    render(true);var m=app.querySelector('.field.miss');if(m)m.scrollIntoView({block:'center'});return;
+  }
+  if(a==='copy'){
+    var text=cardText(t), ok=function(){copied=true;render(true)};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(ok,function(){});
+    else{var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok()}catch(e){}ta.remove()}
+  }
+});
+document.addEventListener('input',function(ev){
+  var f=ev.target.getAttribute&&ev.target.getAttribute('data-f'), c=ev.target.getAttribute&&ev.target.getAttribute('data-c');
+  if(f){draft[f]=ev.target.value;store()}
+  if(c){card[c]=ev.target.value;if(checked){checked=null;copied=false}}
+});
+
+/* ---------- start ---------- */
+theme();
+try{if(tg){tg.ready();tg.expand();if(tg.onEvent)tg.onEvent('themeChanged',theme)}}catch(e){}
+try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved){done=saved.done||{};draft=saved.draft||null;tab=saved.tab||'over'}}catch(e){}
+if(!token)gate('В ссылке нет кода карты.');
+else if(!initData)api('GET','').then(function(j){info=j;document.title=j.title;gate('Карта открывается в Telegram: так команда видит, кто ответил на опрос.',j.bot?'https://t.me/'+j.bot+'?start='+j.start:'')},function(e){gate(words(e))});
+else api('POST','/me',{initData:initData}).then(function(j){S=j;startDraft();render()},function(e){gate(words(e))});
+})();
+</script>
+</body>
+</html>

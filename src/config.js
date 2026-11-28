@@ -62,8 +62,8 @@ cfg.ownerOnly = new Set(['money', 'contacts', 'messages', 'subs', 'activity', 'c
 // A coordinator (role `manager`) runs chosen projects next to the owner: of the owner's collections they get
 // these, and only the records of their projects.
 cfg.managed = new Set(['money', 'contacts', 'messages', 'subs', 'clients', 'chats', 'audit']);
-// Kept by the server alone (onboarding answers, edits of the forms, documents a team answers): the page never reads them, but backups carry them.
-cfg.serverOnly = ['joins', 'forms', 'transcripts', 'offers'];
+// Kept by the server alone (onboarding answers, edits of the forms, documents a team answers, maps of projects): the page never reads them, but backups carry them.
+cfg.serverOnly = ['joins', 'forms', 'transcripts', 'offers', 'maps'];
 // what a backup restores: the data and the server's own records, without the journal
 cfg.allCollections = cfg.dataCollections.concat(cfg.serverOnly);
 

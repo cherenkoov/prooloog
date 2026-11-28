@@ -23,6 +23,7 @@ const avatar = require('./avatar');
 const game = require('./game');
 const notes = require('./notes');
 const offer = require('./offer');
+const pmap = require('./map');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const SEED = cfg.seedFile || path.join(__dirname, '..', 'seed', 'initial.json');
@@ -85,6 +86,8 @@ function build() {
   app.get('/preview/:project', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'join.html')); });
   // A document the team answers: «Согласен с условиями» or «Хочу уточнить» at its end (src/offer.js).
   app.get('/o/:token', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'offer.html')); });
+  // The map of a project: the overview, a poll and a lesson on one page for the whole team (src/map.js).
+  app.get('/m/:token', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(PUBLIC, 'map.html')); });
   // A person of the team opens a call by a link of their own: the server notes that they came and sends them on.
   app.get('/c/:event/:tg/:sig', limiter(120, 60000), (req, res, next) => attend.handle(req, res).catch(next));
   // A notetaker outside sends the transcript of a call here: the breakdown lands on the meeting (src/notes.js).
@@ -428,6 +431,7 @@ function build() {
 
   api.use('/join', limiter(120, 60000), json, join.router(() => bot.name()));
   api.use('/offer', limiter(120, 60000), json, offer.router(() => bot.name()));
+  api.use('/map', limiter(120, 60000), json, pmap.router(() => bot.name()));
 
   // Google sends the owner back here after the sign-in that /google started. The one-time state in the link
   // is the proof that it is the owner; the page only says how it went, the rest is told by the bot.
